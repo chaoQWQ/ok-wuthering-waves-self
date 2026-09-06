@@ -1,14 +1,26 @@
 import re
 
-
-from ok import Box
-from src.task.DailyTask import DailyTask
+from ok import Box, TaskDisabledException
+from src.task.DailyTask import DailyTask, ADDITIONAL_TASKS
 from src.task.WWOneTimeTask import WWOneTimeTask
 from src.task.BaseCombatTask import BaseCombatTask
 from src.task.BaseWWTask import LOGIN_TEXTS
 from src.task.MouseResetTask import MouseResetTask
 
 account_pattern = re.compile(r'\*\*\*\*')
+
+# Keys in DailyTask that MultiAccountDailyTask can override per-account
+DAILY_TASK_OVERRIDABLE_KEYS = [
+    'Which to Farm',
+    'Which Tacet Suppression to Farm',
+    'Which Forgery Challenge to Farm',
+    'Material Selection',
+    'Farm Nightmare Nest for Daily Echo',
+    ADDITIONAL_TASKS,
+]
+
+SKIP_ACCOUNTS = 'Skip Accounts'
+ACCOUNT_CONFIGS = 'Account DailyTask Configs'
 
 
 def normalize_account_name(account):
@@ -27,6 +39,30 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         self.done_set = set()
         self.all_accounts = set()
         self.support_schedule_task = True
+        self.default_config = {
+            SKIP_ACCOUNTS: [],
+            ACCOUNT_CONFIGS: [],
+        }
+        self.config_description = {
+            SKIP_ACCOUNTS: (
+                'Accounts to skip. Enter partial or full account names '
+                '(e.g. aa****01@example.com). Matching is case-insensitive substring.'
+            ),
+            ACCOUNT_CONFIGS: (
+                'Per-account DailyTask overrides. Each entry format:\n'
+                '  account_keyword::key=value,key=value\n'
+                'Example:\n'
+                '  aa****01::Which to Farm=Forgery Challenge,Which Forgery Challenge to Farm=2\n'
+                'Supported keys: Which to Farm / Which Tacet Suppression to Farm / '
+                'Which Forgery Challenge to Farm / Material Selection / '
+                'Farm Nightmare Nest for Daily Echo / '
+                'Additional Tasks to Run After Daily Task'
+            ),
+        }
+
+    # ------------------------------------------------------------------
+    # Account state helpers
+    # ------------------------------------------------------------------
 
     def _mark_done(self, account):
         normalized = normalize_account_name(account)
@@ -34,17 +70,148 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             self.done_set.add(normalized)
 
     def _is_done(self, account):
-        return normalize_account_name(account) in self.done_set
+        normalized = normalize_account_name(account)
+        if not normalized:
+            return False
+        if normalized in self.done_set:
+            return True
+        return self._is_skipped(account)
+
+    def _is_skipped(self, account):
+        """Return True if the account matches any entry in the Skip Accounts list."""
+        normalized = normalize_account_name(account)
+        if not normalized:
+            return False
+        skip_list = self.config.get(SKIP_ACCOUNTS) or []
+        for entry in skip_list:
+            entry_norm = normalize_account_name(entry)
+            if entry_norm and (entry_norm in normalized or normalized in entry_norm):
+                self.log_info(
+                    self.tr('Skipping account {account} (matches skip rule: {rule})').format(
+                        account=account, rule=entry
+                    )
+                )
+                return True
+        return False
 
     def _same_account(self, left, right):
         return normalize_account_name(left) == normalize_account_name(right)
+
+    # ------------------------------------------------------------------
+    # Per-account DailyTask config override helpers
+    # ------------------------------------------------------------------
+
+    def _parse_account_config_entry(self, entry):
+        """Parse 'account_keyword::key=value,key=value' -> (keyword, {key: value}).
+
+        Booleans and integers are coerced automatically.
+        """
+        if '::' not in entry:
+            return None, {}
+        keyword, kv_part = entry.split('::', 1)
+        keyword = keyword.strip()
+        overrides = {}
+        for pair in kv_part.split(','):
+            pair = pair.strip()
+            if '=' not in pair:
+                continue
+            k, v = pair.split('=', 1)
+            k, v = k.strip(), v.strip()
+            if v.lower() == 'true':
+                v = True
+            elif v.lower() == 'false':
+                v = False
+            else:
+                try:
+                    v = int(v)
+                except ValueError:
+                    pass
+            overrides[k] = v
+        return keyword, overrides
+
+    def _get_account_overrides(self, account):
+        """Return the first matching per-account config overrides dict, or {}."""
+        normalized = normalize_account_name(account)
+        if not normalized:
+            return {}
+        entries = self.config.get(ACCOUNT_CONFIGS) or []
+        for entry in entries:
+            keyword, overrides = self._parse_account_config_entry(entry)
+            if keyword and normalize_account_name(keyword) in normalized:
+                self.log_info(
+                    self.tr('Applying account config override for {account}: {overrides}').format(
+                        account=account, overrides=overrides
+                    )
+                )
+                return overrides
+        return {}
+
+    def _apply_daily_overrides(self, daily_task, overrides):
+        """Patch DailyTask config with per-account overrides; return saved originals."""
+        originals = {}
+        for key, value in overrides.items():
+            if key in DAILY_TASK_OVERRIDABLE_KEYS:
+                originals[key] = daily_task.config.get(key)
+                daily_task.config[key] = value
+        return originals
+
+    def _restore_daily_overrides(self, daily_task, originals):
+        """Restore DailyTask config keys that were patched by _apply_daily_overrides."""
+        for key, value in originals.items():
+            if value is None:
+                daily_task.config.pop(key, None)
+            else:
+                daily_task.config[key] = value
+
+    # ------------------------------------------------------------------
+    # DailyTask runner with per-account config + error isolation
+    # ------------------------------------------------------------------
+
+    def _run_daily_for_account(self, account):
+        """Run DailyTask for *account* with optional per-account config override.
+
+        - Applies Account DailyTask Configs overrides before running.
+        - Catches non-fatal exceptions so a single failure does not abort
+          the whole multi-account run (fixes issue #7).
+        - Re-raises TaskDisabledException so the executor can stop cleanly.
+        - Returns True on success, False on failure.
+        """
+        daily_task = self.get_task_by_class(DailyTask)
+        overrides = self._get_account_overrides(account) if account else {}
+        originals = self._apply_daily_overrides(daily_task, overrides)
+        try:
+            self.run_task_by_class(DailyTask)
+            return True
+        except TaskDisabledException:
+            raise
+        except Exception as e:
+            self.log_error(
+                self.tr('DailyTask failed for account {account}, continuing to next account').format(
+                    account=account or '(current)'
+                ),
+                e,
+            )
+            self.screenshot('daily_task_failed')
+            try:
+                self.ensure_main(time_out=120)
+            except Exception:
+                pass
+            return False
+        finally:
+            self._restore_daily_overrides(daily_task, originals)
+
+    # ------------------------------------------------------------------
+    # Main run loop
+    # ------------------------------------------------------------------
 
     def run(self):
         WWOneTimeTask.run(self)
         self.done_set.clear()
         self.all_accounts.clear()
 
-        self.run_task_by_class(DailyTask)
+        # Run DailyTask for the account that is currently logged in.
+        # Account identity is detected after returning to the login screen.
+        self._run_daily_for_account(None)
         self.ensure_main(time_out=100)
         self._switch_to_login()
         detected = self._detect_current_account_from_login()
@@ -54,7 +221,7 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
 
         while next_account := self._select_and_login_account():
             self.info_set('Completed', self.done_set)
-            self.run_task_by_class(DailyTask)
+            self._run_daily_for_account(next_account)
             self._mark_done(next_account)
             self.ensure_main(time_out=100)
             self._switch_to_login()

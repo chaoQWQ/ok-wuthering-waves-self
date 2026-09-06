@@ -49,8 +49,10 @@ class TestMultiAccountDailyTask(unittest.TestCase):
                 }
                 self.all_accounts = set()
                 self.clicked = []
+                self.config = {}  # empty skip list
 
             _is_done = MultiAccountDailyTask._is_done
+            _is_skipped = MultiAccountDailyTask._is_skipped
 
             def ocr(self, match=None):
                 return [

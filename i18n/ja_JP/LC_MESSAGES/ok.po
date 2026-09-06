@@ -772,6 +772,45 @@ msgstr "アカウント切り替えに失敗しました"
 msgid "Login successful"
 msgstr "ログイン成功"
 
+msgid "Skip Accounts"
+msgstr "スキップするアカウント"
+
+msgid ""
+"Accounts to skip. Enter partial or full account names "
+"(e.g. aa****01@example.com). Matching is case-insensitive substring."
+msgstr "スキップするアカウント。部分または完全なアカウント名を入力してください（例：aa****01@example.com）。大文字小文字を区別しない部分一致。"
+
+msgid "Account DailyTask Configs"
+msgstr "アカウント別デイリー設定"
+
+msgid ""
+"Per-account DailyTask overrides. Each entry format:\n"
+"  account_keyword::key=value,key=value\n"
+"Example:\n"
+"  aa****01::Which to Farm=Forgery Challenge,Which Forgery Challenge to Farm=2\n"
+"Supported keys: Which to Farm / Which Tacet Suppression to Farm / "
+"Which Forgery Challenge to Farm / Material Selection / "
+"Farm Nightmare Nest for Daily Echo / "
+"Additional Tasks to Run After Daily Task"
+msgstr ""
+"アカウント別デイリータスク上書き設定。各エントリの形式：\n"
+"  アカウントキーワード::設定項目=値,設定項目=値\n"
+"例：\n"
+"  aa****01::Which to Farm=Forgery Challenge,Which Forgery Challenge to Farm=2\n"
+"対応する設定項目：Which to Farm / Which Tacet Suppression to Farm / "
+"Which Forgery Challenge to Farm / Material Selection / "
+"Farm Nightmare Nest for Daily Echo / "
+"Additional Tasks to Run After Daily Task"
+
+msgid "Skipping account {account} (matches skip rule: {rule})"
+msgstr "アカウント {account} をスキップします（スキップルール一致：{rule}）"
+
+msgid "Applying account config override for {account}: {overrides}"
+msgstr "アカウント {account} に設定上書きを適用：{overrides}"
+
+msgid "DailyTask failed for account {account}, continuing to next account"
+msgstr "アカウント {account} のデイリータスクが失敗しました。次のアカウントに続きます"
+
 msgid "Teleport to Boss"
 msgstr "ボスへテレポート"
 
@@ -1383,3 +1422,210 @@ msgstr "チーム {team} を完全に削除しますか？"
 
 msgid "Team deleted."
 msgstr "チームを削除しました。"
+
+msgid "High-value items display"
+msgstr "マップ高価値アイテム表示"
+
+msgid "Get player position and display nearby high value items"
+msgstr "プレイヤー位置を取得して近くの高価値アイテムを表示"
+
+msgid "Detect interval (ms)"
+msgstr "検出間隔（ミリ秒）"
+
+msgid "World map overlay"
+msgstr "ワールドマップオーバーレイ"
+
+msgid "Path mode"
+msgstr "ルートモード"
+
+msgid "Advance hotkey"
+msgstr "目標進行ホットキー"
+
+msgid "Show status panel"
+msgstr "ステータスパネルを表示"
+
+msgid "Download map assets"
+msgstr "マップアセットをダウンロード"
+
+msgid "Download Map Assets"
+msgstr "マップアセットをダウンロード"
+
+msgid "Chest search"
+msgstr "収集物検索"
+
+msgid "Chest confirm hotkey"
+msgstr "収集物確認ホットキー"
+
+msgid "Chest route file"
+msgstr "宝箱ルートファイル"
+
+msgid "Show only the route from assets/path.json, hide high-value items"
+msgstr "assets/path.json のルートだけを表示し、高価値アイテムを隠す"
+
+msgid "Hotkey to advance the target manually (pynput format, e.g. <ctrl>+<f9>)"
+msgstr "目標を手動で進めるホットキー（pynput形式、例：<ctrl>+<f9>）"
+
+msgid "Show the info panel at the bottom-left corner of the game window"
+msgstr "ゲームウィンドウ左下に情報パネルを表示"
+
+msgid "Download the latest map assets and extract them into the assets folder"
+msgstr "最新のマップアセットをダウンロードして assets フォルダーに展開"
+
+msgid "Select the nearest unconfirmed chest and show its direction; movement and opening remain manual"
+msgstr "最寄りの未確認宝箱を選択して方向を表示（移動と開封は手動）"
+
+msgid "Press after manually opening the selected chest to mark it as claimed"
+msgstr "選択した宝箱を手動で開封した後に押して取得済みにする"
+
+msgid "Only allow confirmation when the player is close to the selected chest"
+msgstr "プレイヤーが選択した宝箱の近くにいる場合のみ確認を許可"
+
+msgid "Optional video-route manifest; metadata-only routes do not change movement or chest selection"
+msgstr "任意の動画ルートマニフェスト。メタデータのみのルートは移動や宝箱選択を変更しません"
+
+msgid "Chest search toggle hotkey"
+msgstr "宝箱検索切替ホットキー"
+
+msgid "Hotkey to turn chest-search mode on or off (pynput format, e.g. <ctrl>+<f8>)"
+msgstr "宝箱検索モードをオン／オフするホットキー（pynput 形式、例：<ctrl>+<f8>）"
+
+msgid "Map display toggle hotkey"
+msgstr "マップ表示切替ホットキー"
+
+msgid "Hotkey to show or hide all map high-value-item overlays (pynput format, e.g. <ctrl>+<f8>)"
+msgstr "マップ上の全高価値アイテム表示を切り替えるホットキー（pynput 形式、例：<ctrl>+<f8>）"
+
+msgid "Collection types"
+msgstr "収集物の種類"
+
+msgid "Collection account"
+msgstr "収集記録アカウント"
+
+msgid "Choose which collectible groups are displayed and used for nearest-target guidance"
+msgstr "表示および最寄り目標案内に使用する収集物カテゴリを選択"
+
+msgid "Local completion profile; enter a game UID or a custom account alias"
+msgstr "ローカル収集記録。ゲーム UID または任意のアカウント名を入力"
+
+msgid "Select the nearest unconfirmed collectible and show its direction; movement and collection remain manual"
+msgstr "最寄りの未確認収集物と方向を表示（移動と収集は手動）"
+
+msgid "Press after manually collecting the selected target to mark it as completed"
+msgstr "対象を手動で収集した後に押して完了として記録"
+
+msgid "Chests"
+msgstr "宝箱"
+
+msgid "Sonance Caskets"
+msgstr "音匣"
+
+msgid "Tidal Heritage"
+msgstr "潮汐の遺産"
+
+msgid "Windchimers"
+msgstr "定風鐸"
+
+msgid "Whisperwind Butterflies"
+msgstr "隙声蝶"
+
+msgid "Flying Hunters"
+msgstr "飛猟手"
+
+msgid "Scenic Spots"
+msgstr "景勝地"
+
+msgid "Overflowing Palettes"
+msgstr "溢彩画"
+
+msgid "Music Fireflies"
+msgstr "音楽蛍"
+
+msgid "Abyssal Caches"
+msgstr "淵海の秘蔵"
+
+msgid "Collection account management"
+msgstr "収集アカウント管理"
+
+msgid "Add account"
+msgstr "アカウントを追加"
+
+msgid "Choose the local completion profile used to store collected-item progress"
+msgstr "収集済み進捗を保存するローカルアカウントを選択"
+
+msgid "Add a game UID or custom alias and switch to the new profile"
+msgstr "ゲーム UID または任意の別名を追加し、新しい記録に切り替えます"
+
+msgid "Add collection account"
+msgstr "収集記録アカウントを追加"
+
+msgid "Enter a game UID or custom account alias"
+msgstr "ゲーム UID または任意のアカウント名を入力"
+
+msgid "Game UID or account alias"
+msgstr "ゲーム UID またはアカウント名"
+
+msgid "Add"
+msgstr "追加"
+
+msgid "🧭 Manual Route Recorder"
+msgstr "🧭 手動ルート記録"
+
+msgid "Follow a collection video manually while recording screen coordinates and event markers"
+msgstr "収集動画に沿って手動で移動し、画面座標とイベントマーカーを記録します"
+
+msgid "Route manifest"
+msgstr "ルートマニフェスト"
+
+msgid "Mark event hotkey"
+msgstr "収集地点の記録キー"
+
+msgid "Stop recording hotkey"
+msgstr "記録停止キー"
+
+msgid "Sample interval (ms)"
+msgstr "サンプリング間隔（ミリ秒）"
+
+msgid "Maximum duration (minutes)"
+msgstr "最大記録時間（分）"
+
+msgid "Record action keys"
+msgstr "操作キーを記録"
+
+msgid "Save event screenshots"
+msgstr "イベントのスクリーンショットを保存"
+
+msgid "Video-route manifest that defines event order and item types."
+msgstr "イベント順と収集物の種類を定義する動画ルートのマニフェストです。"
+
+msgid "Press after reaching or collecting the current numbered item."
+msgstr "現在の番号の地点に到着または収集した後に押します。"
+
+msgid "Stop safely and save the current recording."
+msgstr "安全に停止して現在の記録を保存します。"
+
+msgid "Screen-coordinate OCR interval; no game memory is read."
+msgstr "画面座標の OCR 間隔です。ゲームメモリは読み取りません。"
+
+msgid "Recording stops automatically at this limit."
+msgstr "この時間に達すると記録を自動停止します。"
+
+msgid "Read movement/action key states without intercepting them."
+msgstr "移動・操作キーを横取りせず、状態だけを読み取ります。"
+
+msgid "Save one game frame for each marked event."
+msgstr "マークしたイベントごとにゲーム画面を1枚保存します。"
+
+msgid "Route recording"
+msgstr "ルート記録"
+
+msgid "Recording file"
+msgstr "記録ファイル"
+
+msgid "Position"
+msgstr "座標"
+
+msgid "Route segment"
+msgstr "ルート区間"
+
+msgid "Marked events"
+msgstr "記録済みイベント"

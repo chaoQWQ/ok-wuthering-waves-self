@@ -822,6 +822,46 @@ msgstr "切換帳號失敗"
 msgid "Login successful"
 msgstr "登入成功"
 
+msgid "Skip Accounts"
+msgstr "跳過帳號"
+
+msgid ""
+"Accounts to skip. Enter partial or full account names "
+"(e.g. aa****01@example.com). Matching is case-insensitive substring."
+msgstr "要跳過的帳號。輸入部分或完整帳號名稱（如 aa****01@example.com），不區分大小寫子字串比對。"
+
+msgid "Account DailyTask Configs"
+msgstr "帳號獨立日常配置"
+
+msgid ""
+"Per-account DailyTask overrides. Each entry format:\n"
+"  account_keyword::key=value,key=value\n"
+"Example:\n"
+"  aa****01::Which to Farm=Forgery Challenge,Which Forgery Challenge to Farm=2\n"
+"Supported keys: Which to Farm / Which Tacet Suppression to Farm / "
+"Which Forgery Challenge to Farm / Material Selection / "
+"Farm Nightmare Nest for Daily Echo / "
+"Additional Tasks to Run After Daily Task"
+msgstr ""
+"帳號獨立日常任務配置，每條格式：\n"
+"  帳號關鍵詞::配置項=值,配置項=值\n"
+"範例：\n"
+"  aa****01::Which to Farm=Forgery Challenge,Which Forgery Challenge to Farm=2\n"
+"支援的配置項：Which to Farm / Which Tacet Suppression to Farm / "
+"Which Forgery Challenge to Farm / Material Selection / "
+"Farm Nightmare Nest for Daily Echo / "
+"Additional Tasks to Run After Daily Task"
+
+msgid "Skipping account {account} (matches skip rule: {rule})"
+msgstr "跳過帳號 {account}（符合跳過規則：{rule}）"
+
+msgid "Applying account config override for {account}: {overrides}"
+msgstr "對帳號 {account} 套用獨立配置：{overrides}"
+
+msgid "DailyTask failed for account {account}, continuing to next account"
+msgstr "帳號 {account} 的日常任務失敗，繼續處理下一個帳號"
+
+
 msgid "Teleport to Boss"
 msgstr "傳送至Boss"
 
@@ -1510,3 +1550,210 @@ msgstr "確定要永久刪除隊伍 {team} 嗎？"
 
 msgid "Team deleted."
 msgstr "隊伍已刪除。"
+
+msgid "High-value items display"
+msgstr "地圖高價值物品顯示"
+
+msgid "Get player position and display nearby high value items"
+msgstr "取得玩家位置並顯示附近高價值物品"
+
+msgid "Detect interval (ms)"
+msgstr "偵測間隔（毫秒）"
+
+msgid "World map overlay"
+msgstr "世界地圖覆蓋層"
+
+msgid "Path mode"
+msgstr "路線模式"
+
+msgid "Advance hotkey"
+msgstr "推進快捷鍵"
+
+msgid "Show status panel"
+msgstr "顯示狀態面板"
+
+msgid "Download map assets"
+msgstr "下載地圖資源"
+
+msgid "Download Map Assets"
+msgstr "下載地圖資源"
+
+msgid "Chest search"
+msgstr "收集物搜尋"
+
+msgid "Chest confirm hotkey"
+msgstr "收集物確認快捷鍵"
+
+msgid "Chest route file"
+msgstr "寶箱路線檔案"
+
+msgid "Show only the route from assets/path.json, hide high-value items"
+msgstr "僅顯示 assets/path.json 中的路線，隱藏高價值物品"
+
+msgid "Hotkey to advance the target manually (pynput format, e.g. <ctrl>+<f9>)"
+msgstr "手動推進目標的快捷鍵（pynput 格式，例如 <ctrl>+<f9>）"
+
+msgid "Show the info panel at the bottom-left corner of the game window"
+msgstr "在遊戲視窗左下角顯示資訊面板"
+
+msgid "Download the latest map assets and extract them into the assets folder"
+msgstr "下載最新地圖資源並解壓縮到 assets 資料夾"
+
+msgid "Select the nearest unconfirmed chest and show its direction; movement and opening remain manual"
+msgstr "選擇最近的未確認寶箱並顯示方向；移動和開箱仍由人工完成"
+
+msgid "Press after manually opening the selected chest to mark it as claimed"
+msgstr "手動開啟選取的寶箱後按下，用於標記為已領取"
+
+msgid "Only allow confirmation when the player is close to the selected chest"
+msgstr "僅當玩家靠近選取的寶箱時才允許確認"
+
+msgid "Optional video-route manifest; metadata-only routes do not change movement or chest selection"
+msgstr "可選的影片路線清單；僅含中繼資料的路線不會改變移動或寶箱選擇"
+
+msgid "Chest search toggle hotkey"
+msgstr "寶箱尋寶開關快捷鍵"
+
+msgid "Hotkey to turn chest-search mode on or off (pynput format, e.g. <ctrl>+<f8>)"
+msgstr "開啟或關閉寶箱尋寶模式的快捷鍵（pynput 格式，例如 <ctrl>+<f8>）"
+
+msgid "Map display toggle hotkey"
+msgstr "地圖顯示開關快捷鍵"
+
+msgid "Hotkey to show or hide all map high-value-item overlays (pynput format, e.g. <ctrl>+<f8>)"
+msgstr "顯示或隱藏全部地圖高價值物品覆蓋層的快捷鍵（pynput 格式，例如 <ctrl>+<f8>）"
+
+msgid "Collection types"
+msgstr "收集物類型"
+
+msgid "Collection account"
+msgstr "收集記錄帳號"
+
+msgid "Choose which collectible groups are displayed and used for nearest-target guidance"
+msgstr "選擇需要顯示並用於最近目標導航的收集物分類"
+
+msgid "Local completion profile; enter a game UID or a custom account alias"
+msgstr "本機領取記錄檔案；請輸入遊戲 UID 或自訂帳號別名"
+
+msgid "Select the nearest unconfirmed collectible and show its direction; movement and collection remain manual"
+msgstr "選擇最近的未確認收集物並顯示方向；移動和收集仍由人工完成"
+
+msgid "Press after manually collecting the selected target to mark it as completed"
+msgstr "手動收集選中目標後按下，將其標記為已完成"
+
+msgid "Chests"
+msgstr "寶箱"
+
+msgid "Sonance Caskets"
+msgstr "聲匣"
+
+msgid "Tidal Heritage"
+msgstr "潮汐之遺"
+
+msgid "Windchimers"
+msgstr "定風鐸"
+
+msgid "Whisperwind Butterflies"
+msgstr "隙聲蝶"
+
+msgid "Flying Hunters"
+msgstr "飛獵手"
+
+msgid "Scenic Spots"
+msgstr "觀景點"
+
+msgid "Overflowing Palettes"
+msgstr "溢彩畫"
+
+msgid "Music Fireflies"
+msgstr "音樂飛螢"
+
+msgid "Abyssal Caches"
+msgstr "淵海遺藏"
+
+msgid "Collection account management"
+msgstr "收集帳號管理"
+
+msgid "Add account"
+msgstr "新增帳號"
+
+msgid "Choose the local completion profile used to store collected-item progress"
+msgstr "選擇用於儲存收集物領取進度的本機帳號檔案"
+
+msgid "Add a game UID or custom alias and switch to the new profile"
+msgstr "新增遊戲 UID 或自訂別名，並切換到新帳號檔案"
+
+msgid "Add collection account"
+msgstr "新增收集記錄帳號"
+
+msgid "Enter a game UID or custom account alias"
+msgstr "請輸入遊戲 UID 或自訂帳號別名"
+
+msgid "Game UID or account alias"
+msgstr "遊戲 UID 或帳號別名"
+
+msgid "Add"
+msgstr "新增"
+
+msgid "🧭 Manual Route Recorder"
+msgstr "🧭 手動路線錄製"
+
+msgid "Follow a collection video manually while recording screen coordinates and event markers"
+msgstr "手動跟隨收集影片，同時記錄畫面座標和事件標記"
+
+msgid "Route manifest"
+msgstr "路線清單"
+
+msgid "Mark event hotkey"
+msgstr "收集點標記快捷鍵"
+
+msgid "Stop recording hotkey"
+msgstr "停止錄製快捷鍵"
+
+msgid "Sample interval (ms)"
+msgstr "取樣間隔（毫秒）"
+
+msgid "Maximum duration (minutes)"
+msgstr "最長錄製時間（分鐘）"
+
+msgid "Record action keys"
+msgstr "記錄操作按鍵"
+
+msgid "Save event screenshots"
+msgstr "儲存事件截圖"
+
+msgid "Video-route manifest that defines event order and item types."
+msgstr "影片路線清單，用於定義事件順序和收集物類型。"
+
+msgid "Press after reaching or collecting the current numbered item."
+msgstr "到達或收集目前編號物品後按下此鍵。"
+
+msgid "Stop safely and save the current recording."
+msgstr "安全停止並儲存目前錄製。"
+
+msgid "Screen-coordinate OCR interval; no game memory is read."
+msgstr "畫面座標 OCR 間隔；不讀取遊戲記憶體。"
+
+msgid "Recording stops automatically at this limit."
+msgstr "達到此時限後自動停止錄製。"
+
+msgid "Read movement/action key states without intercepting them."
+msgstr "只讀取移動和操作按鍵狀態，不攔截按鍵。"
+
+msgid "Save one game frame for each marked event."
+msgstr "每個標記事件儲存一張遊戲畫面。"
+
+msgid "Route recording"
+msgstr "路線錄製"
+
+msgid "Recording file"
+msgstr "錄製檔案"
+
+msgid "Position"
+msgstr "座標"
+
+msgid "Route segment"
+msgstr "路線分段"
+
+msgid "Marked events"
+msgstr "已標記事件"

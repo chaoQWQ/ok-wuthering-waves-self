@@ -774,6 +774,45 @@ msgstr "계정 전환 실패"
 msgid "Login successful"
 msgstr "로그인 성공"
 
+msgid "Skip Accounts"
+msgstr "건너뛸 계정"
+
+msgid ""
+"Accounts to skip. Enter partial or full account names "
+"(e.g. aa****01@example.com). Matching is case-insensitive substring."
+msgstr "건너뛸 계정을 입력하세요. 부분 또는 전체 계정명을 입력하세요(예: aa****01@example.com). 대소문자 구분 없는 부분 일치."
+
+msgid "Account DailyTask Configs"
+msgstr "계정별 일일 작업 설정"
+
+msgid ""
+"Per-account DailyTask overrides. Each entry format:\n"
+"  account_keyword::key=value,key=value\n"
+"Example:\n"
+"  aa****01::Which to Farm=Forgery Challenge,Which Forgery Challenge to Farm=2\n"
+"Supported keys: Which to Farm / Which Tacet Suppression to Farm / "
+"Which Forgery Challenge to Farm / Material Selection / "
+"Farm Nightmare Nest for Daily Echo / "
+"Additional Tasks to Run After Daily Task"
+msgstr ""
+"계정별 일일 작업 설정 덮어쓰기. 각 항목 형식:\n"
+"  계정키워드::설정항목=값,설정항목=값\n"
+"예시:\n"
+"  aa****01::Which to Farm=Forgery Challenge,Which Forgery Challenge to Farm=2\n"
+"지원 항목: Which to Farm / Which Tacet Suppression to Farm / "
+"Which Forgery Challenge to Farm / Material Selection / "
+"Farm Nightmare Nest for Daily Echo / "
+"Additional Tasks to Run After Daily Task"
+
+msgid "Skipping account {account} (matches skip rule: {rule})"
+msgstr "계정 {account} 건너뜀 (건너뛰기 규칙 일치: {rule})"
+
+msgid "Applying account config override for {account}: {overrides}"
+msgstr "계정 {account}에 설정 덮어쓰기 적용: {overrides}"
+
+msgid "DailyTask failed for account {account}, continuing to next account"
+msgstr "계정 {account}의 일일 작업 실패, 다음 계정으로 계속"
+
 msgid "Teleport to Boss"
 msgstr "보스로 텔레포트"
 
@@ -1384,3 +1423,210 @@ msgstr "{team} 팀을 영구적으로 삭제하시겠습니까?"
 
 msgid "Team deleted."
 msgstr "팀을 삭제했습니다."
+
+msgid "High-value items display"
+msgstr "지도 고가치 아이템 표시"
+
+msgid "Get player position and display nearby high value items"
+msgstr "플레이어 위치를 가져와 주변 고가치 아이템 표시"
+
+msgid "Detect interval (ms)"
+msgstr "감지 간격(ms)"
+
+msgid "World map overlay"
+msgstr "월드맵 오버레이"
+
+msgid "Path mode"
+msgstr "경로 모드"
+
+msgid "Advance hotkey"
+msgstr "대상 진행 단축키"
+
+msgid "Show status panel"
+msgstr "상태 패널 표시"
+
+msgid "Download map assets"
+msgstr "맵 에셋 다운로드"
+
+msgid "Download Map Assets"
+msgstr "맵 에셋 다운로드"
+
+msgid "Chest search"
+msgstr "수집품 검색"
+
+msgid "Chest confirm hotkey"
+msgstr "수집품 확인 단축키"
+
+msgid "Chest route file"
+msgstr "보물상자 경로 파일"
+
+msgid "Show only the route from assets/path.json, hide high-value items"
+msgstr "assets/path.json의 경로만 표시하고 고가치 아이템 숨기기"
+
+msgid "Hotkey to advance the target manually (pynput format, e.g. <ctrl>+<f9>)"
+msgstr "대상을 수동으로 진행하는 단축키(pynput 형식, 예: <ctrl>+<f9>)"
+
+msgid "Show the info panel at the bottom-left corner of the game window"
+msgstr "게임 창 왼쪽 아래에 정보 패널 표시"
+
+msgid "Download the latest map assets and extract them into the assets folder"
+msgstr "최신 맵 에셋을 다운로드하여 assets 폴더에 압축 해제"
+
+msgid "Select the nearest unconfirmed chest and show its direction; movement and opening remain manual"
+msgstr "가장 가까운 미확인 보물상자를 선택하고 방향 표시(이동과 개봉은 수동)"
+
+msgid "Press after manually opening the selected chest to mark it as claimed"
+msgstr "선택한 보물상자를 직접 연 후 눌러 획득 완료로 표시"
+
+msgid "Only allow confirmation when the player is close to the selected chest"
+msgstr "플레이어가 선택한 보물상자에 가까이 있을 때만 확인 허용"
+
+msgid "Optional video-route manifest; metadata-only routes do not change movement or chest selection"
+msgstr "선택적 동영상 경로 매니페스트. 메타데이터만 있는 경로는 이동이나 보물상자 선택을 변경하지 않음"
+
+msgid "Chest search toggle hotkey"
+msgstr "보물상자 검색 전환 단축키"
+
+msgid "Hotkey to turn chest-search mode on or off (pynput format, e.g. <ctrl>+<f8>)"
+msgstr "보물상자 검색 모드를 켜거나 끄는 단축키(pynput 형식, 예: <ctrl>+<f8>)"
+
+msgid "Map display toggle hotkey"
+msgstr "지도 표시 전환 단축키"
+
+msgid "Hotkey to show or hide all map high-value-item overlays (pynput format, e.g. <ctrl>+<f8>)"
+msgstr "지도의 모든 고가치 아이템 오버레이를 표시하거나 숨기는 단축키(pynput 형식, 예: <ctrl>+<f8>)"
+
+msgid "Collection types"
+msgstr "수집품 유형"
+
+msgid "Collection account"
+msgstr "수집 기록 계정"
+
+msgid "Choose which collectible groups are displayed and used for nearest-target guidance"
+msgstr "표시하고 가장 가까운 목표 안내에 사용할 수집품 분류 선택"
+
+msgid "Local completion profile; enter a game UID or a custom account alias"
+msgstr "로컬 수집 기록 프로필. 게임 UID 또는 사용자 지정 계정 별칭 입력"
+
+msgid "Select the nearest unconfirmed collectible and show its direction; movement and collection remain manual"
+msgstr "가장 가까운 미확인 수집품과 방향 표시(이동과 수집은 수동)"
+
+msgid "Press after manually collecting the selected target to mark it as completed"
+msgstr "선택한 목표를 직접 수집한 후 눌러 완료로 기록"
+
+msgid "Chests"
+msgstr "보물상자"
+
+msgid "Sonance Caskets"
+msgstr "소리 상자"
+
+msgid "Tidal Heritage"
+msgstr "조수의 유산"
+
+msgid "Windchimers"
+msgstr "정풍탁"
+
+msgid "Whisperwind Butterflies"
+msgstr "틈소리 나비"
+
+msgid "Flying Hunters"
+msgstr "비행 사냥꾼"
+
+msgid "Scenic Spots"
+msgstr "전망 지점"
+
+msgid "Overflowing Palettes"
+msgstr "넘치는 팔레트"
+
+msgid "Music Fireflies"
+msgstr "음악 반딧불"
+
+msgid "Abyssal Caches"
+msgstr "심해 보물"
+
+msgid "Collection account management"
+msgstr "수집 계정 관리"
+
+msgid "Add account"
+msgstr "계정 추가"
+
+msgid "Choose the local completion profile used to store collected-item progress"
+msgstr "수집품 획득 진행도를 저장할 로컬 계정 프로필 선택"
+
+msgid "Add a game UID or custom alias and switch to the new profile"
+msgstr "게임 UID 또는 사용자 지정 별칭을 추가하고 새 프로필로 전환"
+
+msgid "Add collection account"
+msgstr "수집 기록 계정 추가"
+
+msgid "Enter a game UID or custom account alias"
+msgstr "게임 UID 또는 사용자 지정 계정 별칭 입력"
+
+msgid "Game UID or account alias"
+msgstr "게임 UID 또는 계정 별칭"
+
+msgid "Add"
+msgstr "추가"
+
+msgid "🧭 Manual Route Recorder"
+msgstr "🧭 수동 경로 기록"
+
+msgid "Follow a collection video manually while recording screen coordinates and event markers"
+msgstr "수집 영상을 따라 직접 이동하며 화면 좌표와 이벤트 표시를 기록합니다"
+
+msgid "Route manifest"
+msgstr "경로 매니페스트"
+
+msgid "Mark event hotkey"
+msgstr "수집 지점 표시 단축키"
+
+msgid "Stop recording hotkey"
+msgstr "기록 중지 단축키"
+
+msgid "Sample interval (ms)"
+msgstr "샘플링 간격(밀리초)"
+
+msgid "Maximum duration (minutes)"
+msgstr "최대 기록 시간(분)"
+
+msgid "Record action keys"
+msgstr "조작 키 기록"
+
+msgid "Save event screenshots"
+msgstr "이벤트 스크린샷 저장"
+
+msgid "Video-route manifest that defines event order and item types."
+msgstr "이벤트 순서와 수집품 유형을 정의하는 영상 경로 매니페스트입니다."
+
+msgid "Press after reaching or collecting the current numbered item."
+msgstr "현재 번호의 지점에 도착하거나 수집한 뒤 누르세요."
+
+msgid "Stop safely and save the current recording."
+msgstr "안전하게 중지하고 현재 기록을 저장합니다."
+
+msgid "Screen-coordinate OCR interval; no game memory is read."
+msgstr "화면 좌표 OCR 간격이며 게임 메모리는 읽지 않습니다."
+
+msgid "Recording stops automatically at this limit."
+msgstr "이 시간에 도달하면 기록을 자동으로 중지합니다."
+
+msgid "Read movement/action key states without intercepting them."
+msgstr "이동 및 조작 키를 가로채지 않고 상태만 읽습니다."
+
+msgid "Save one game frame for each marked event."
+msgstr "표시한 이벤트마다 게임 화면 한 장을 저장합니다."
+
+msgid "Route recording"
+msgstr "경로 기록"
+
+msgid "Recording file"
+msgstr "기록 파일"
+
+msgid "Position"
+msgstr "좌표"
+
+msgid "Route segment"
+msgstr "경로 구간"
+
+msgid "Marked events"
+msgstr "표시된 이벤트"

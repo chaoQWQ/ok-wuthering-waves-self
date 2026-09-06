@@ -826,6 +826,45 @@ msgstr "No se pudo cambiar de cuenta"
 msgid "Login successful"
 msgstr "Inicio de sesión correcto"
 
+msgid "Skip Accounts"
+msgstr "Cuentas a omitir"
+
+msgid ""
+"Accounts to skip. Enter partial or full account names "
+"(e.g. aa****01@example.com). Matching is case-insensitive substring."
+msgstr "Cuentas a omitir. Introduzca nombres parciales o completos (p.ej. aa****01@example.com). Coincidencia de subcadena sin distinción de mayúsculas."
+
+msgid "Account DailyTask Configs"
+msgstr "Configuración de tareas diarias por cuenta"
+
+msgid ""
+"Per-account DailyTask overrides. Each entry format:\n"
+"  account_keyword::key=value,key=value\n"
+"Example:\n"
+"  aa****01::Which to Farm=Forgery Challenge,Which Forgery Challenge to Farm=2\n"
+"Supported keys: Which to Farm / Which Tacet Suppression to Farm / "
+"Which Forgery Challenge to Farm / Material Selection / "
+"Farm Nightmare Nest for Daily Echo / "
+"Additional Tasks to Run After Daily Task"
+msgstr ""
+"Configuración de tareas diarias por cuenta. Formato de cada entrada:\n"
+"  palabra_clave_cuenta::clave=valor,clave=valor\n"
+"Ejemplo:\n"
+"  aa****01::Which to Farm=Forgery Challenge,Which Forgery Challenge to Farm=2\n"
+"Claves admitidas: Which to Farm / Which Tacet Suppression to Farm / "
+"Which Forgery Challenge to Farm / Material Selection / "
+"Farm Nightmare Nest for Daily Echo / "
+"Additional Tasks to Run After Daily Task"
+
+msgid "Skipping account {account} (matches skip rule: {rule})"
+msgstr "Omitiendo cuenta {account} (coincide con la regla: {rule})"
+
+msgid "Applying account config override for {account}: {overrides}"
+msgstr "Aplicando configuración personalizada para {account}: {overrides}"
+
+msgid "DailyTask failed for account {account}, continuing to next account"
+msgstr "La tarea diaria de la cuenta {account} falló, continuando con la siguiente cuenta"
+
 msgid "Teleport to Boss"
 msgstr "Teletransportar al jefe"
 
@@ -1310,3 +1349,210 @@ msgstr "¿Eliminar permanentemente el equipo {team}?"
 
 msgid "Team deleted."
 msgstr "Equipo eliminado."
+
+msgid "High-value items display"
+msgstr "Mostrar objetos valiosos del mapa"
+
+msgid "Get player position and display nearby high value items"
+msgstr "Obtener la posición del jugador y mostrar objetos valiosos cercanos"
+
+msgid "Detect interval (ms)"
+msgstr "Intervalo de detección (ms)"
+
+msgid "World map overlay"
+msgstr "Superposición del mapa mundial"
+
+msgid "Path mode"
+msgstr "Modo de ruta"
+
+msgid "Advance hotkey"
+msgstr "Tecla de avance del objetivo"
+
+msgid "Show status panel"
+msgstr "Mostrar panel de estado"
+
+msgid "Download map assets"
+msgstr "Descargar recursos del mapa"
+
+msgid "Download Map Assets"
+msgstr "Descargar recursos del mapa"
+
+msgid "Chest search"
+msgstr "Buscar coleccionables"
+
+msgid "Chest confirm hotkey"
+msgstr "Tecla para confirmar coleccionable"
+
+msgid "Chest route file"
+msgstr "Archivo de ruta de cofres"
+
+msgid "Show only the route from assets/path.json, hide high-value items"
+msgstr "Mostrar solo la ruta de assets/path.json y ocultar objetos valiosos"
+
+msgid "Hotkey to advance the target manually (pynput format, e.g. <ctrl>+<f9>)"
+msgstr "Tecla para avanzar el objetivo manualmente (formato pynput, p. ej. <ctrl>+<f9>)"
+
+msgid "Show the info panel at the bottom-left corner of the game window"
+msgstr "Mostrar el panel de información en la esquina inferior izquierda de la ventana del juego"
+
+msgid "Download the latest map assets and extract them into the assets folder"
+msgstr "Descargar los recursos de mapa más recientes y extraerlos en la carpeta assets"
+
+msgid "Select the nearest unconfirmed chest and show its direction; movement and opening remain manual"
+msgstr "Seleccionar el cofre sin confirmar más cercano y mostrar su dirección; el movimiento y la apertura siguen siendo manuales"
+
+msgid "Press after manually opening the selected chest to mark it as claimed"
+msgstr "Pulsar después de abrir manualmente el cofre seleccionado para marcarlo como reclamado"
+
+msgid "Only allow confirmation when the player is close to the selected chest"
+msgstr "Permitir la confirmación solo cuando el jugador esté cerca del cofre seleccionado"
+
+msgid "Optional video-route manifest; metadata-only routes do not change movement or chest selection"
+msgstr "Manifiesto opcional de ruta de vídeo; las rutas con solo metadatos no cambian el movimiento ni la selección de cofres"
+
+msgid "Chest search toggle hotkey"
+msgstr "Tecla para activar o desactivar la búsqueda de cofres"
+
+msgid "Hotkey to turn chest-search mode on or off (pynput format, e.g. <ctrl>+<f8>)"
+msgstr "Tecla para activar o desactivar el modo de búsqueda de cofres (formato pynput, p. ej. <ctrl>+<f8>)"
+
+msgid "Map display toggle hotkey"
+msgstr "Tecla para alternar la visualización del mapa"
+
+msgid "Hotkey to show or hide all map high-value-item overlays (pynput format, e.g. <ctrl>+<f8>)"
+msgstr "Tecla para mostrar u ocultar todas las capas de objetos valiosos del mapa (formato pynput, p. ej. <ctrl>+<f8>)"
+
+msgid "Collection types"
+msgstr "Tipos de coleccionables"
+
+msgid "Collection account"
+msgstr "Cuenta de colección"
+
+msgid "Choose which collectible groups are displayed and used for nearest-target guidance"
+msgstr "Elegir los grupos que se muestran y se usan para guiar al objetivo más cercano"
+
+msgid "Local completion profile; enter a game UID or a custom account alias"
+msgstr "Perfil local de progreso; introduce el UID del juego o un alias de cuenta"
+
+msgid "Select the nearest unconfirmed collectible and show its direction; movement and collection remain manual"
+msgstr "Seleccionar el coleccionable sin confirmar más cercano y mostrar su dirección; el movimiento y la recogida son manuales"
+
+msgid "Press after manually collecting the selected target to mark it as completed"
+msgstr "Pulsar después de recoger manualmente el objetivo para marcarlo como completado"
+
+msgid "Chests"
+msgstr "Cofres"
+
+msgid "Sonance Caskets"
+msgstr "Cofres de sonancia"
+
+msgid "Tidal Heritage"
+msgstr "Legado de las mareas"
+
+msgid "Windchimers"
+msgstr "Campanas de viento"
+
+msgid "Whisperwind Butterflies"
+msgstr "Mariposas susurrantes"
+
+msgid "Flying Hunters"
+msgstr "Cazadores voladores"
+
+msgid "Scenic Spots"
+msgstr "Miradores"
+
+msgid "Overflowing Palettes"
+msgstr "Paletas desbordantes"
+
+msgid "Music Fireflies"
+msgstr "Luciérnagas musicales"
+
+msgid "Abyssal Caches"
+msgstr "Tesoros abisales"
+
+msgid "Collection account management"
+msgstr "Gestión de cuentas de colección"
+
+msgid "Add account"
+msgstr "Añadir cuenta"
+
+msgid "Choose the local completion profile used to store collected-item progress"
+msgstr "Elige el perfil local donde se guarda el progreso de los coleccionables"
+
+msgid "Add a game UID or custom alias and switch to the new profile"
+msgstr "Añade un UID del juego o un alias y cambia al nuevo perfil"
+
+msgid "Add collection account"
+msgstr "Añadir cuenta de colección"
+
+msgid "Enter a game UID or custom account alias"
+msgstr "Introduce un UID del juego o un alias de cuenta"
+
+msgid "Game UID or account alias"
+msgstr "UID del juego o alias de cuenta"
+
+msgid "Add"
+msgstr "Añadir"
+
+msgid "🧭 Manual Route Recorder"
+msgstr "🧭 Grabador manual de rutas"
+
+msgid "Follow a collection video manually while recording screen coordinates and event markers"
+msgstr "Sigue manualmente un vídeo de recolección y graba coordenadas de pantalla y marcadores"
+
+msgid "Route manifest"
+msgstr "Manifiesto de ruta"
+
+msgid "Mark event hotkey"
+msgstr "Tecla para marcar el punto"
+
+msgid "Stop recording hotkey"
+msgstr "Tecla para detener la grabación"
+
+msgid "Sample interval (ms)"
+msgstr "Intervalo de muestreo (ms)"
+
+msgid "Maximum duration (minutes)"
+msgstr "Duración máxima (minutos)"
+
+msgid "Record action keys"
+msgstr "Grabar teclas de acción"
+
+msgid "Save event screenshots"
+msgstr "Guardar capturas de eventos"
+
+msgid "Video-route manifest that defines event order and item types."
+msgstr "Manifiesto de vídeo-ruta que define el orden y el tipo de los objetos."
+
+msgid "Press after reaching or collecting the current numbered item."
+msgstr "Pulsa al llegar o recoger el objeto con el número actual."
+
+msgid "Stop safely and save the current recording."
+msgstr "Detiene de forma segura y guarda la grabación actual."
+
+msgid "Screen-coordinate OCR interval; no game memory is read."
+msgstr "Intervalo del OCR de coordenadas; no se lee la memoria del juego."
+
+msgid "Recording stops automatically at this limit."
+msgstr "La grabación se detiene automáticamente al llegar a este límite."
+
+msgid "Read movement/action key states without intercepting them."
+msgstr "Lee el estado de las teclas sin interceptarlas."
+
+msgid "Save one game frame for each marked event."
+msgstr "Guarda un fotograma del juego por cada evento marcado."
+
+msgid "Route recording"
+msgstr "Grabación de ruta"
+
+msgid "Recording file"
+msgstr "Archivo de grabación"
+
+msgid "Position"
+msgstr "Posición"
+
+msgid "Route segment"
+msgstr "Tramo de ruta"
+
+msgid "Marked events"
+msgstr "Eventos marcados"
