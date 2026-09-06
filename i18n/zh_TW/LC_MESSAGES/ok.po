@@ -861,6 +861,12 @@ msgstr "對帳號 {account} 套用獨立配置：{overrides}"
 msgid "DailyTask failed for account {account}, continuing to next account"
 msgstr "帳號 {account} 的日常任務失敗，繼續處理下一個帳號"
 
+msgid ""
+"ensure_main failed after DailyTask error for account {account}, "
+"_switch_to_login will attempt recovery"
+msgstr "帳號 {account} 的日常任務失敗後 ensure_main 也失敗，將嘗試透過返回登入介面恢復"
+
+
 
 msgid "Teleport to Boss"
 msgstr "傳送至Boss"

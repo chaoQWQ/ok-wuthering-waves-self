@@ -194,8 +194,13 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             self.screenshot('daily_task_failed')
             try:
                 self.ensure_main(time_out=120)
-            except Exception:
-                pass
+            except Exception as recovery_err:
+                self.log_warning(
+                    self.tr('ensure_main failed after DailyTask error for account {account}, _switch_to_login will attempt recovery').format(
+                        account=account or '(current)'
+                    ),
+                    recovery_err,
+                )
             return False
         finally:
             self._restore_daily_overrides(daily_task, originals)

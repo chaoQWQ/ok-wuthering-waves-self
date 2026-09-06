@@ -811,6 +811,11 @@ msgstr "アカウント {account} に設定上書きを適用：{overrides}"
 msgid "DailyTask failed for account {account}, continuing to next account"
 msgstr "アカウント {account} のデイリータスクが失敗しました。次のアカウントに続きます"
 
+msgid ""
+"ensure_main failed after DailyTask error for account {account}, "
+"_switch_to_login will attempt recovery"
+msgstr "アカウント {account} のデイリータスク失敗後、ensure_main も失敗しました。ログイン画面への復帰を試みます"
+
 msgid "Teleport to Boss"
 msgstr "ボスへテレポート"
 

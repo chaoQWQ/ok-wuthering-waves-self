@@ -865,6 +865,11 @@ msgstr "Aplicando configuración personalizada para {account}: {overrides}"
 msgid "DailyTask failed for account {account}, continuing to next account"
 msgstr "La tarea diaria de la cuenta {account} falló, continuando con la siguiente cuenta"
 
+msgid ""
+"ensure_main failed after DailyTask error for account {account}, "
+"_switch_to_login will attempt recovery"
+msgstr "Fallo de ensure_main tras el error de tarea diaria de la cuenta {account}. Se intentará recuperar volviendo a la pantalla de inicio de sesión"
+
 msgid "Teleport to Boss"
 msgstr "Teletransportar al jefe"
 

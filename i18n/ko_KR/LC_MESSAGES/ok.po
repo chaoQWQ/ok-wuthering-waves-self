@@ -813,6 +813,11 @@ msgstr "계정 {account}에 설정 덮어쓰기 적용: {overrides}"
 msgid "DailyTask failed for account {account}, continuing to next account"
 msgstr "계정 {account}의 일일 작업 실패, 다음 계정으로 계속"
 
+msgid ""
+"ensure_main failed after DailyTask error for account {account}, "
+"_switch_to_login will attempt recovery"
+msgstr "계정 {account}의 일일 작업 실패 후 ensure_main도 실패했습니다. 로그인 화면으로 복구를 시도합니다"
+
 msgid "Teleport to Boss"
 msgstr "보스로 텔레포트"
 
