@@ -242,6 +242,59 @@ class TestMultiAccountDailyTask(unittest.TestCase):
         self.assertEqual(daily.config['Which to Farm'], 'Tacet Suppression')
         self.assertNotIn('Material Selection', daily.config)
 
+    def test_wait_login_uses_click_direct_for_login_button(self):
+        from src.task.BaseWWTask import BaseWWTask
+        from ok import Box
+
+        login_box = Box(960, 613, 100, 40, name="登录")
+
+        class FakeWWTask:
+            def __init__(self):
+                self.logged_in = False
+                self.debug = False
+                self.direct_clicked = []
+                self.width = 1920
+                self.height = 1080
+
+            wait_login = BaseWWTask.wait_login
+            find_boxes = BaseWWTask.find_boxes
+
+            def box_of_screen(self, *args, **kwargs):
+                return Box(0, 0, 1920, 1080)
+
+            def in_team_and_world(self):
+                return False
+
+            def out_of_ratio(self):
+                return False
+
+            def handle_monthly_card(self):
+                return False
+
+            def find_one(self, *args, **kwargs):
+                return None
+
+            def ocr(self, *args, **kwargs):
+                return [login_box]
+
+            def sleep(self, *args):
+                pass
+
+            def click_direct(self, target, after_sleep=0):
+                self.direct_clicked.append(target)
+                return True
+
+            def log_info(self, *args):
+                pass
+
+            def log_debug(self, *args):
+                pass
+
+        task = FakeWWTask()
+        task.wait_login()
+        self.assertEqual(len(task.direct_clicked), 1)
+        self.assertEqual(task.direct_clicked[0][0].name, "登录")
+
 
 if __name__ == "__main__":
     unittest.main()

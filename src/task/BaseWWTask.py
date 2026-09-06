@@ -738,6 +738,74 @@ class BaseWWTask(BaseTask):
             self.back(after_sleep=2)
             return False
 
+    def click_direct(self, target, after_sleep=2):
+        """Click using direct OS mouse input with the game window in foreground.
+
+        Certain controls (such as the login screen buttons and dropdowns) require
+        foreground focus and hardware mouse input, which background PostMessage fails on.
+        """
+        if hasattr(self, 'ensure_in_front'):
+            try:
+                self.ensure_in_front()
+            except Exception:
+                pass
+        if hasattr(self, 'sleep'):
+            self.sleep(0.3)
+
+        # Handle list of boxes
+        if isinstance(target, list) and len(target) > 0:
+            target = target[0]
+
+        # Resolve target coordinates
+        x, y = -1, -1
+        if isinstance(target, Box):
+            x, y = target.relative_with_variance(0.5, 0.5)
+        elif not isinstance(target, str) and hasattr(target, 'center'):
+            try:
+                c = target.center()
+                x, y = int(c.x), int(c.y)
+            except Exception:
+                pass
+        elif isinstance(target, (list, tuple)) and len(target) >= 2:
+            x, y = int(target[0]), int(target[1])
+
+        # Try OS direct click via hwnd_window coordinates
+        dm = getattr(self, 'device_manager', None) or getattr(getattr(self, 'executor', None), 'device_manager', None)
+        hwnd_window = getattr(dm, 'hwnd_window', None) if dm else getattr(self, 'hwnd', None)
+        if x != -1 and y != -1 and hwnd_window and hasattr(hwnd_window, 'get_abs_cords'):
+            try:
+                if hasattr(hwnd_window, 'get_capture_origin'):
+                    ox, oy = hwnd_window.get_capture_origin()
+                    abs_x, abs_y = ox + x, oy + y
+                else:
+                    abs_x, abs_y = hwnd_window.get_abs_cords(x, y)
+                target_name = getattr(target, 'name', target)
+                self.log_info(f'click_direct: screen ({abs_x}, {abs_y}) for {target_name}')
+                try:
+                    import win32api
+                    import win32con
+                    win32api.SetCursorPos((abs_x, abs_y))
+                    self.sleep(0.05)
+                    win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, abs_x, abs_y, 0, 0)
+                    self.sleep(0.05)
+                    win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, abs_x, abs_y, 0, 0)
+                except Exception:
+                    from pynput import mouse
+                    controller = mouse.Controller()
+                    controller.position = (abs_x, abs_y)
+                    self.sleep(0.05)
+                    controller.press(mouse.Button.left)
+                    self.sleep(0.05)
+                    controller.release(mouse.Button.left)
+                if after_sleep > 0:
+                    self.sleep(after_sleep)
+                return True
+            except Exception as e:
+                self.log_warning(f'click_direct direct mouse input failed: {e}, falling back to self.click')
+
+        # Fallback to standard task.click
+        return self.click(target, after_sleep=after_sleep)
+
     def wait_login(self):
         if not self.logged_in:
             if self.in_team_and_world():
@@ -745,7 +813,7 @@ class BaseWWTask(BaseTask):
                 return True
             self.handle_monthly_card()
             if login_close := self.find_one('login_close', horizontal_variance=0.15, vertical_variance=0.1):
-                self.click(login_close, after_sleep=1)
+                self.click_direct(login_close, after_sleep=1)
                 self.log_info('关闭公告!')
                 return False
             texts = self.ocr(log=self.debug)
@@ -763,13 +831,13 @@ class BaseWWTask(BaseTask):
                                             match=LOGIN_TEXTS)
                     if login and not self.find_boxes(texts, boundary=login_box,
                                                      match="+86"):
-                        self.click(login, after_sleep=1)
+                        self.click_direct(login, after_sleep=1)
                         self.log_info('点击登录按钮!')
                 return False
             if agree := self.find_boxes(texts, boundary=login_box, match="同意"):
                 self.log_debug(f'found agree {agree}')
                 if self.find_boxes(texts, boundary=login_box, match=re.compile("隐私")):
-                    self.click(agree, after_sleep=1)
+                    self.click_direct(agree, after_sleep=1)
                     self.log_info('点击同意按钮!')
                 return False
             if self.find_boxes(texts, match=[re.compile("游戏即将重启"), re.compile('遊戲即將重啟')]):
@@ -783,14 +851,14 @@ class BaseWWTask(BaseTask):
 
             if start := self.find_boxes(texts, boundary='bottom_right', match=["开始游戏", re.compile("进入游戏")]):
                 if not self.find_boxes(texts, boundary='bottom_right', match=LOGIN_TEXTS):
-                    self.click(start)
+                    self.click_direct(start)
                     self.log_info(f'点击开始游戏! {start}')
                     return False
             if switch_login := self.find_one(Labels.switch_account, vertical_variance=0.1, threshold=0.7):
                 if boxes := self.find_boxes(texts, boundary=self.box_of_screen(0.37, 0.63, 0.63, 0.99, hcenter=True,
                                                                                vcenter=True)):
                     self.log_info(f'wait_login {switch_login} {boxes}')
-                    self.click_relative(0.503, 0.926, hcenter=True, vcenter=True, after_sleep=3)
+                    self.click_direct((int(self.width * 0.503), int(self.height * 0.926)), after_sleep=3)
                     return False
 
     def in_team_and_world(self):
