@@ -1,7 +1,11 @@
 import re
 
 from ok import Box, TaskDisabledException
-from src.task.DailyTask import DailyTask, ADDITIONAL_TASKS
+from src.task.DailyTask import (
+    DailyTask, ADDITIONAL_TASKS, CHECK_WEEKLY_GARDEN,
+    AUTO_FARM_NIGHTMARE_NEST, MERGE_ECHO_IF_DISCARDED_OVER_1000,
+    TELEPORT_AND_FARM_4C_ECHO,
+)
 from src.task.WWOneTimeTask import WWOneTimeTask
 from src.task.BaseCombatTask import BaseCombatTask
 from src.task.BaseWWTask import LOGIN_TEXTS
@@ -9,8 +13,20 @@ from src.task.MouseResetTask import MouseResetTask
 
 account_pattern = re.compile(r'\*\*\*\*')
 
-# Keys in DailyTask that MultiAccountDailyTask can override per-account
-DAILY_TASK_OVERRIDABLE_KEYS = [
+# Number of independent per-account DailyTask override slots shown in the UI
+NUM_ACCOUNT_SLOTS = 5
+
+SKIP_ACCOUNTS = 'Skip Accounts'
+
+_SUPPORT_TASKS = ["Tacet Suppression", "Forgery Challenge", "Simulation Challenge"]
+_MATERIAL_OPTIONS = ['Resonator EXP', 'Weapon EXP', 'Shell Credit']
+_ADDITIONAL_TASK_OPTIONS = [
+    CHECK_WEEKLY_GARDEN, AUTO_FARM_NIGHTMARE_NEST,
+    MERGE_ECHO_IF_DISCARDED_OVER_1000, TELEPORT_AND_FARM_4C_ECHO,
+]
+
+# DailyTask config keys that each per-account slot can override
+SLOT_OVERRIDABLE = [
     'Which to Farm',
     'Which Tacet Suppression to Farm',
     'Which Forgery Challenge to Farm',
@@ -19,8 +35,17 @@ DAILY_TASK_OVERRIDABLE_KEYS = [
     ADDITIONAL_TASKS,
 ]
 
-SKIP_ACCOUNTS = 'Skip Accounts'
-ACCOUNT_CONFIGS = 'Account DailyTask Configs'
+
+def _slot_enable(n: int) -> str:
+    return f'Account {n} Daily Task Override'
+
+
+def _slot_keyword(n: int) -> str:
+    return f'Account {n} Keyword'
+
+
+def _slot_key(n: int, key: str) -> str:
+    return f'Account {n}: {key}'
 
 
 def normalize_account_name(account):
@@ -39,26 +64,91 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         self.done_set = set()
         self.all_accounts = set()
         self.support_schedule_task = True
-        self.default_config = {
-            SKIP_ACCOUNTS: [],
-            ACCOUNT_CONFIGS: [],
-        }
+
+        # ---- base config (skip list) ----
+        self.default_config = {SKIP_ACCOUNTS: []}
         self.config_description = {
             SKIP_ACCOUNTS: (
                 'Accounts to skip. Enter partial or full account names '
                 '(e.g. aa****01@example.com). Matching is case-insensitive substring.'
             ),
-            ACCOUNT_CONFIGS: (
-                'Per-account DailyTask overrides. Each entry format:\n'
-                '  account_keyword::key=value,key=value\n'
-                'Example:\n'
-                '  aa****01::Which to Farm=Forgery Challenge,Which Forgery Challenge to Farm=2\n'
-                'Supported keys: Which to Farm / Which Tacet Suppression to Farm / '
-                'Which Forgery Challenge to Farm / Material Selection / '
-                'Farm Nightmare Nest for Daily Echo / '
-                'Additional Tasks to Run After Daily Task'
-            ),
         }
+        self.config_type = {}
+
+        # Shared description strings (reused across slots for compact i18n)
+        desc_enable = 'Enable independent Daily Task configuration for this account slot.'
+        desc_keyword = 'Account name substring to match (case-insensitive, e.g. aa****01).'
+        desc_farm = (
+            'Tacet: set "Which Tacet Suppression to Farm"; '
+            'Forgery: set "Which Forgery Challenge to Farm"; '
+            'Simulation: set "Material Selection".'
+        )
+        desc_tacet = 'The Tacet Suppression number in the F2 list.'
+        desc_forgery = 'The Forgery Challenge number in the F2 list.'
+        desc_material = 'Resonator EXP / Weapon EXP / Shell Credit'
+        desc_nm = 'Farm 1 Echo from Nightmare Nest to complete Daily Task when needed.'
+        desc_tasks = (
+            'Select optional tasks. Nightmare Nest runs before stamina farming; '
+            'the other tasks run afterward.'
+        )
+
+        # ---- per-account override slots ----
+        for n in range(1, NUM_ACCOUNT_SLOTS + 1):
+            enable_key = _slot_enable(n)
+            keyword_key = _slot_keyword(n)
+            farm_key = _slot_key(n, 'Which to Farm')
+            tacet_key = _slot_key(n, 'Which Tacet Suppression to Farm')
+            forgery_key = _slot_key(n, 'Which Forgery Challenge to Farm')
+            material_key = _slot_key(n, 'Material Selection')
+            nm_key = _slot_key(n, 'Farm Nightmare Nest for Daily Echo')
+            tasks_key = _slot_key(n, ADDITIONAL_TASKS)
+
+            # Defaults — mirror DailyTask defaults
+            self.default_config[enable_key] = False
+            self.default_config[keyword_key] = ''
+            self.default_config[farm_key] = _SUPPORT_TASKS[0]
+            self.default_config[tacet_key] = 1
+            self.default_config[forgery_key] = 1
+            self.default_config[material_key] = 'Shell Credit'
+            self.default_config[nm_key] = True
+            self.default_config[tasks_key] = [CHECK_WEEKLY_GARDEN]
+
+            # Config descriptions
+            self.config_description[enable_key] = desc_enable
+            self.config_description[keyword_key] = desc_keyword
+            self.config_description[farm_key] = desc_farm
+            self.config_description[tacet_key] = desc_tacet
+            self.config_description[forgery_key] = desc_forgery
+            self.config_description[material_key] = desc_material
+            self.config_description[nm_key] = desc_nm
+            self.config_description[tasks_key] = desc_tasks
+
+            # Enable switch — shows keyword + Which to Farm + NM + Additional Tasks
+            self.config_type[enable_key] = {
+                'sub_configs': {
+                    True: [keyword_key, farm_key, nm_key, tasks_key],
+                }
+            }
+
+            # Which to Farm dropdown — sub_configs cascade recursively
+            self.config_type[farm_key] = {
+                'type': 'drop_down',
+                'options': _SUPPORT_TASKS,
+                'sub_configs': {
+                    'Tacet Suppression': [tacet_key],
+                    'Forgery Challenge': [forgery_key],
+                    'Simulation Challenge': [material_key],
+                }
+            }
+
+            self.config_type[material_key] = {
+                'type': 'drop_down',
+                'options': _MATERIAL_OPTIONS,
+            }
+            self.config_type[tasks_key] = {
+                'type': 'multi_selection',
+                'options': _ADDITIONAL_TASK_OPTIONS,
+            }
 
     # ------------------------------------------------------------------
     # Account state helpers
@@ -101,46 +191,27 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
     # Per-account DailyTask config override helpers
     # ------------------------------------------------------------------
 
-    def _parse_account_config_entry(self, entry):
-        """Parse 'account_keyword::key=value,key=value' -> (keyword, {key: value}).
-
-        Booleans and integers are coerced automatically.
-        """
-        if '::' not in entry:
-            return None, {}
-        keyword, kv_part = entry.split('::', 1)
-        keyword = keyword.strip()
-        overrides = {}
-        for pair in kv_part.split(','):
-            pair = pair.strip()
-            if '=' not in pair:
-                continue
-            k, v = pair.split('=', 1)
-            k, v = k.strip(), v.strip()
-            if v.lower() == 'true':
-                v = True
-            elif v.lower() == 'false':
-                v = False
-            else:
-                try:
-                    v = int(v)
-                except ValueError:
-                    pass
-            overrides[k] = v
-        return keyword, overrides
-
     def _get_account_overrides(self, account):
-        """Return the first matching per-account config overrides dict, or {}."""
+        """Return the first matching per-account slot config overrides dict, or {}."""
         normalized = normalize_account_name(account)
         if not normalized:
             return {}
-        entries = self.config.get(ACCOUNT_CONFIGS) or []
-        for entry in entries:
-            keyword, overrides = self._parse_account_config_entry(entry)
-            if keyword and normalize_account_name(keyword) in normalized:
+        for n in range(1, NUM_ACCOUNT_SLOTS + 1):
+            if not self.config.get(_slot_enable(n)):
+                continue
+            keyword = (self.config.get(_slot_keyword(n)) or '').strip()
+            if not keyword:
+                continue
+            kw_norm = normalize_account_name(keyword)
+            if kw_norm and (kw_norm in normalized or normalized in kw_norm):
+                overrides = {}
+                for daily_key in SLOT_OVERRIDABLE:
+                    val = self.config.get(_slot_key(n, daily_key))
+                    if val is not None:
+                        overrides[daily_key] = val
                 self.log_info(
-                    self.tr('Applying account config override for {account}: {overrides}').format(
-                        account=account, overrides=overrides
+                    self.tr('Applying account config override for {account}: slot {n}').format(
+                        account=account, n=n
                     )
                 )
                 return overrides
@@ -150,7 +221,7 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         """Patch DailyTask config with per-account overrides; return saved originals."""
         originals = {}
         for key, value in overrides.items():
-            if key in DAILY_TASK_OVERRIDABLE_KEYS:
+            if key in SLOT_OVERRIDABLE:
                 originals[key] = daily_task.config.get(key)
                 daily_task.config[key] = value
         return originals
@@ -170,9 +241,9 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
     def _run_daily_for_account(self, account):
         """Run DailyTask for *account* with optional per-account config override.
 
-        - Applies Account DailyTask Configs overrides before running.
-        - Catches non-fatal exceptions so a single failure does not abort
-          the whole multi-account run (fixes issue #7).
+        - Applies slot overrides from 'Account N Daily Task Override' config before running.
+        - Catches non-fatal exceptions so a single failure does not abort the
+          whole multi-account run.
         - Re-raises TaskDisabledException so the executor can stop cleanly.
         - Returns True on success, False on failure.
         """
@@ -196,9 +267,10 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
                 self.ensure_main(time_out=120)
             except Exception as recovery_err:
                 self.log_warning(
-                    self.tr('ensure_main failed after DailyTask error for account {account}, _switch_to_login will attempt recovery').format(
-                        account=account or '(current)'
-                    ),
+                    self.tr(
+                        'ensure_main failed after DailyTask error for account {account}, '
+                        '_switch_to_login will attempt recovery'
+                    ).format(account=account or '(current)'),
                     recovery_err,
                 )
             return False

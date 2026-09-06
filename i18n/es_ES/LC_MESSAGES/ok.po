@@ -834,33 +834,140 @@ msgid ""
 "(e.g. aa****01@example.com). Matching is case-insensitive substring."
 msgstr "Cuentas a omitir. Introduzca nombres parciales o completos (p.ej. aa****01@example.com). Coincidencia de subcadena sin distinción de mayúsculas."
 
-msgid "Account DailyTask Configs"
-msgstr "Configuración de tareas diarias por cuenta"
+msgid "Applying account config override for {account}: slot {n}"
+msgstr "Aplicando configuración personalizada para {account}: ranura {n}"
+
+msgid "Enable independent Daily Task configuration for this account slot."
+msgstr "Habilita la configuración diaria independiente para esta ranura de cuenta."
+
+msgid "Account name substring to match (case-insensitive, e.g. aa****01)."
+msgstr "Subcadena de cuenta para coincidir (no distingue mayúsculas, p.ej. aa****01)."
 
 msgid ""
-"Per-account DailyTask overrides. Each entry format:\n"
-"  account_keyword::key=value,key=value\n"
-"Example:\n"
-"  aa****01::Which to Farm=Forgery Challenge,Which Forgery Challenge to Farm=2\n"
-"Supported keys: Which to Farm / Which Tacet Suppression to Farm / "
-"Which Forgery Challenge to Farm / Material Selection / "
-"Farm Nightmare Nest for Daily Echo / "
-"Additional Tasks to Run After Daily Task"
-msgstr ""
-"Configuración de tareas diarias por cuenta. Formato de cada entrada:\n"
-"  palabra_clave_cuenta::clave=valor,clave=valor\n"
-"Ejemplo:\n"
-"  aa****01::Which to Farm=Forgery Challenge,Which Forgery Challenge to Farm=2\n"
-"Claves admitidas: Which to Farm / Which Tacet Suppression to Farm / "
-"Which Forgery Challenge to Farm / Material Selection / "
-"Farm Nightmare Nest for Daily Echo / "
-"Additional Tasks to Run After Daily Task"
+"Tacet: set \"Which Tacet Suppression to Farm\"; "
+"Forgery: set \"Which Forgery Challenge to Farm\"; "
+"Simulation: set \"Material Selection\"."
+msgstr "Supresión: configure \"Cuál Supresión\"; Falsificación: configure \"Cuál Falsificación\"; Simulación: configure \"Selección de material\"."
 
-msgid "Skipping account {account} (matches skip rule: {rule})"
-msgstr "Omitiendo cuenta {account} (coincide con la regla: {rule})"
+msgid "Account 1 Daily Task Override"
+msgstr "Cuenta 1 Configuración diaria personalizada"
 
-msgid "Applying account config override for {account}: {overrides}"
-msgstr "Aplicando configuración personalizada para {account}: {overrides}"
+msgid "Account 1 Keyword"
+msgstr "Cuenta 1 Palabra clave"
+
+msgid "Account 1: Which to Farm"
+msgstr "Cuenta 1: Qué farmear"
+
+msgid "Account 1: Which Tacet Suppression to Farm"
+msgstr "Cuenta 1: Cuál Supresión táctil farmear"
+
+msgid "Account 1: Which Forgery Challenge to Farm"
+msgstr "Cuenta 1: Cuál Desafío de falsificación farmear"
+
+msgid "Account 1: Material Selection"
+msgstr "Cuenta 1: Selección de material"
+
+msgid "Account 1: Farm Nightmare Nest for Daily Echo"
+msgstr "Cuenta 1: Farmear nido de pesadilla para eco diario"
+
+msgid "Account 1: Additional Tasks to Run After Daily Task"
+msgstr "Cuenta 1: Tareas adicionales tras tarea diaria"
+
+msgid "Account 2 Daily Task Override"
+msgstr "Cuenta 2 Configuración diaria personalizada"
+
+msgid "Account 2 Keyword"
+msgstr "Cuenta 2 Palabra clave"
+
+msgid "Account 2: Which to Farm"
+msgstr "Cuenta 2: Qué farmear"
+
+msgid "Account 2: Which Tacet Suppression to Farm"
+msgstr "Cuenta 2: Cuál Supresión táctil farmear"
+
+msgid "Account 2: Which Forgery Challenge to Farm"
+msgstr "Cuenta 2: Cuál Desafío de falsificación farmear"
+
+msgid "Account 2: Material Selection"
+msgstr "Cuenta 2: Selección de material"
+
+msgid "Account 2: Farm Nightmare Nest for Daily Echo"
+msgstr "Cuenta 2: Farmear nido de pesadilla para eco diario"
+
+msgid "Account 2: Additional Tasks to Run After Daily Task"
+msgstr "Cuenta 2: Tareas adicionales tras tarea diaria"
+
+msgid "Account 3 Daily Task Override"
+msgstr "Cuenta 3 Configuración diaria personalizada"
+
+msgid "Account 3 Keyword"
+msgstr "Cuenta 3 Palabra clave"
+
+msgid "Account 3: Which to Farm"
+msgstr "Cuenta 3: Qué farmear"
+
+msgid "Account 3: Which Tacet Suppression to Farm"
+msgstr "Cuenta 3: Cuál Supresión táctil farmear"
+
+msgid "Account 3: Which Forgery Challenge to Farm"
+msgstr "Cuenta 3: Cuál Desafío de falsificación farmear"
+
+msgid "Account 3: Material Selection"
+msgstr "Cuenta 3: Selección de material"
+
+msgid "Account 3: Farm Nightmare Nest for Daily Echo"
+msgstr "Cuenta 3: Farmear nido de pesadilla para eco diario"
+
+msgid "Account 3: Additional Tasks to Run After Daily Task"
+msgstr "Cuenta 3: Tareas adicionales tras tarea diaria"
+
+msgid "Account 4 Daily Task Override"
+msgstr "Cuenta 4 Configuración diaria personalizada"
+
+msgid "Account 4 Keyword"
+msgstr "Cuenta 4 Palabra clave"
+
+msgid "Account 4: Which to Farm"
+msgstr "Cuenta 4: Qué farmear"
+
+msgid "Account 4: Which Tacet Suppression to Farm"
+msgstr "Cuenta 4: Cuál Supresión táctil farmear"
+
+msgid "Account 4: Which Forgery Challenge to Farm"
+msgstr "Cuenta 4: Cuál Desafío de falsificación farmear"
+
+msgid "Account 4: Material Selection"
+msgstr "Cuenta 4: Selección de material"
+
+msgid "Account 4: Farm Nightmare Nest for Daily Echo"
+msgstr "Cuenta 4: Farmear nido de pesadilla para eco diario"
+
+msgid "Account 4: Additional Tasks to Run After Daily Task"
+msgstr "Cuenta 4: Tareas adicionales tras tarea diaria"
+
+msgid "Account 5 Daily Task Override"
+msgstr "Cuenta 5 Configuración diaria personalizada"
+
+msgid "Account 5 Keyword"
+msgstr "Cuenta 5 Palabra clave"
+
+msgid "Account 5: Which to Farm"
+msgstr "Cuenta 5: Qué farmear"
+
+msgid "Account 5: Which Tacet Suppression to Farm"
+msgstr "Cuenta 5: Cuál Supresión táctil farmear"
+
+msgid "Account 5: Which Forgery Challenge to Farm"
+msgstr "Cuenta 5: Cuál Desafío de falsificación farmear"
+
+msgid "Account 5: Material Selection"
+msgstr "Cuenta 5: Selección de material"
+
+msgid "Account 5: Farm Nightmare Nest for Daily Echo"
+msgstr "Cuenta 5: Farmear nido de pesadilla para eco diario"
+
+msgid "Account 5: Additional Tasks to Run After Daily Task"
+msgstr "Cuenta 5: Tareas adicionales tras tarea diaria"
 
 msgid "DailyTask failed for account {account}, continuing to next account"
 msgstr "La tarea diaria de la cuenta {account} falló, continuando con la siguiente cuenta"

@@ -782,27 +782,140 @@ msgid ""
 "(e.g. aa****01@example.com). Matching is case-insensitive substring."
 msgstr "건너뛸 계정을 입력하세요. 부분 또는 전체 계정명을 입력하세요(예: aa****01@example.com). 대소문자 구분 없는 부분 일치."
 
-msgid "Account DailyTask Configs"
-msgstr "계정별 일일 작업 설정"
+msgid "Applying account config override for {account}: slot {n}"
+msgstr "계정 {account}에 개별 설정 적용 (슬롯 {n})"
+
+msgid "Enable independent Daily Task configuration for this account slot."
+msgstr "이 계정 슬롯의 일일 작업 개별 설정을 활성화합니다."
+
+msgid "Account name substring to match (case-insensitive, e.g. aa****01)."
+msgstr "일치시킬 계정명 하위 문자열 (대소문자 구분 없음, 예: aa****01)."
 
 msgid ""
-"Per-account DailyTask overrides. Each entry format:\n"
-"  account_keyword::key=value,key=value\n"
-"Example:\n"
-"  aa****01::Which to Farm=Forgery Challenge,Which Forgery Challenge to Farm=2\n"
-"Supported keys: Which to Farm / Which Tacet Suppression to Farm / "
-"Which Forgery Challenge to Farm / Material Selection / "
-"Farm Nightmare Nest for Daily Echo / "
-"Additional Tasks to Run After Daily Task"
-msgstr ""
-"계정별 일일 작업 설정 덮어쓰기. 각 항목 형식:\n"
-"  계정키워드::설정항목=값,설정항목=값\n"
-"예시:\n"
-"  aa****01::Which to Farm=Forgery Challenge,Which Forgery Challenge to Farm=2\n"
-"지원 항목: Which to Farm / Which Tacet Suppression to Farm / "
-"Which Forgery Challenge to Farm / Material Selection / "
-"Farm Nightmare Nest for Daily Echo / "
-"Additional Tasks to Run After Daily Task"
+"Tacet: set \"Which Tacet Suppression to Farm\"; "
+"Forgery: set \"Which Forgery Challenge to Farm\"; "
+"Simulation: set \"Material Selection\"."
+msgstr "무음구역: \"몇 번째 무음구역\" 설정; 응소영역: \"몇 번째 응소영역\" 설정; 시뮬레이션: \"재료 선택\" 설정."
+
+msgid "Account 1 Daily Task Override"
+msgstr "계정 1 일일 작업 개별 설정"
+
+msgid "Account 1 Keyword"
+msgstr "계정 1 검색 키워드"
+
+msgid "Account 1: Which to Farm"
+msgstr "계정 1: 소모 목표"
+
+msgid "Account 1: Which Tacet Suppression to Farm"
+msgstr "계정 1: 몇 번째 무음구역"
+
+msgid "Account 1: Which Forgery Challenge to Farm"
+msgstr "계정 1: 몇 번째 응소영역"
+
+msgid "Account 1: Material Selection"
+msgstr "계정 1: 재료 선택"
+
+msgid "Account 1: Farm Nightmare Nest for Daily Echo"
+msgstr "계정 1: 악몽의 보금자리 에코 파밍"
+
+msgid "Account 1: Additional Tasks to Run After Daily Task"
+msgstr "계정 1: 일일 작업 후 추가 작업"
+
+msgid "Account 2 Daily Task Override"
+msgstr "계정 2 일일 작업 개별 설정"
+
+msgid "Account 2 Keyword"
+msgstr "계정 2 검색 키워드"
+
+msgid "Account 2: Which to Farm"
+msgstr "계정 2: 소모 목표"
+
+msgid "Account 2: Which Tacet Suppression to Farm"
+msgstr "계정 2: 몇 번째 무음구역"
+
+msgid "Account 2: Which Forgery Challenge to Farm"
+msgstr "계정 2: 몇 번째 응소영역"
+
+msgid "Account 2: Material Selection"
+msgstr "계정 2: 재료 선택"
+
+msgid "Account 2: Farm Nightmare Nest for Daily Echo"
+msgstr "계정 2: 악몽의 보금자리 에코 파밍"
+
+msgid "Account 2: Additional Tasks to Run After Daily Task"
+msgstr "계정 2: 일일 작업 후 추가 작업"
+
+msgid "Account 3 Daily Task Override"
+msgstr "계정 3 일일 작업 개별 설정"
+
+msgid "Account 3 Keyword"
+msgstr "계정 3 검색 키워드"
+
+msgid "Account 3: Which to Farm"
+msgstr "계정 3: 소모 목표"
+
+msgid "Account 3: Which Tacet Suppression to Farm"
+msgstr "계정 3: 몇 번째 무음구역"
+
+msgid "Account 3: Which Forgery Challenge to Farm"
+msgstr "계정 3: 몇 번째 응소영역"
+
+msgid "Account 3: Material Selection"
+msgstr "계정 3: 재료 선택"
+
+msgid "Account 3: Farm Nightmare Nest for Daily Echo"
+msgstr "계정 3: 악몽의 보금자리 에코 파밍"
+
+msgid "Account 3: Additional Tasks to Run After Daily Task"
+msgstr "계정 3: 일일 작업 후 추가 작업"
+
+msgid "Account 4 Daily Task Override"
+msgstr "계정 4 일일 작업 개별 설정"
+
+msgid "Account 4 Keyword"
+msgstr "계정 4 검색 키워드"
+
+msgid "Account 4: Which to Farm"
+msgstr "계정 4: 소모 목표"
+
+msgid "Account 4: Which Tacet Suppression to Farm"
+msgstr "계정 4: 몇 번째 무음구역"
+
+msgid "Account 4: Which Forgery Challenge to Farm"
+msgstr "계정 4: 몇 번째 응소영역"
+
+msgid "Account 4: Material Selection"
+msgstr "계정 4: 재료 선택"
+
+msgid "Account 4: Farm Nightmare Nest for Daily Echo"
+msgstr "계정 4: 악몽의 보금자리 에코 파밍"
+
+msgid "Account 4: Additional Tasks to Run After Daily Task"
+msgstr "계정 4: 일일 작업 후 추가 작업"
+
+msgid "Account 5 Daily Task Override"
+msgstr "계정 5 일일 작업 개별 설정"
+
+msgid "Account 5 Keyword"
+msgstr "계정 5 검색 키워드"
+
+msgid "Account 5: Which to Farm"
+msgstr "계정 5: 소모 목표"
+
+msgid "Account 5: Which Tacet Suppression to Farm"
+msgstr "계정 5: 몇 번째 무음구역"
+
+msgid "Account 5: Which Forgery Challenge to Farm"
+msgstr "계정 5: 몇 번째 응소영역"
+
+msgid "Account 5: Material Selection"
+msgstr "계정 5: 재료 선택"
+
+msgid "Account 5: Farm Nightmare Nest for Daily Echo"
+msgstr "계정 5: 악몽의 보금자리 에코 파밍"
+
+msgid "Account 5: Additional Tasks to Run After Daily Task"
+msgstr "계정 5: 일일 작업 후 추가 작업"
 
 msgid "Skipping account {account} (matches skip rule: {rule})"
 msgstr "계정 {account} 건너뜀 (건너뛰기 규칙 일치: {rule})"

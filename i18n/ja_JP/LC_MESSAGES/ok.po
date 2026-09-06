@@ -780,27 +780,140 @@ msgid ""
 "(e.g. aa****01@example.com). Matching is case-insensitive substring."
 msgstr "スキップするアカウント。部分または完全なアカウント名を入力してください（例：aa****01@example.com）。大文字小文字を区別しない部分一致。"
 
-msgid "Account DailyTask Configs"
-msgstr "アカウント別デイリー設定"
+msgid "Applying account config override for {account}: slot {n}"
+msgstr "アカウント {account} に個別設定を適用（スロット {n}）"
+
+msgid "Enable independent Daily Task configuration for this account slot."
+msgstr "このアカウントスロットのデイリータスク個別設定を有効化します。"
+
+msgid "Account name substring to match (case-insensitive, e.g. aa****01)."
+msgstr "マッチさせるアカウント名の一部（大文字小文字を区別しない、例：aa****01）。"
 
 msgid ""
-"Per-account DailyTask overrides. Each entry format:\n"
-"  account_keyword::key=value,key=value\n"
-"Example:\n"
-"  aa****01::Which to Farm=Forgery Challenge,Which Forgery Challenge to Farm=2\n"
-"Supported keys: Which to Farm / Which Tacet Suppression to Farm / "
-"Which Forgery Challenge to Farm / Material Selection / "
-"Farm Nightmare Nest for Daily Echo / "
-"Additional Tasks to Run After Daily Task"
-msgstr ""
-"アカウント別デイリータスク上書き設定。各エントリの形式：\n"
-"  アカウントキーワード::設定項目=値,設定項目=値\n"
-"例：\n"
-"  aa****01::Which to Farm=Forgery Challenge,Which Forgery Challenge to Farm=2\n"
-"対応する設定項目：Which to Farm / Which Tacet Suppression to Farm / "
-"Which Forgery Challenge to Farm / Material Selection / "
-"Farm Nightmare Nest for Daily Echo / "
-"Additional Tasks to Run After Daily Task"
+"Tacet: set \"Which Tacet Suppression to Farm\"; "
+"Forgery: set \"Which Forgery Challenge to Farm\"; "
+"Simulation: set \"Material Selection\"."
+msgstr "無音区：「第何無音区」を設定；凝素領域：「第何凝素領域」を設定；模擬訓練場：「材料選択」を設定。"
+
+msgid "Account 1 Daily Task Override"
+msgstr "アカウント 1 デイリー個別設定"
+
+msgid "Account 1 Keyword"
+msgstr "アカウント 1 キーワード"
+
+msgid "Account 1: Which to Farm"
+msgstr "アカウント 1：スタミナ消費先"
+
+msgid "Account 1: Which Tacet Suppression to Farm"
+msgstr "アカウント 1：第何無音区"
+
+msgid "Account 1: Which Forgery Challenge to Farm"
+msgstr "アカウント 1：第何凝素領域"
+
+msgid "Account 1: Material Selection"
+msgstr "アカウント 1：材料選択"
+
+msgid "Account 1: Farm Nightmare Nest for Daily Echo"
+msgstr "アカウント 1：夢魘の巣でデイリー音骸取得"
+
+msgid "Account 1: Additional Tasks to Run After Daily Task"
+msgstr "アカウント 1：デイリー完了後の追加タスク"
+
+msgid "Account 2 Daily Task Override"
+msgstr "アカウント 2 デイリー個別設定"
+
+msgid "Account 2 Keyword"
+msgstr "アカウント 2 キーワード"
+
+msgid "Account 2: Which to Farm"
+msgstr "アカウント 2：スタミナ消費先"
+
+msgid "Account 2: Which Tacet Suppression to Farm"
+msgstr "アカウント 2：第何無音区"
+
+msgid "Account 2: Which Forgery Challenge to Farm"
+msgstr "アカウント 2：第何凝素領域"
+
+msgid "Account 2: Material Selection"
+msgstr "アカウント 2：材料選択"
+
+msgid "Account 2: Farm Nightmare Nest for Daily Echo"
+msgstr "アカウント 2：夢魘の巣でデイリー音骸取得"
+
+msgid "Account 2: Additional Tasks to Run After Daily Task"
+msgstr "アカウント 2：デイリー完了後の追加タスク"
+
+msgid "Account 3 Daily Task Override"
+msgstr "アカウント 3 デイリー個別設定"
+
+msgid "Account 3 Keyword"
+msgstr "アカウント 3 キーワード"
+
+msgid "Account 3: Which to Farm"
+msgstr "アカウント 3：スタミナ消費先"
+
+msgid "Account 3: Which Tacet Suppression to Farm"
+msgstr "アカウント 3：第何無音区"
+
+msgid "Account 3: Which Forgery Challenge to Farm"
+msgstr "アカウント 3：第何凝素領域"
+
+msgid "Account 3: Material Selection"
+msgstr "アカウント 3：材料選択"
+
+msgid "Account 3: Farm Nightmare Nest for Daily Echo"
+msgstr "アカウント 3：夢魘の巣でデイリー音骸取得"
+
+msgid "Account 3: Additional Tasks to Run After Daily Task"
+msgstr "アカウント 3：デイリー完了後の追加タスク"
+
+msgid "Account 4 Daily Task Override"
+msgstr "アカウント 4 デイリー個別設定"
+
+msgid "Account 4 Keyword"
+msgstr "アカウント 4 キーワード"
+
+msgid "Account 4: Which to Farm"
+msgstr "アカウント 4：スタミナ消費先"
+
+msgid "Account 4: Which Tacet Suppression to Farm"
+msgstr "アカウント 4：第何無音区"
+
+msgid "Account 4: Which Forgery Challenge to Farm"
+msgstr "アカウント 4：第何凝素領域"
+
+msgid "Account 4: Material Selection"
+msgstr "アカウント 4：材料選択"
+
+msgid "Account 4: Farm Nightmare Nest for Daily Echo"
+msgstr "アカウント 4：夢魘の巣でデイリー音骸取得"
+
+msgid "Account 4: Additional Tasks to Run After Daily Task"
+msgstr "アカウント 4：デイリー完了後の追加タスク"
+
+msgid "Account 5 Daily Task Override"
+msgstr "アカウント 5 デイリー個別設定"
+
+msgid "Account 5 Keyword"
+msgstr "アカウント 5 キーワード"
+
+msgid "Account 5: Which to Farm"
+msgstr "アカウント 5：スタミナ消費先"
+
+msgid "Account 5: Which Tacet Suppression to Farm"
+msgstr "アカウント 5：第何無音区"
+
+msgid "Account 5: Which Forgery Challenge to Farm"
+msgstr "アカウント 5：第何凝素領域"
+
+msgid "Account 5: Material Selection"
+msgstr "アカウント 5：材料選択"
+
+msgid "Account 5: Farm Nightmare Nest for Daily Echo"
+msgstr "アカウント 5：夢魘の巣でデイリー音骸取得"
+
+msgid "Account 5: Additional Tasks to Run After Daily Task"
+msgstr "アカウント 5：デイリー完了後の追加タスク"
 
 msgid "Skipping account {account} (matches skip rule: {rule})"
 msgstr "アカウント {account} をスキップします（スキップルール一致：{rule}）"

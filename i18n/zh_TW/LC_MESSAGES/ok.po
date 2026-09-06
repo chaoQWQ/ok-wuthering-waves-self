@@ -830,27 +830,140 @@ msgid ""
 "(e.g. aa****01@example.com). Matching is case-insensitive substring."
 msgstr "要跳過的帳號。輸入部分或完整帳號名稱（如 aa****01@example.com），不區分大小寫子字串比對。"
 
-msgid "Account DailyTask Configs"
-msgstr "帳號獨立日常配置"
+msgid "Applying account config override for {account}: slot {n}"
+msgstr "對帳號 {account} 套用獨立配置（槽位 {n}）"
+
+msgid "Enable independent Daily Task configuration for this account slot."
+msgstr "開啟該帳號槽位的獨立日常任務配置。"
+
+msgid "Account name substring to match (case-insensitive, e.g. aa****01)."
+msgstr "用於比對帳號名稱的子字串（不區分大小寫，如 aa****01）。"
 
 msgid ""
-"Per-account DailyTask overrides. Each entry format:\n"
-"  account_keyword::key=value,key=value\n"
-"Example:\n"
-"  aa****01::Which to Farm=Forgery Challenge,Which Forgery Challenge to Farm=2\n"
-"Supported keys: Which to Farm / Which Tacet Suppression to Farm / "
-"Which Forgery Challenge to Farm / Material Selection / "
-"Farm Nightmare Nest for Daily Echo / "
-"Additional Tasks to Run After Daily Task"
-msgstr ""
-"帳號獨立日常任務配置，每條格式：\n"
-"  帳號關鍵詞::配置項=值,配置項=值\n"
-"範例：\n"
-"  aa****01::Which to Farm=Forgery Challenge,Which Forgery Challenge to Farm=2\n"
-"支援的配置項：Which to Farm / Which Tacet Suppression to Farm / "
-"Which Forgery Challenge to Farm / Material Selection / "
-"Farm Nightmare Nest for Daily Echo / "
-"Additional Tasks to Run After Daily Task"
+"Tacet: set \"Which Tacet Suppression to Farm\"; "
+"Forgery: set \"Which Forgery Challenge to Farm\"; "
+"Simulation: set \"Material Selection\"."
+msgstr "無音區請配置「第幾個無音區」；凝素領域請配置「第幾個凝素領域」；模擬訓練場請配置「材料選擇」。"
+
+msgid "Account 1 Daily Task Override"
+msgstr "帳號 1 獨立日常配置"
+
+msgid "Account 1 Keyword"
+msgstr "帳號 1 匹配關鍵字"
+
+msgid "Account 1: Which to Farm"
+msgstr "帳號 1：消耗體力目標"
+
+msgid "Account 1: Which Tacet Suppression to Farm"
+msgstr "帳號 1：第幾個無音區"
+
+msgid "Account 1: Which Forgery Challenge to Farm"
+msgstr "帳號 1：第幾個凝素領域"
+
+msgid "Account 1: Material Selection"
+msgstr "帳號 1：材料選擇"
+
+msgid "Account 1: Farm Nightmare Nest for Daily Echo"
+msgstr "帳號 1：刷夢魘之巢完成日常"
+
+msgid "Account 1: Additional Tasks to Run After Daily Task"
+msgstr "帳號 1：日常任務後額外任務"
+
+msgid "Account 2 Daily Task Override"
+msgstr "帳號 2 獨立日常配置"
+
+msgid "Account 2 Keyword"
+msgstr "帳號 2 匹配關鍵字"
+
+msgid "Account 2: Which to Farm"
+msgstr "帳號 2：消耗體力目標"
+
+msgid "Account 2: Which Tacet Suppression to Farm"
+msgstr "帳號 2：第幾個無音区"
+
+msgid "Account 2: Which Forgery Challenge to Farm"
+msgstr "帳號 2：第幾個凝素領域"
+
+msgid "Account 2: Material Selection"
+msgstr "帳號 2：材料選擇"
+
+msgid "Account 2: Farm Nightmare Nest for Daily Echo"
+msgstr "帳號 2：刷夢魘之巢完成日常"
+
+msgid "Account 2: Additional Tasks to Run After Daily Task"
+msgstr "帳號 2：日常任務後額外任務"
+
+msgid "Account 3 Daily Task Override"
+msgstr "帳號 3 獨立日常配置"
+
+msgid "Account 3 Keyword"
+msgstr "帳號 3 匹配關鍵字"
+
+msgid "Account 3: Which to Farm"
+msgstr "帳號 3：消耗體力目標"
+
+msgid "Account 3: Which Tacet Suppression to Farm"
+msgstr "帳號 3：第幾個無音區"
+
+msgid "Account 3: Which Forgery Challenge to Farm"
+msgstr "帳號 3：第幾個凝素領域"
+
+msgid "Account 3: Material Selection"
+msgstr "帳號 3：材料選擇"
+
+msgid "Account 3: Farm Nightmare Nest for Daily Echo"
+msgstr "帳號 3：刷夢魘之巢完成日常"
+
+msgid "Account 3: Additional Tasks to Run After Daily Task"
+msgstr "帳號 3：日常任務後額外任務"
+
+msgid "Account 4 Daily Task Override"
+msgstr "帳號 4 獨立日常配置"
+
+msgid "Account 4 Keyword"
+msgstr "帳號 4 匹配關鍵字"
+
+msgid "Account 4: Which to Farm"
+msgstr "帳號 4：消耗體力目標"
+
+msgid "Account 4: Which Tacet Suppression to Farm"
+msgstr "帳號 4：第幾個無音區"
+
+msgid "Account 4: Which Forgery Challenge to Farm"
+msgstr "帳號 4：第幾個凝素領域"
+
+msgid "Account 4: Material Selection"
+msgstr "帳號 4：材料選擇"
+
+msgid "Account 4: Farm Nightmare Nest for Daily Echo"
+msgstr "帳號 4：刷夢魘之巢完成日常"
+
+msgid "Account 4: Additional Tasks to Run After Daily Task"
+msgstr "帳號 4：日常任務後額外任務"
+
+msgid "Account 5 Daily Task Override"
+msgstr "帳號 5 獨立日常配置"
+
+msgid "Account 5 Keyword"
+msgstr "帳號 5 匹配關鍵字"
+
+msgid "Account 5: Which to Farm"
+msgstr "帳號 5：消耗體力目標"
+
+msgid "Account 5: Which Tacet Suppression to Farm"
+msgstr "帳號 5：第幾個無音區"
+
+msgid "Account 5: Which Forgery Challenge to Farm"
+msgstr "帳號 5：第几个凝素領域"
+
+msgid "Account 5: Material Selection"
+msgstr "帳號 5：材料選擇"
+
+msgid "Account 5: Farm Nightmare Nest for Daily Echo"
+msgstr "帳號 5：刷夢魘之巢完成日常"
+
+msgid "Account 5: Additional Tasks to Run After Daily Task"
+msgstr "帳號 5：日常任務後額外任務"
 
 msgid "Skipping account {account} (matches skip rule: {rule})"
 msgstr "跳過帳號 {account}（符合跳過規則：{rule}）"
