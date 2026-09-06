@@ -10,6 +10,9 @@ from src.task.WWOneTimeTask import WWOneTimeTask
 from src.task.BaseCombatTask import BaseCombatTask
 from src.task.BaseWWTask import LOGIN_TEXTS
 from src.task.MouseResetTask import MouseResetTask
+from src.utils.wgc_compat import enable_windows_graphics_capture
+
+enable_windows_graphics_capture()
 
 account_pattern = re.compile(r'\*\*\*\*')
 
@@ -325,6 +328,75 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             return texts[0].name
         return None
 
+    def _click_direct(self, target, after_sleep=2):
+        """Click using direct OS mouse input with the game window in foreground.
+
+        Unreal Engine's login dropdown is rendered in a popup/overlay window or
+        requires foreground mouse focus, which background PostMessage fails to activate.
+        """
+        if hasattr(self, 'ensure_in_front'):
+            try:
+                self.ensure_in_front()
+            except Exception:
+                pass
+        if hasattr(self, 'sleep'):
+            self.sleep(0.3)
+
+        # Handle list of boxes
+        if isinstance(target, list) and len(target) > 0:
+            target = target[0]
+
+        # Resolve target coordinates
+        x, y = -1, -1
+        if isinstance(target, Box):
+            x, y = target.relative_with_variance(0.5, 0.5)
+        elif not isinstance(target, str) and hasattr(target, 'center'):
+            try:
+                c = target.center()
+                x, y = int(c.x), int(c.y)
+            except Exception:
+                pass
+        elif isinstance(target, (list, tuple)) and len(target) >= 2:
+            x, y = int(target[0]), int(target[1])
+
+        # Try OS direct click via hwnd_window coordinates
+        executor = getattr(self, 'executor', None)
+        dm = getattr(executor, 'device_manager', None) if executor else None
+        hwnd_window = getattr(dm, 'hwnd_window', None) if dm else None
+        if x != -1 and y != -1 and hwnd_window and hasattr(hwnd_window, 'get_abs_cords'):
+            try:
+                if hasattr(hwnd_window, 'get_capture_origin'):
+                    ox, oy = hwnd_window.get_capture_origin()
+                    abs_x, abs_y = ox + x, oy + y
+                else:
+                    abs_x, abs_y = hwnd_window.get_abs_cords(x, y)
+                target_name = getattr(target, 'name', target)
+                self.log_info(f'_click_direct: screen ({abs_x}, {abs_y}) for {target_name}')
+                try:
+                    import win32api
+                    import win32con
+                    win32api.SetCursorPos((abs_x, abs_y))
+                    self.sleep(0.05)
+                    win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, abs_x, abs_y, 0, 0)
+                    self.sleep(0.05)
+                    win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, abs_x, abs_y, 0, 0)
+                except Exception:
+                    from pynput import mouse
+                    controller = mouse.Controller()
+                    controller.position = (abs_x, abs_y)
+                    self.sleep(0.05)
+                    controller.press(mouse.Button.left)
+                    self.sleep(0.05)
+                    controller.release(mouse.Button.left)
+                if after_sleep > 0:
+                    self.sleep(after_sleep)
+                return True
+            except Exception as e:
+                self.log_warning(f'_click_direct direct mouse input failed: {e}, falling back to self.click')
+
+        # Fallback to standard task.click
+        return self.click(target, after_sleep=after_sleep)
+
     def _click_account_in_list(self):
         accounts = self.ocr(match=account_pattern)
         next_account = None
@@ -334,7 +406,7 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             self.info_set('All Accounts', self.all_accounts)
             if next_account is None and not self._is_done(account.name):
                 next_account = account.name
-                self.click(account, after_sleep=2)
+                self._click_direct(account, after_sleep=2)
         self.log_info(self.tr('Click next account: {account}').format(account=next_account))
         return next_account
 
@@ -347,17 +419,11 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         try:
             max_retries = 5
             for attempt in range(1, max_retries + 1):
-                # self.ensure_in_front()
-                # self.update_capture({
-                #     'windows': {
-                #         'interaction': 'Pynput',
-                #         'capture_method': 'ForegroundBitBlt',
-                #     }
-                # })
+                self.ensure_in_front()
                 self.sleep(1)
                 drop_down = self.find_account_drop_down()
                 if drop_down:
-                    self.click(drop_down, after_sleep=2)
+                    self._click_direct(drop_down, after_sleep=2)
                 if self.do_find_account_drop_down():
                     self.log_error('click drop down no effect')
                     self.screenshot('multi')
@@ -390,12 +456,6 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             else:
                 self.click_relative(0.5, 0.568, hcenter=True, vcenter=True, after_sleep=3)
             self.logged_in = False
-            # self.update_capture({
-            #     'windows': {
-            #         'interaction': 'PostMessage',
-            #         'capture_method': ['WGC', 'BitBlt_RenderFull'],
-            #     }
-            # })
             self.ensure_main(time_out=180)
             self.log_info(self.tr('Login successful'))
             return current_account

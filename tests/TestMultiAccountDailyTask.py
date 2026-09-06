@@ -53,6 +53,7 @@ class TestMultiAccountDailyTask(unittest.TestCase):
 
             _is_done = MultiAccountDailyTask._is_done
             _is_skipped = MultiAccountDailyTask._is_skipped
+            _click_direct = MultiAccountDailyTask._click_direct
 
             def ocr(self, match=None):
                 return [
@@ -71,6 +72,9 @@ class TestMultiAccountDailyTask(unittest.TestCase):
             def log_info(self, *args):
                 pass
 
+            def log_warning(self, *args):
+                pass
+
             def tr(self, message):
                 return message
 
@@ -80,6 +84,77 @@ class TestMultiAccountDailyTask(unittest.TestCase):
 
         self.assertEqual(selected, "cc****03@example.com.hk")
         self.assertEqual(task.clicked, ["cc****03@example.com.hk"])
+
+    def test_click_direct_falls_back_to_click_without_hwnd_window(self):
+        class FakeTask:
+            def __init__(self):
+                self.clicked = []
+                self.executor = None
+
+            _click_direct = MultiAccountDailyTask._click_direct
+
+            def click(self, target, after_sleep=0):
+                self.clicked.append((target, after_sleep))
+                return True
+
+            def log_info(self, *args):
+                pass
+
+            def log_warning(self, *args):
+                pass
+
+        task = FakeTask()
+        task._click_direct('dropdown_box', after_sleep=1)
+        self.assertEqual(task.clicked, [('dropdown_box', 1)])
+
+    def test_click_direct_calculates_screen_coords_with_hwnd_window(self):
+        from unittest.mock import patch
+        from ok import Box
+
+        class FakeHwndWindow:
+            def get_capture_origin(self):
+                return (100, 200)
+
+            def get_abs_cords(self, x, y):
+                return (100 + x, 200 + y)
+
+        class FakeDeviceManager:
+            hwnd_window = FakeHwndWindow()
+
+        class FakeExecutor:
+            device_manager = FakeDeviceManager()
+
+        class FakeTask:
+            def __init__(self):
+                self.executor = FakeExecutor()
+                self.clicked = []
+
+            _click_direct = MultiAccountDailyTask._click_direct
+
+            def click(self, target, after_sleep=0):
+                self.clicked.append(target)
+
+            def sleep(self, duration):
+                pass
+
+            def ensure_in_front(self):
+                pass
+
+            def log_info(self, *args):
+                pass
+
+            def log_warning(self, *args):
+                pass
+
+        task = FakeTask()
+        test_box = Box(50, 60, 20, 10, name="test_item")
+        # Center of test_box is (60, 65). Origin is (100, 200). Screen coords: (160, 265).
+        with patch('win32api.SetCursorPos') as mock_set_cursor, \
+             patch('win32api.mouse_event') as mock_mouse_event:
+            res = task._click_direct(test_box, after_sleep=0)
+            self.assertTrue(res)
+            mock_set_cursor.assert_called_once_with((160, 265))
+            self.assertEqual(mock_mouse_event.call_count, 2)
 
     def test_is_skipped_matches_case_insensitive_substring(self):
         class FakeTask:

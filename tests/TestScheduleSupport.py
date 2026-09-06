@@ -81,11 +81,12 @@ class TestScheduleSupport(unittest.TestCase):
             and isinstance(node.func, ast.Attribute)
             and isinstance(node.func.value, ast.Name)
             and node.func.value.id == "self"
-            and node.func.attr in {"run_task_by_class", "ensure_main", "_switch_to_login"}
+            and node.func.attr in {"run_task_by_class", "_run_daily_for_account", "ensure_main", "_switch_to_login"}
         ]
 
         call_names = [node.func.attr for node in sorted(calls, key=lambda call: call.lineno)]
-        first_daily_index = call_names.index("run_task_by_class")
+        daily_call = next(name for name in call_names if name in {"run_task_by_class", "_run_daily_for_account"})
+        first_daily_index = call_names.index(daily_call)
         switch_index = call_names.index("_switch_to_login")
 
         self.assertIn("ensure_main", call_names[first_daily_index + 1:switch_index])
@@ -100,11 +101,12 @@ class TestScheduleSupport(unittest.TestCase):
             and isinstance(node.func, ast.Attribute)
             and isinstance(node.func.value, ast.Name)
             and node.func.value.id == "self"
-            and node.func.attr in {"run_task_by_class", "ensure_main", "_switch_to_login"}
+            and node.func.attr in {"run_task_by_class", "_run_daily_for_account", "ensure_main", "_switch_to_login"}
         ]
 
         call_names = [node.func.attr for node in sorted(calls, key=lambda call: call.lineno)]
-        daily_index = call_names.index("run_task_by_class")
+        daily_call = next(name for name in call_names if name in {"run_task_by_class", "_run_daily_for_account"})
+        daily_index = call_names.index(daily_call)
 
         self.assertIn("ensure_main", call_names[daily_index + 1:])
         self.assertIn("_switch_to_login", call_names[daily_index + 1:])
