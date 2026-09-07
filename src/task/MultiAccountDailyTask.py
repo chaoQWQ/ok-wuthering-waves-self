@@ -252,8 +252,36 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         - Returns True on success, False on failure.
         """
         daily_task = self.get_task_by_class(DailyTask)
-        overrides = self._get_account_overrides(account) if account else {}
-        originals = self._apply_daily_overrides(daily_task, overrides)
+        resolved_account = account
+        originals = {}
+        overrides_applied = False
+
+        def apply_account_overrides(detected_account):
+            nonlocal resolved_account, overrides_applied
+            if overrides_applied or not detected_account:
+                return
+            resolved_account = detected_account
+            overrides = self._get_account_overrides(detected_account)
+            originals.update(self._apply_daily_overrides(daily_task, overrides))
+            overrides_applied = True
+
+        apply_account_overrides(account)
+
+        # On a cold game start the first captured frames may still be blank or
+        # loading, so run() cannot identify the selected login account yet.
+        # DailyTask.wait_login is the reliable point immediately before the
+        # login button is clicked. Resolve and apply that account's overrides
+        # there so the first account never falls back to DailyTask defaults.
+        original_wait_login = daily_task.wait_login
+        wait_login_was_overridden = 'wait_login' in daily_task.__dict__
+
+        def wait_login_with_account_config():
+            if not overrides_applied:
+                apply_account_overrides(self._detect_current_account_from_login())
+            return original_wait_login()
+
+        if not overrides_applied:
+            daily_task.wait_login = wait_login_with_account_config
         focus_was_allowed = getattr(daily_task, '_allow_bring_to_front', False)
         # DailyTask owns the initial login wait.  Physical login controls must
         # be clicked with the game in front, just like later account switches.
@@ -266,7 +294,7 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         except Exception as e:
             self.log_error(
                 self.tr('DailyTask failed for account {account}, continuing to next account').format(
-                    account=account or '(current)'
+                    account=resolved_account or '(current)'
                 ),
                 e,
             )
@@ -278,12 +306,16 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
                     self.tr(
                         'ensure_main failed after DailyTask error for account {account}, '
                         '_switch_to_login will attempt recovery'
-                    ).format(account=account or '(current)'),
+                    ).format(account=resolved_account or '(current)'),
                     recovery_err,
                 )
             return False
         finally:
             daily_task._allow_bring_to_front = focus_was_allowed
+            if wait_login_was_overridden:
+                daily_task.wait_login = original_wait_login
+            else:
+                daily_task.__dict__.pop('wait_login', None)
             self._restore_daily_overrides(daily_task, originals)
 
     # ------------------------------------------------------------------
