@@ -1748,3 +1748,20 @@ msgstr "경로 구간"
 
 msgid "Marked events"
 msgstr "표시된 이벤트"
+msgid "Account 1 In-game Profile Code"
+msgstr "계정 1 게임 내 프로필 코드"
+
+msgid "Account 2 In-game Profile Code"
+msgstr "계정 2 게임 내 프로필 코드"
+
+msgid "Account 3 In-game Profile Code"
+msgstr "계정 3 게임 내 프로필 코드"
+
+msgid "Account 4 In-game Profile Code"
+msgstr "계정 4 게임 내 프로필 코드"
+
+msgid "Account 5 In-game Profile Code"
+msgstr "계정 5 게임 내 프로필 코드"
+
+msgid "Enter at least the last 4 digits of the Profile Code shown on the in-game ESC screen. Longer values are safer."
+msgstr "게임 내 ESC 화면에 표시되는 프로필 코드의 마지막 4자리 이상을 입력하세요. 길수록 안전합니다."

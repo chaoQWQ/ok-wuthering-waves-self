@@ -1747,3 +1747,20 @@ msgstr "ルート区間"
 
 msgid "Marked events"
 msgstr "記録済みイベント"
+msgid "Account 1 In-game Profile Code"
+msgstr "アカウント 1 ゲーム内特製コード"
+
+msgid "Account 2 In-game Profile Code"
+msgstr "アカウント 2 ゲーム内特製コード"
+
+msgid "Account 3 In-game Profile Code"
+msgstr "アカウント 3 ゲーム内特製コード"
+
+msgid "Account 4 In-game Profile Code"
+msgstr "アカウント 4 ゲーム内特製コード"
+
+msgid "Account 5 In-game Profile Code"
+msgstr "アカウント 5 ゲーム内特製コード"
+
+msgid "Enter at least the last 4 digits of the Profile Code shown on the in-game ESC screen. Longer values are safer."
+msgstr "ゲーム内の ESC 画面に表示される特製コードの末尾4桁以上を入力してください。桁数が多いほど安全です。"

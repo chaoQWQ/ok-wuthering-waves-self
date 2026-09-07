@@ -1668,3 +1668,20 @@ msgstr "Tramo de ruta"
 
 msgid "Marked events"
 msgstr "Eventos marcados"
+msgid "Account 1 In-game Profile Code"
+msgstr "Código de perfil en el juego de la cuenta 1"
+
+msgid "Account 2 In-game Profile Code"
+msgstr "Código de perfil en el juego de la cuenta 2"
+
+msgid "Account 3 In-game Profile Code"
+msgstr "Código de perfil en el juego de la cuenta 3"
+
+msgid "Account 4 In-game Profile Code"
+msgstr "Código de perfil en el juego de la cuenta 4"
+
+msgid "Account 5 In-game Profile Code"
+msgstr "Código de perfil en el juego de la cuenta 5"
+
+msgid "Enter at least the last 4 digits of the Profile Code shown on the in-game ESC screen. Longer values are safer."
+msgstr "Introduce al menos los últimos 4 dígitos del código de perfil que aparece en la pantalla ESC del juego. Cuantos más dígitos, más seguro."

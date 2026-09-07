@@ -1876,3 +1876,20 @@ msgstr "路線分段"
 
 msgid "Marked events"
 msgstr "已標記事件"
+msgid "Account 1 In-game Profile Code"
+msgstr "帳號 1 遊戲內特徵碼"
+
+msgid "Account 2 In-game Profile Code"
+msgstr "帳號 2 遊戲內特徵碼"
+
+msgid "Account 3 In-game Profile Code"
+msgstr "帳號 3 遊戲內特徵碼"
+
+msgid "Account 4 In-game Profile Code"
+msgstr "帳號 4 遊戲內特徵碼"
+
+msgid "Account 5 In-game Profile Code"
+msgstr "帳號 5 遊戲內特徵碼"
+
+msgid "Enter at least the last 4 digits of the Profile Code shown on the in-game ESC screen. Longer values are safer."
+msgstr "請輸入遊戲內 ESC 畫面所顯示特徵碼的至少後 4 位。輸入位數越多越安全。"

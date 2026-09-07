@@ -1187,8 +1187,17 @@ class BaseWWTask(BaseTask):
             raise_if_not_found=False,
         )
 
-    def click_team_challenge(self):
-        self.wait_click_feature('team_start_challenge', raise_if_not_found=True, click_after_delay=0.5, after_sleep=1)
+    def click_team_challenge(self, time_out=30):
+        # Teleport loading time varies considerably between accounts and after
+        # a cold game start.  The old implicit 10-second timeout could expire
+        # while the destination UI was still loading.
+        self.wait_click_feature(
+            'team_start_challenge',
+            time_out=time_out,
+            raise_if_not_found=True,
+            click_after_delay=0.5,
+            after_sleep=1,
+        )
         self.wait_click_skip_dialog_confirm()
 
     def wait_click_travel(self):

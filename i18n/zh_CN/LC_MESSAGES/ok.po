@@ -1798,3 +1798,20 @@ msgstr "路线分段"
 
 msgid "Marked events"
 msgstr "已标记事件"
+msgid "Account 1 In-game Profile Code"
+msgstr "账号 1 游戏内特征码"
+
+msgid "Account 2 In-game Profile Code"
+msgstr "账号 2 游戏内特征码"
+
+msgid "Account 3 In-game Profile Code"
+msgstr "账号 3 游戏内特征码"
+
+msgid "Account 4 In-game Profile Code"
+msgstr "账号 4 游戏内特征码"
+
+msgid "Account 5 In-game Profile Code"
+msgstr "账号 5 游戏内特征码"
+
+msgid "Enter at least the last 4 digits of the Profile Code shown on the in-game ESC screen. Longer values are safer."
+msgstr "请输入游戏内 ESC 界面所显示特征码的至少后 4 位。输入位数越多越安全。"

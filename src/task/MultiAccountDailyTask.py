@@ -52,6 +52,10 @@ def _slot_keyword(n: int) -> str:
     return f'Account {n} Keyword'
 
 
+def _slot_profile_code(n: int) -> str:
+    return f'Account {n} In-game Profile Code'
+
+
 def _slot_key(n: int, key: str) -> str:
     return f'Account {n}: {key}'
 
@@ -62,6 +66,13 @@ def normalize_account_name(account):
     return account.lower().replace('0', 'o').replace('.con', '.com')
 
 
+def normalize_profile_code(value):
+    """Keep OCR digits only, accepting the common O/0 substitution."""
+    if not value:
+        return ''
+    return re.sub(r'\D', '', str(value).upper().replace('O', '0'))
+
+
 class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
 
     def __init__(self, *args, **kwargs):
@@ -70,6 +81,7 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         self.description = "Automatically switch accounts and run Daily Task for each account"
         self.add_exit_after_config()
         self.done_set = set()
+        self.failed_set = set()
         self.all_accounts = set()
         self.support_schedule_task = True
 
@@ -104,6 +116,7 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         for n in range(1, NUM_ACCOUNT_SLOTS + 1):
             enable_key = _slot_enable(n)
             keyword_key = _slot_keyword(n)
+            profile_code_key = _slot_profile_code(n)
             farm_key = _slot_key(n, 'Which to Farm')
             tacet_key = _slot_key(n, 'Which Tacet Suppression to Farm')
             forgery_key = _slot_key(n, 'Which Forgery Challenge to Farm')
@@ -114,6 +127,7 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             # Defaults — mirror DailyTask defaults
             self.default_config[enable_key] = False
             self.default_config[keyword_key] = ''
+            self.default_config[profile_code_key] = ''
             self.default_config[farm_key] = _SUPPORT_TASKS[0]
             self.default_config[tacet_key] = 1
             self.default_config[forgery_key] = 1
@@ -124,6 +138,10 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             # Config descriptions
             self.config_description[enable_key] = desc_enable
             self.config_description[keyword_key] = desc_keyword
+            self.config_description[profile_code_key] = (
+                'Enter at least the last 4 digits of the Profile Code shown on '
+                'the in-game ESC screen. Longer values are safer.'
+            )
             self.config_description[farm_key] = desc_farm
             self.config_description[tacet_key] = desc_tacet
             self.config_description[forgery_key] = desc_forgery
@@ -134,7 +152,7 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             # Enable switch — shows keyword + Which to Farm + NM + Additional Tasks
             self.config_type[enable_key] = {
                 'sub_configs': {
-                    True: [keyword_key, farm_key, nm_key, tasks_key],
+                    True: [keyword_key, profile_code_key, farm_key, nm_key, tasks_key],
                 }
             }
 
@@ -167,11 +185,16 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         if normalized:
             self.done_set.add(normalized)
 
+    def _mark_failed(self, account):
+        normalized = normalize_account_name(account)
+        if normalized:
+            self.failed_set.add(normalized)
+
     def _is_done(self, account):
         normalized = normalize_account_name(account)
         if not normalized:
             return False
-        if normalized in self.done_set:
+        if normalized in self.done_set or normalized in self.failed_set:
             return True
         return self._is_skipped(account)
 
@@ -207,11 +230,18 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         for n in range(1, NUM_ACCOUNT_SLOTS + 1):
             if not self.config.get(_slot_enable(n)):
                 continue
-            keyword = (self.config.get(_slot_keyword(n)) or '').strip()
-            if not keyword:
+            identifiers = [
+                (self.config.get(_slot_keyword(n)) or '').strip(),
+            ]
+            identifiers = [normalize_account_name(value) for value in identifiers if value]
+            profile_code = normalize_profile_code(self.config.get(_slot_profile_code(n)))
+            profile_digits = normalize_profile_code(account)
+            matched_profile = (
+                len(profile_code) >= 4 and profile_code in profile_digits
+            )
+            if not identifiers and not profile_code:
                 continue
-            kw_norm = normalize_account_name(keyword)
-            if kw_norm and (kw_norm in normalized or normalized in kw_norm):
+            if matched_profile or any(value in normalized or normalized in value for value in identifiers):
                 overrides = {}
                 for daily_key in SLOT_OVERRIDABLE:
                     val = self.config.get(_slot_key(n, daily_key))
@@ -331,10 +361,12 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
                 apply_account_overrides(self._detect_account_from_login_banner())
             result = original_is_main(*args, **kwargs)
             if result and not overrides_applied and self._account_overrides_required():
-                # One final OCR attempt on the first confirmed world frame. If
-                # the short-lived banner is already gone, abort before DailyTask
-                # opens F2 and return to explicit account reselection.
+                # The loading banner may have disappeared before the task was
+                # started.  The ESC profile code remains visible and is the
+                # reliable fallback for an already logged-in account.
                 apply_account_overrides(self._detect_account_from_login_banner())
+                if not overrides_applied:
+                    apply_account_overrides(self._detect_account_from_world_profile())
                 if not overrides_applied:
                     raise AccountConfigNotDetected(
                         self.tr('Could not identify account config after entering the game world')
@@ -392,6 +424,7 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
     def run(self):
         WWOneTimeTask.run(self)
         self.done_set.clear()
+        self.failed_set.clear()
         self.all_accounts.clear()
 
         # Try to identify the initial account BEFORE running DailyTask so that
@@ -425,13 +458,21 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
                 self.log_info(self.tr('All configured accounts have been processed'))
                 return
 
+        daily_succeeded = False
+        needs_reselection = False
         try:
-            self._run_daily_for_account(initial_account)
+            daily_succeeded = self._run_daily_for_account(initial_account)
         except AccountConfigNotDetected as error:
             self.log_warning(
                 self.tr('Account config was not recognized; returning to login and reselecting account'),
                 error,
             )
+            needs_reselection = True
+
+        # Run the reselection path outside the exception handler so an
+        # unrelated later DailyTask failure does not retain the account-detect
+        # exception as misleading traceback context.
+        if needs_reselection:
             self._open_account_login_for_reselection()
             initial_account = self._select_and_login_account()
             if initial_account is None:
@@ -439,18 +480,27 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
                 return
             # A second miss is terminal by design: never spend stamina with a
             # default config when account-specific overrides are enabled.
-            self._run_daily_for_account(initial_account)
+            daily_succeeded = self._run_daily_for_account(initial_account)
         self.ensure_main(time_out=100)
         self._switch_to_login()
         detected = self._detect_current_account_from_login()
-        self._mark_done(detected or initial_account)
+        processed_account = detected or initial_account
+        if daily_succeeded:
+            self._mark_done(processed_account)
+        else:
+            self._mark_failed(processed_account)
 
         self.info_set('Completed', self.done_set)
+        self.info_set('Failed', self.failed_set)
 
         while next_account := self._select_and_login_account():
             self.info_set('Completed', self.done_set)
-            self._run_daily_for_account(next_account)
-            self._mark_done(next_account)
+            self.info_set('Failed', self.failed_set)
+            daily_succeeded = self._run_daily_for_account(next_account)
+            if daily_succeeded:
+                self._mark_done(next_account)
+            else:
+                self._mark_failed(next_account)
             self.ensure_main(time_out=100)
             self._switch_to_login()
 
@@ -503,6 +553,43 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
                 )
                 return account
         return None
+
+    def _detect_account_from_world_profile(self):
+        """Open the ESC profile page and match a configured profile code."""
+        configured_codes = []
+        for n in range(1, NUM_ACCOUNT_SLOTS + 1):
+            if not self.config.get(_slot_enable(n)):
+                continue
+            code = normalize_profile_code(self.config.get(_slot_profile_code(n)))
+            if len(code) >= 4:
+                configured_codes.append(code)
+        if not configured_codes or not self.in_team_and_world():
+            return None
+
+        opened = False
+        try:
+            self.send_key('esc', after_sleep=1.5)
+            opened = bool(self.wait_feature('esc_setting', time_out=10, raise_if_not_found=False))
+            if not opened:
+                self.log_warning(self.tr('Could not open the ESC profile screen for Profile Code detection'))
+                return None
+            # The stable copy is on the left profile card.  Restricting OCR to
+            # this area avoids matching unrelated levels and notification
+            # counts elsewhere on the ESC screen.
+            for text in self.ocr(0.18, 0.32, 0.38, 0.45):
+                digits = normalize_profile_code(text.name)
+                if any(code in digits for code in configured_codes):
+                    self.log_info(
+                        self.tr('Detected account from in-game Profile Code: {account}').format(
+                            account=text.name
+                        )
+                    )
+                    return text.name
+            return None
+        finally:
+            if opened:
+                self.send_key('esc', after_sleep=1)
+                self.wait_in_team_and_world(time_out=10, raise_if_not_found=False)
 
     _click_direct = BaseWWTask.click_direct
 

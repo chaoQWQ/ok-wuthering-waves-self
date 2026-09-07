@@ -1,16 +1,37 @@
 import unittest
 
-from src.task.BaseWWTask import LOGIN_TEXTS
+from src.task.BaseWWTask import LOGIN_TEXTS, BaseWWTask
 from src.task.MultiAccountDailyTask import (
     AccountConfigNotDetected,
     MultiAccountDailyTask,
     _ACCOUNT_LIST_EXHAUSTED,
     account_pattern,
     normalize_account_name,
+    normalize_profile_code,
 )
 
 
 class TestMultiAccountDailyTask(unittest.TestCase):
+
+    def test_team_challenge_allows_slow_teleport_loading(self):
+        class FakeTask:
+            def __init__(self):
+                self.kwargs = None
+                self.skip_checked = False
+
+            def wait_click_feature(self, feature, **kwargs):
+                self.feature = feature
+                self.kwargs = kwargs
+
+            def wait_click_skip_dialog_confirm(self):
+                self.skip_checked = True
+
+        task = FakeTask()
+        BaseWWTask.click_team_challenge(task)
+
+        self.assertEqual(task.feature, 'team_start_challenge')
+        self.assertEqual(task.kwargs['time_out'], 30)
+        self.assertTrue(task.skip_checked)
 
     def test_account_dropdown_accepts_multiple_login_text_matches(self):
         account_box = object()
@@ -38,6 +59,9 @@ class TestMultiAccountDailyTask(unittest.TestCase):
             normalize_account_name("bb****02@example.con"),
         )
 
+    def test_profile_code_normalization_accepts_label_and_ocr_zero_variant(self):
+        self.assertEqual(normalize_profile_code('特征码：1O8627353'), '108627353')
+
     def test_click_account_list_selects_visible_third_account_after_first_two_are_done(self):
         class AccountBox:
             def __init__(self, name):
@@ -49,6 +73,7 @@ class TestMultiAccountDailyTask(unittest.TestCase):
                     normalize_account_name("aa****01@example.com"),
                     normalize_account_name("bb****02@example.com"),
                 }
+                self.failed_set = set()
                 self.all_accounts = set()
                 self.clicked = []
                 self.config = {}  # empty skip list
@@ -95,6 +120,7 @@ class TestMultiAccountDailyTask(unittest.TestCase):
         class FakeTask:
             def __init__(self):
                 self.done_set = {normalize_account_name("aa****01@example.com")}
+                self.failed_set = set()
                 self.all_accounts = set()
                 self.config = {}
 
@@ -122,6 +148,27 @@ class TestMultiAccountDailyTask(unittest.TestCase):
                 return []
 
         self.assertIsNone(MultiAccountDailyTask._click_account_in_list(FakeTask()))
+
+    def test_failed_account_is_not_reported_completed_but_is_not_retried(self):
+        class FakeTask:
+            def __init__(self):
+                self.done_set = set()
+                self.failed_set = set()
+                self.config = {}
+
+            _mark_failed = MultiAccountDailyTask._mark_failed
+            _is_done = MultiAccountDailyTask._is_done
+            _is_skipped = MultiAccountDailyTask._is_skipped
+
+            def log_info(self, *args):
+                pass
+
+        task = FakeTask()
+        task._mark_failed('185****6758')
+
+        self.assertTrue(task._is_done('185****6758'))
+        self.assertNotIn(normalize_account_name('185****6758'), task.done_set)
+        self.assertIn(normalize_account_name('185****6758'), task.failed_set)
 
     def test_daily_runner_allows_foreground_login_and_restores_flag(self):
         class FakeDailyTask:
@@ -331,6 +378,71 @@ class TestMultiAccountDailyTask(unittest.TestCase):
         self.assertEqual(observed, [6])
         self.assertEqual(daily.config['Which Tacet Suppression to Farm'], 1)
         self.assertNotIn('is_main', daily.__dict__)
+
+    def test_world_profile_code_matches_configured_suffix_and_closes_esc(self):
+        class TextBox:
+            name = '特征码：108627353'
+
+        class FakeTask:
+            config = {
+                'Account 1 Daily Task Override': True,
+                'Account 1 In-game Profile Code': '7353',
+            }
+
+            def __init__(self):
+                self.keys = []
+
+            def in_team_and_world(self):
+                return True
+
+            def send_key(self, key, after_sleep=0):
+                self.keys.append(key)
+
+            def wait_feature(self, *args, **kwargs):
+                return object()
+
+            def ocr(self, *args):
+                self.ocr_region = args
+                return [TextBox()]
+
+            def wait_in_team_and_world(self, **kwargs):
+                return True
+
+            def log_info(self, *args):
+                pass
+
+            def log_warning(self, *args):
+                pass
+
+            def tr(self, message):
+                return message
+
+        task = FakeTask()
+        detected = MultiAccountDailyTask._detect_account_from_world_profile(task)
+
+        self.assertEqual(detected, TextBox.name)
+        self.assertEqual(task.ocr_region, (0.18, 0.32, 0.38, 0.45))
+        self.assertEqual(task.keys, ['esc', 'esc'])
+
+    def test_account_override_matches_in_game_profile_code(self):
+        class FakeTask:
+            config = {
+                'Account 1 Daily Task Override': True,
+                'Account 1 Keyword': '362',
+                'Account 1 In-game Profile Code': '7353',
+                'Account 1: Which Tacet Suppression to Farm': 6,
+            }
+
+            def log_info(self, *args):
+                pass
+
+            def tr(self, message):
+                return message
+
+        overrides = MultiAccountDailyTask._get_account_overrides(
+            FakeTask(), '特征码：108627353'
+        )
+        self.assertEqual(overrides['Which Tacet Suppression to Farm'], 6)
 
     def test_click_direct_falls_back_to_click_without_hwnd_window(self):
         class FakeTask:
