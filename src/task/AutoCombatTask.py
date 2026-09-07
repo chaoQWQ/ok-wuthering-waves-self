@@ -32,6 +32,14 @@ class AutoCombatTask(BaseCombatTask, TriggerTask):
         }
         self.op_index = 0
         self.char_features_warmed_up = False
+        # Keep combat diagnostics low-rate so a 10 Hz trigger does not flood
+        # the log while still showing why a combat pass was skipped.
+        self._diagnostic_counter = 0
+
+    def _log_diagnostic(self, message):
+        self._diagnostic_counter += 1
+        if self._diagnostic_counter <= 3 or self._diagnostic_counter % 50 == 0:
+            logger.info(f"[AutoCombat] {message}")
 
     def warm_up_char_features(self):
         if self.char_features_warmed_up:
@@ -48,14 +56,19 @@ class AutoCombatTask(BaseCombatTask, TriggerTask):
     def run(self):
         self.warm_up_char_features()
         ret = False
-        if not self.scene.in_team(self.in_team_and_world):
+        in_team = self.scene.in_team(self.in_team_and_world)
+        if not in_team:
+            self._log_diagnostic("skip: in_team=False")
             return ret
         self.use_liberation = self.config.get('Use Liberation')
         if not self.use_liberation and not self.in_world():  # 仅大世界生效
             self.use_liberation = True
         combat_start = time.time()
         switched_to_healer = False
-        while self.in_combat():
+        combat_state = self.in_combat()
+        if not combat_state:
+            self._log_diagnostic("probe: in_team=True, in_combat=False")
+        while combat_state:
             ret = True
             try:
                 if not switched_to_healer:
@@ -68,6 +81,7 @@ class AutoCombatTask(BaseCombatTask, TriggerTask):
             except NotInCombatException as e:
                 logger.info(f'auto_combat_task_out_of_combat {int(time.time() - combat_start)} {e}')
                 break
+            combat_state = self.in_combat()
         if ret:
             self.combat_end()
             self.switch_healer()
