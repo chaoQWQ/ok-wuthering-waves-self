@@ -108,8 +108,8 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         desc_material = 'Resonator EXP / Weapon EXP / Shell Credit'
         desc_nm = 'Farm 1 Echo from Nightmare Nest to complete Daily Task when needed.'
         desc_tasks = (
-            'Select optional tasks. Nightmare Nest runs before stamina farming; '
-            'the other tasks run afterward.'
+            'Select optional tasks. Stamina farming runs first; Nightmare Nest runs afterward when needed, '
+            'and the other tasks run last.'
         )
 
         # ---- per-account override slots ----

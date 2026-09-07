@@ -1,8 +1,9 @@
 import unittest
-from unittest.mock import Mock, call
+from unittest.mock import Mock, PropertyMock, call, patch
 
 from config import key_config_option
 from src.Labels import Labels
+from src.task.BaseWWTask import BaseWWTask
 from src.task.DailyTask import (
     ADDITIONAL_TASKS,
     AUTO_FARM_NIGHTMARE_NEST,
@@ -14,6 +15,8 @@ from src.task.DailyTask import (
 from src.task.FarmEchoTask import FarmEchoTask
 from src.task.MergeEchoTask import FULL_BATCH_PATTERN, MergeEchoTask
 from src.task.NightmareNestTask import NightmareNestTask
+from src.task.TacetTask import TacetTask
+from src.task.WWOneTimeTask import WWOneTimeTask
 
 
 class TestMergeEchoTask(unittest.TestCase):
@@ -227,6 +230,43 @@ class TestDailyMergeEchoTask(unittest.TestCase):
             daily_task.run_task_by_class.call_args_list,
             [call(FarmEchoTask)],
         )
+
+    def test_daily_spends_stamina_before_nightmare_tasks(self):
+        daily_task = DailyTask.__new__(DailyTask)
+        daily_task.config = {
+            'Which to Farm': 'Tacet Suppression',
+            'Farm Nightmare Nest for Daily Echo': True,
+            ADDITIONAL_TASKS: [AUTO_FARM_NIGHTMARE_NEST],
+        }
+        daily_task.support_tasks = ['Tacet Suppression', 'Forgery Challenge', 'Simulation Challenge']
+        daily_task.validate_additional_tasks = Mock()
+        daily_task.ensure_main = Mock()
+        daily_task.sleep = Mock()
+        daily_task.log_debug = Mock()
+        daily_task.log_error = Mock()
+        daily_task.log_info = Mock()
+        daily_task.claim_daily = Mock()
+        daily_task.claim_mail = Mock()
+        daily_task.claim_battle_pass = Mock()
+        daily_task.run_additional_tasks = Mock()
+        events = []
+        daily_task.open_daily = Mock(side_effect=lambda: events.append('open_daily') or (0, False))
+        daily_task.run_task_by_class = Mock(side_effect=lambda task_class: events.append(task_class))
+
+        tacet_task = Mock()
+        tacet_task.farm_tacet.side_effect = lambda **_kwargs: events.append('stamina')
+        nightmare_task = Mock()
+        daily_task.get_task_by_class = Mock(
+            side_effect=lambda task_class: {
+                TacetTask: tacet_task,
+                NightmareNestTask: nightmare_task,
+            }[task_class]
+        )
+
+        with patch.object(WWOneTimeTask, 'run'), patch.object(BaseWWTask, 'logged_in', new_callable=PropertyMock):
+            DailyTask.run(daily_task)
+
+        self.assertLess(events.index('stamina'), events.index(NightmareNestTask))
 
     def test_daily_does_not_alert_farm_echo_when_not_selected(self):
         daily_task = DailyTask.__new__(DailyTask)

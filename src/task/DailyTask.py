@@ -42,8 +42,8 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
             'Which Forgery Challenge to Farm': 'The Forgery Challenge number in the F2 list.',
             'Material Selection': 'Resonator EXP / Weapon EXP / Shell Credit',
             'Farm Nightmare Nest for Daily Echo': 'Farm 1 Echo from Nightmare Nest to complete Daily Task when needed.',
-            ADDITIONAL_TASKS: 'Select optional tasks. Nightmare Nest runs before stamina farming to help complete '
-                              'the daily task; the other tasks run afterward.',
+            ADDITIONAL_TASKS: 'Select optional tasks. Stamina farming runs first; Nightmare Nest runs afterward '
+                              'when needed, and the other tasks run last.',
         }
         material_option_list = ['Resonator EXP', 'Weapon EXP', 'Shell Credit']
         self.config_type = {
@@ -93,6 +93,19 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
                 and self.config.get('Which to Farm', self.support_tasks[0]) != self.support_tasks[0]
         )
 
+        if need_stamina:
+            target = self.config.get('Which to Farm', self.support_tasks[0])
+            if target == self.support_tasks[0]:
+                self.get_task_by_class(TacetTask).farm_tacet(daily=True, used_stamina=used_stamina,
+                                                             config=self.config)
+            elif target == self.support_tasks[1]:
+                self.get_task_by_class(ForgeryTask).farm_forgery(daily=True, used_stamina=used_stamina,
+                                                                 config=self.config)
+            else:
+                self.get_task_by_class(SimulationTask).farm_simulation(daily=True, used_stamina=used_stamina,
+                                                                       config=self.config)
+            self.sleep(4)
+
         if need_nightmare:
             try:
                 # 劫持 NightmareNestTask.ensure_main 避免梦魇打完关书
@@ -113,19 +126,6 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
             finally:
                 # 还原 ensure_main，防范实例状态污染
                 self.get_task_by_class(NightmareNestTask).__dict__.pop('ensure_main', None)
-
-        if need_stamina:
-            target = self.config.get('Which to Farm', self.support_tasks[0])
-            if target == self.support_tasks[0]:
-                self.get_task_by_class(TacetTask).farm_tacet(daily=True, used_stamina=used_stamina,
-                                                             config=self.config)
-            elif target == self.support_tasks[1]:
-                self.get_task_by_class(ForgeryTask).farm_forgery(daily=True, used_stamina=used_stamina,
-                                                                 config=self.config)
-            else:
-                self.get_task_by_class(SimulationTask).farm_simulation(daily=True, used_stamina=used_stamina,
-                                                                       config=self.config)
-            self.sleep(4)
 
         self.claim_daily()
 
