@@ -1,5 +1,6 @@
 import unittest
 
+from src.Labels import Labels
 from src.task.BaseWWTask import LOGIN_TEXTS
 from src.task.MultiAccountDailyTask import (
     AccountConfigNotDetected,
@@ -232,6 +233,43 @@ class TestMultiAccountDailyTask(unittest.TestCase):
         with self.assertRaises(AccountConfigNotDetected):
             MultiAccountDailyTask._run_daily_for_account(FakeTask(), '185****0362')
         self.assertEqual(daily.config['Which Tacet Suppression to Farm'], 1)
+
+    def test_unknown_title_screen_account_opens_switch_account(self):
+        switch_box = object()
+
+        class FakeTask:
+            _allow_bring_to_front = False
+            _click_direct = MultiAccountDailyTask._click_direct
+
+            def __init__(self):
+                self.clicked = []
+                self.dropdown_waited = False
+
+            def do_find_account_drop_down(self):
+                return None
+
+            def find_one(self, feature, **kwargs):
+                return switch_box if feature == Labels.switch_account else None
+
+            def click(self, target, after_sleep=0):
+                self.clicked.append(target)
+
+            def find_account_drop_down(self):
+                self.dropdown_waited = True
+                return object()
+
+            def log_info(self, *args):
+                pass
+
+            def tr(self, message):
+                return message
+
+        task = FakeTask()
+        MultiAccountDailyTask._open_account_login_for_reselection(task)
+
+        self.assertEqual(task.clicked, [switch_box])
+        self.assertTrue(task.dropdown_waited)
+        self.assertFalse(task._allow_bring_to_front)
 
     def test_click_direct_falls_back_to_click_without_hwnd_window(self):
         class FakeTask:

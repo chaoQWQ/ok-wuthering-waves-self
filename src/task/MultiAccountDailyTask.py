@@ -10,6 +10,7 @@ from src.task.WWOneTimeTask import WWOneTimeTask
 from src.task.BaseCombatTask import BaseCombatTask
 from src.task.BaseWWTask import LOGIN_TEXTS, BaseWWTask
 from src.task.MouseResetTask import MouseResetTask
+from src.Labels import Labels
 from src.utils.wgc_compat import enable_windows_graphics_capture
 
 enable_windows_graphics_capture()
@@ -232,6 +233,34 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             for n in range(1, NUM_ACCOUNT_SLOTS + 1)
         )
 
+    def _open_account_login_for_reselection(self):
+        """Reach the account dropdown without clicking the title-screen connect button."""
+        if self.do_find_account_drop_down():
+            return
+        switch_account = self.find_one(
+            Labels.switch_account,
+            vertical_variance=0.1,
+            threshold=0.7,
+        )
+        if switch_account:
+            self.log_info(
+                self.tr('Account config is unknown on title screen; opening Switch Account')
+            )
+            focus_was_allowed = getattr(self, '_allow_bring_to_front', False)
+            self._allow_bring_to_front = True
+            try:
+                self._click_direct(switch_account, after_sleep=2)
+            finally:
+                self._allow_bring_to_front = focus_was_allowed
+            self.find_account_drop_down()
+            return
+        if self.in_team_and_world():
+            self._switch_to_login()
+            return
+        # A transition may be in progress. Wait for the account login page
+        # rather than guessing a coordinate or entering the game unconfigured.
+        self.find_account_drop_down()
+
     def _apply_daily_overrides(self, daily_task, overrides):
         """Patch DailyTask config with per-account overrides; return saved originals."""
         originals = {}
@@ -296,6 +325,15 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             if not overrides_applied:
                 detected_account = self._detect_current_account_from_login()
                 apply_account_overrides(detected_account)
+                if (
+                    not overrides_applied
+                    and self._account_overrides_required()
+                    and self.find_one(Labels.switch_account, vertical_variance=0.1, threshold=0.7)
+                ):
+                    self._open_account_login_for_reselection()
+                    raise AccountConfigNotDetected(
+                        self.tr('Account config is not shown on title screen')
+                    )
                 if (
                     not overrides_applied
                     and self._account_overrides_required()
@@ -393,8 +431,7 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
                 self.tr('Account config was not recognized; returning to login and reselecting account'),
                 error,
             )
-            if not self.do_find_account_drop_down():
-                self._switch_to_login()
+            self._open_account_login_for_reselection()
             initial_account = self._select_and_login_account()
             if initial_account is None:
                 self.log_info(self.tr('All configured accounts have been processed'))
