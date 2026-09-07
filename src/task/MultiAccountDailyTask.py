@@ -479,9 +479,11 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
 
     def _detect_account_from_login_banner(self):
         """Read the short-lived account notice shown near the top after login."""
-        # The notice is closer to the screen centre on some resolutions. OCR
-        # may also drop the asterisks, so match configured slot keywords first.
-        texts = self.ocr(0.12, 0.03, 0.88, 0.68)
+        # Confirmed from the game's loading screen: the account + "enter game"
+        # notice occupies roughly x=41%-61%, y=5%-10%. Keep a little margin for
+        # other resolutions while excluding the logo, version text and buttons.
+        # OCR may drop the asterisks, so match configured slot keywords first.
+        texts = self.ocr(0.30, 0.02, 0.72, 0.18)
         keywords = []
         for n in range(1, NUM_ACCOUNT_SLOTS + 1):
             if self.config.get(_slot_enable(n)):

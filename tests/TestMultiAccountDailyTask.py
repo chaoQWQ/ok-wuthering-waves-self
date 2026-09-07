@@ -268,6 +268,7 @@ class TestMultiAccountDailyTask(unittest.TestCase):
             }
 
             def ocr(self, *args):
+                self.ocr_region = args
                 return [TextBox()]
 
             def log_info(self, *args):
@@ -276,8 +277,10 @@ class TestMultiAccountDailyTask(unittest.TestCase):
             def tr(self, message):
                 return message
 
-        account = MultiAccountDailyTask._detect_account_from_login_banner(FakeTask())
+        task = FakeTask()
+        account = MultiAccountDailyTask._detect_account_from_login_banner(task)
         self.assertEqual(account, TextBox.name)
+        self.assertEqual(task.ocr_region, (0.30, 0.02, 0.72, 0.18))
 
     def test_daily_runner_applies_override_from_post_login_banner(self):
         class FakeDailyTask:
