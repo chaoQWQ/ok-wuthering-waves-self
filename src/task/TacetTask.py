@@ -66,6 +66,10 @@ class TacetTask(WWOneTimeTask, BaseCombatTask):
 
             self.open_boss_book('wuyin')
             index = config.get('Which Tacet Suppression to Farm', 1) - 1
+            self.log_info(
+                f'Configured Tacet Suppression {index + 1} '
+                f'(internal index {index})'
+            )
             is_team = self.teleport_to_tacet(index)
             if is_team:
                 self.click_team_challenge()
@@ -113,7 +117,10 @@ class TacetTask(WWOneTimeTask, BaseCombatTask):
             self.back(after_sleep=1)
 
     def teleport_to_tacet(self, index):
-        self.info_set('Teleport to Tacet Suppression', index)
+        # Configuration is one-based (matching the F2 list).  Keep the
+        # internal index zero-based, but report the user-facing number so a
+        # run can be verified directly from the task panel/log.
+        self.info_set('Teleport to Tacet Suppression', index + 1)
         if index >= self.total_number:
             raise IndexError(f'Index out of range, max is {self.total_number}')
         return self.click_on_book_target(index + 1, self.total_number, self.structure)

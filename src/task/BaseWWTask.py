@@ -7,7 +7,7 @@ from typing import List
 import numpy as np
 
 from ok import BaseTask, Logger, find_boxes_by_name, og, find_color_rectangles, mask_white, Box
-from ok import CannotFindException
+from ok import CannotFindException, TaskDisabledException
 import cv2
 
 from src.Labels import Labels
@@ -50,6 +50,37 @@ class BaseWWTask(BaseTask):
     @logged_in.setter
     def logged_in(self, value):
         og.my_app.logged_in = value
+
+    def _raise_if_game_window_disconnected(self):
+        """Stop task input immediately after the game HWND disappears.
+
+        A crashed game leaves the executor's last frame available for a short
+        period.  Without this check combat loops can continue sending keyboard
+        and mouse messages to a stale HWND, producing a long chain of opaque
+        capture/PostMessage errors.
+        """
+        executor = getattr(self, 'executor', None)
+        connected = getattr(executor, 'connected', None)
+        if not callable(connected):
+            return
+        try:
+            is_connected = bool(connected())
+        except Exception:
+            is_connected = False
+        if not is_connected:
+            self.log_error('Game window disconnected; stopping task input')
+            raise TaskDisabledException()
+
+    @property
+    def frame(self):
+        self._raise_if_game_window_disconnected()
+        return self.executor.frame
+
+    def next_frame(self, time_out=6):
+        frame = self.executor.next_frame(time_out=time_out)
+        if frame is None:
+            self._raise_if_game_window_disconnected()
+        return frame
 
     def is_open_world_auto_combat(self):
         from src.task.AutoCombatTask import AutoCombatTask

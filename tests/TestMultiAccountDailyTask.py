@@ -1,5 +1,6 @@
 import unittest
 
+from ok import TaskDisabledException
 from src.task.BaseWWTask import LOGIN_TEXTS, BaseWWTask
 from src.task.MultiAccountDailyTask import (
     AccountConfigNotDetected,
@@ -12,6 +13,22 @@ from src.task.MultiAccountDailyTask import (
 
 
 class TestMultiAccountDailyTask(unittest.TestCase):
+
+    def test_disconnected_game_window_stops_task_input(self):
+        class FakeExecutor:
+            def connected(self):
+                return False
+
+        class FakeTask:
+            executor = FakeExecutor()
+
+            def log_error(self, message):
+                self.message = message
+
+        task = FakeTask()
+        with self.assertRaises(TaskDisabledException):
+            BaseWWTask._raise_if_game_window_disconnected(task)
+        self.assertIn('disconnected', task.message)
 
     def test_team_challenge_allows_slow_teleport_loading(self):
         class FakeTask:
