@@ -2,6 +2,7 @@ import unittest
 
 from src.task.BaseWWTask import LOGIN_TEXTS
 from src.task.MultiAccountDailyTask import (
+    AccountConfigNotDetected,
     MultiAccountDailyTask,
     _ACCOUNT_LIST_EXHAUSTED,
     account_pattern,
@@ -136,6 +137,7 @@ class TestMultiAccountDailyTask(unittest.TestCase):
         class FakeTask:
             config = {}
             _get_account_overrides = MultiAccountDailyTask._get_account_overrides
+            _account_overrides_required = MultiAccountDailyTask._account_overrides_required
             _apply_daily_overrides = MultiAccountDailyTask._apply_daily_overrides
             _restore_daily_overrides = MultiAccountDailyTask._restore_daily_overrides
 
@@ -171,6 +173,7 @@ class TestMultiAccountDailyTask(unittest.TestCase):
                 'Account 1: Which Tacet Suppression to Farm': 6,
             }
             _get_account_overrides = MultiAccountDailyTask._get_account_overrides
+            _account_overrides_required = MultiAccountDailyTask._account_overrides_required
             _apply_daily_overrides = MultiAccountDailyTask._apply_daily_overrides
             _restore_daily_overrides = MultiAccountDailyTask._restore_daily_overrides
 
@@ -194,6 +197,41 @@ class TestMultiAccountDailyTask(unittest.TestCase):
         self.assertEqual(observed, [6])
         self.assertEqual(daily.config['Which Tacet Suppression to Farm'], 1)
         self.assertNotIn('wait_login', daily.__dict__)
+
+    def test_daily_runner_stops_when_enabled_account_config_does_not_match(self):
+        class FakeDailyTask:
+            def __init__(self):
+                self.config = {'Which Tacet Suppression to Farm': 1}
+                self._allow_bring_to_front = False
+
+            def wait_login(self):
+                raise AssertionError('DailyTask must not start with an unmatched account config')
+
+        daily = FakeDailyTask()
+
+        class FakeTask:
+            config = {
+                'Account 1 Daily Task Override': True,
+                'Account 1 Keyword': '6758',
+                'Account 1: Which Tacet Suppression to Farm': 3,
+            }
+            _get_account_overrides = MultiAccountDailyTask._get_account_overrides
+            _account_overrides_required = MultiAccountDailyTask._account_overrides_required
+            _apply_daily_overrides = MultiAccountDailyTask._apply_daily_overrides
+            _restore_daily_overrides = MultiAccountDailyTask._restore_daily_overrides
+
+            def get_task_by_class(self, task_class):
+                return daily
+
+            def log_info(self, *args):
+                pass
+
+            def tr(self, message):
+                return message
+
+        with self.assertRaises(AccountConfigNotDetected):
+            MultiAccountDailyTask._run_daily_for_account(FakeTask(), '185****0362')
+        self.assertEqual(daily.config['Which Tacet Suppression to Farm'], 1)
 
     def test_click_direct_falls_back_to_click_without_hwnd_window(self):
         class FakeTask:

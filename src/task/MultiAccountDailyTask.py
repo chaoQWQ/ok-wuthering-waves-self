@@ -17,6 +17,10 @@ enable_windows_graphics_capture()
 account_pattern = re.compile(r'\*\*\*\*')
 _ACCOUNT_LIST_EXHAUSTED = object()
 
+
+class AccountConfigNotDetected(Exception):
+    """Stop stamina spending when an account-specific config cannot be resolved."""
+
 # Number of independent per-account DailyTask override slots shown in the UI
 NUM_ACCOUNT_SLOTS = 5
 
@@ -221,6 +225,13 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
                 return overrides
         return {}
 
+    def _account_overrides_required(self):
+        """Return whether this run uses account-specific DailyTask settings."""
+        return any(
+            self.config.get(_slot_enable(n))
+            for n in range(1, NUM_ACCOUNT_SLOTS + 1)
+        )
+
     def _apply_daily_overrides(self, daily_task, overrides):
         """Patch DailyTask config with per-account overrides; return saved originals."""
         originals = {}
@@ -262,6 +273,12 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
                 return
             resolved_account = detected_account
             overrides = self._get_account_overrides(detected_account)
+            if self._account_overrides_required() and not overrides:
+                raise AccountConfigNotDetected(
+                    self.tr('No account-specific Daily Task config matched {account}').format(
+                        account=detected_account
+                    )
+                )
             originals.update(self._apply_daily_overrides(daily_task, overrides))
             overrides_applied = True
 
@@ -277,7 +294,16 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
 
         def wait_login_with_account_config():
             if not overrides_applied:
-                apply_account_overrides(self._detect_current_account_from_login())
+                detected_account = self._detect_current_account_from_login()
+                apply_account_overrides(detected_account)
+                if (
+                    not overrides_applied
+                    and self._account_overrides_required()
+                    and self.do_find_account_drop_down()
+                ):
+                    raise AccountConfigNotDetected(
+                        self.tr('Could not identify account-specific Daily Task config on login screen')
+                    )
             return original_wait_login()
 
         if not overrides_applied:
@@ -289,6 +315,8 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         try:
             self.run_task_by_class(DailyTask)
             return True
+        except AccountConfigNotDetected:
+            raise
         except TaskDisabledException:
             raise
         except Exception as e:
@@ -341,7 +369,39 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
                 )
             )
 
-        self._run_daily_for_account(initial_account)
+        # If the task starts inside the world, the account identity is not
+        # visible. Return to login and explicitly reselect an account before
+        # spending stamina instead of silently using DailyTask defaults.
+        if (
+            initial_account is None
+            and self._account_overrides_required()
+            and self.in_team_and_world()
+        ):
+            self.log_warning(
+                self.tr('Account config is not visible in the game world; returning to login to reselect account')
+            )
+            self._switch_to_login()
+            initial_account = self._select_and_login_account()
+            if initial_account is None:
+                self.log_info(self.tr('All configured accounts have been processed'))
+                return
+
+        try:
+            self._run_daily_for_account(initial_account)
+        except AccountConfigNotDetected as error:
+            self.log_warning(
+                self.tr('Account config was not recognized; returning to login and reselecting account'),
+                error,
+            )
+            if not self.do_find_account_drop_down():
+                self._switch_to_login()
+            initial_account = self._select_and_login_account()
+            if initial_account is None:
+                self.log_info(self.tr('All configured accounts have been processed'))
+                return
+            # A second miss is terminal by design: never spend stamina with a
+            # default config when account-specific overrides are enabled.
+            self._run_daily_for_account(initial_account)
         self.ensure_main(time_out=100)
         self._switch_to_login()
         detected = self._detect_current_account_from_login()
