@@ -45,7 +45,7 @@ class TestNightmareNestTask(unittest.TestCase):
         self.assertEqual('echo captured', task.out_of_combat_reason)
 
     def test_combat_nest_rechecks_after_pickup_in_team_and_open_world(self):
-        for feature_name in ('team_close', 'fast_travel_custom'):
+        for feature_name in ('team_start_challenge', 'fast_travel_custom'):
             with self.subTest(feature_name=feature_name):
                 task = NightmareNestTask.__new__(NightmareNestTask)
                 task._capture_mode = False

@@ -85,9 +85,12 @@ class NightmareNestTask(WWOneTimeTask, BaseCombatTask):
             self._death_recovery_counts = {}
         target_box = nest.box if isinstance(nest, NestTarget) else nest
         self.click(target_box, after_sleep=2)
-        feature = self.wait_feature(['fast_travel_custom', 'gray_teleport', 'remove_custom', 'team_close'], time_out=10,
+        # ``team_close`` is a generic top-right icon that is also visible on
+        # the guidebook itself.  The actionable team-start button is the
+        # reliable signal that this target opened a team route.
+        feature = self.wait_feature(TRAVEL_FEATURES + ['team_start_challenge'], time_out=10,
                                     settle_time=0.5, raise_if_not_found=True)
-        is_team = feature.name == 'team_close'
+        is_team = feature.name == 'team_start_challenge'
         if is_team:
             self.click_team_challenge()
             self.wait_in_team_and_world(time_out=120)

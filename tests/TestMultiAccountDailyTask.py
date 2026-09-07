@@ -50,6 +50,51 @@ class TestMultiAccountDailyTask(unittest.TestCase):
         self.assertEqual(task.kwargs['time_out'], 30)
         self.assertTrue(task.skip_checked)
 
+    def test_book_target_retries_swallowed_click_and_requires_actionable_team_start(self):
+        class FakeBox:
+            def __init__(self, name, y=0):
+                self.name = name
+                self.y = y
+
+        class FakeTask:
+            def __init__(self):
+                self.clicks = []
+                self.wait_features = []
+                self.wait_results = iter([None, FakeBox('team_start_challenge')])
+                self.buttons = [FakeBox('boss_proceed', y) for y in (100, 200, 300, 400)]
+
+            def sleep(self, *_args, **_kwargs):
+                pass
+
+            def _find_book_scroll_top(self):
+                return 0.2
+
+            def box_of_screen(self, *_args, **_kwargs):
+                return None
+
+            def find_feature(self, feature, *_args, **_kwargs):
+                self.assert_feature = feature
+                return self.buttons
+
+            def draw_boxes(self, **_kwargs):
+                pass
+
+            def click(self, target, **kwargs):
+                self.clicks.append((target, kwargs))
+
+            def wait_feature(self, feature, **kwargs):
+                self.wait_features.append((feature, kwargs))
+                return next(self.wait_results)
+
+        task = FakeTask()
+
+        self.assertTrue(BaseWWTask.click_on_book_target(task, 3, 19, [2, 5, 5, 7]))
+        self.assertEqual(2, len(task.clicks))
+        self.assertEqual(2, len(task.wait_features))
+        self.assertNotIn('team_close', task.wait_features[0][0])
+        self.assertIn('team_start_challenge', task.wait_features[0][0])
+        self.assertFalse(task.wait_features[0][1]['raise_if_not_found'])
+
     def test_account_dropdown_accepts_multiple_login_text_matches(self):
         account_box = object()
 
