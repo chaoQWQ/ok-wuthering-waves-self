@@ -298,7 +298,7 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
     def _run_daily_for_account(self, account):
         """Run DailyTask for *account* with optional per-account config override.
 
-        - Applies slot overrides from 'Account N Daily Task Override' config before running.
+        - Applies slot overrides only after the in-game ESC Profile Code is read.
         - Catches non-fatal exceptions so a single failure does not abort the
           whole multi-account run.
         - Re-raises TaskDisabledException so the executor can stop cleanly.
@@ -324,49 +324,13 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             originals.update(self._apply_daily_overrides(daily_task, overrides))
             overrides_applied = True
 
-        apply_account_overrides(account)
-
-        # On a cold game start the first captured frames may still be blank or
-        # loading, so run() cannot identify the selected login account yet.
-        # DailyTask.wait_login is the reliable point immediately before the
-        # login button is clicked. Resolve and apply that account's overrides
-        # there so the first account never falls back to DailyTask defaults.
-        original_wait_login = daily_task.wait_login
-        wait_login_was_overridden = 'wait_login' in daily_task.__dict__
         original_is_main = getattr(daily_task, 'is_main', None)
         is_main_was_overridden = 'is_main' in daily_task.__dict__
 
-        def wait_login_with_account_config():
-            if not overrides_applied:
-                detected_account = (
-                    self._detect_current_account_from_login()
-                    or self._detect_account_from_login_banner()
-                )
-                apply_account_overrides(detected_account)
-                if (
-                    not overrides_applied
-                    and self._account_overrides_required()
-                    and self.do_find_account_drop_down()
-                ):
-                    raise AccountConfigNotDetected(
-                        self.tr('Could not identify account-specific Daily Task config on login screen')
-                    )
-            return original_wait_login()
-
-        if not overrides_applied:
-            daily_task.wait_login = wait_login_with_account_config
-
-        def is_main_with_account_banner(*args, **kwargs):
-            if not overrides_applied:
-                apply_account_overrides(self._detect_account_from_login_banner())
+        def is_main_with_account_profile_code(*args, **kwargs):
             result = original_is_main(*args, **kwargs)
             if result and not overrides_applied and self._account_overrides_required():
-                # The loading banner may have disappeared before the task was
-                # started.  The ESC profile code remains visible and is the
-                # reliable fallback for an already logged-in account.
-                apply_account_overrides(self._detect_account_from_login_banner())
-                if not overrides_applied:
-                    apply_account_overrides(self._detect_account_from_world_profile())
+                apply_account_overrides(self._detect_account_from_world_profile())
                 if not overrides_applied:
                     raise AccountConfigNotDetected(
                         self.tr('Could not identify account config after entering the game world')
@@ -374,7 +338,7 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             return result
 
         if not overrides_applied and original_is_main is not None:
-            daily_task.is_main = is_main_with_account_banner
+            daily_task.is_main = is_main_with_account_profile_code
         focus_was_allowed = getattr(daily_task, '_allow_bring_to_front', False)
         # DailyTask owns the initial login wait.  Physical login controls must
         # be clicked with the game in front, just like later account switches.
@@ -407,10 +371,6 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             return False
         finally:
             daily_task._allow_bring_to_front = focus_was_allowed
-            if wait_login_was_overridden:
-                daily_task.wait_login = original_wait_login
-            else:
-                daily_task.__dict__.pop('wait_login', None)
             if is_main_was_overridden:
                 daily_task.is_main = original_is_main
             else:
@@ -427,11 +387,9 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         self.failed_set.clear()
         self.all_accounts.clear()
 
-        # Try to identify the initial account BEFORE running DailyTask so that
-        # per-account config overrides (e.g. "farm tacet #3") are applied from
-        # the very first run.  If the game is already at the login screen we can
-        # read the account name from the OCR; otherwise we fall back to None and
-        # detect the identity after switching to login (legacy behaviour).
+        # Keep the selected login-list account for completion bookkeeping.  It
+        # is deliberately not used to choose DailyTask settings; those are
+        # resolved from the in-game ESC Profile Code below.
         initial_account = None
         if self.do_find_account_drop_down():
             initial_account = self._detect_current_account_from_login()
@@ -440,23 +398,6 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
                     account=initial_account or '(unknown)'
                 )
             )
-
-        # If the task starts inside the world, the account identity is not
-        # visible. Return to login and explicitly reselect an account before
-        # spending stamina instead of silently using DailyTask defaults.
-        if (
-            initial_account is None
-            and self._account_overrides_required()
-            and self.in_team_and_world()
-        ):
-            self.log_warning(
-                self.tr('Account config is not visible in the game world; returning to login to reselect account')
-            )
-            self._switch_to_login()
-            initial_account = self._select_and_login_account()
-            if initial_account is None:
-                self.log_info(self.tr('All configured accounts have been processed'))
-                return
 
         daily_succeeded = False
         needs_reselection = False
@@ -483,6 +424,9 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             daily_succeeded = self._run_daily_for_account(initial_account)
         self.ensure_main(time_out=100)
         self._switch_to_login()
+        # OCR here is only for login-list progress bookkeeping.  DailyTask
+        # settings have already been selected from the in-game ESC Profile
+        # Code and never depend on this short-lived login-screen text.
         detected = self._detect_current_account_from_login()
         processed_account = detected or initial_account
         if daily_succeeded:
@@ -525,33 +469,6 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         if texts:
             self.log_info(self.tr('Current account: {account}').format(account=texts[0]))
             return texts[0].name
-        return None
-
-    def _detect_account_from_login_banner(self):
-        """Read the short-lived account notice shown near the top after login."""
-        # Confirmed from the game's loading screen: the account + "enter game"
-        # notice occupies roughly x=41%-61%, y=5%-10%. Keep a little margin for
-        # other resolutions while excluding the logo, version text and buttons.
-        # OCR may drop the asterisks, so match configured slot keywords first.
-        texts = self.ocr(0.30, 0.02, 0.72, 0.18)
-        keywords = []
-        for n in range(1, NUM_ACCOUNT_SLOTS + 1):
-            if self.config.get(_slot_enable(n)):
-                keyword = normalize_account_name(
-                    (self.config.get(_slot_keyword(n)) or '').strip()
-                )
-                if keyword:
-                    keywords.append(keyword)
-        for text in texts:
-            normalized = normalize_account_name(text.name)
-            if any(keyword in normalized for keyword in keywords) or account_pattern.search(text.name):
-                account = text.name
-                self.log_info(
-                    self.tr('Detected account from pre-connect banner: {account}').format(
-                        account=account
-                    )
-                )
-                return account
         return None
 
     def _detect_account_from_world_profile(self):

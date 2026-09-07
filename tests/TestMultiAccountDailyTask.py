@@ -218,14 +218,14 @@ class TestMultiAccountDailyTask(unittest.TestCase):
         self.assertTrue(MultiAccountDailyTask._run_daily_for_account(FakeTask(), None))
         self.assertFalse(daily._allow_bring_to_front)
 
-    def test_daily_runner_applies_first_account_override_when_login_becomes_visible(self):
+    def test_daily_runner_applies_override_from_world_profile(self):
         class FakeDailyTask:
             def __init__(self):
                 self.config = {'Which Tacet Suppression to Farm': 1}
                 self._allow_bring_to_front = False
 
-            def wait_login(self):
-                return False
+            def is_main(self):
+                return True
 
         daily = FakeDailyTask()
         observed = []
@@ -233,7 +233,7 @@ class TestMultiAccountDailyTask(unittest.TestCase):
         class FakeTask:
             config = {
                 'Account 1 Daily Task Override': True,
-                'Account 1 Keyword': '362',
+                'Account 1 In-game Profile Code': '7353',
                 'Account 1: Which Tacet Suppression to Farm': 6,
             }
             _get_account_overrides = MultiAccountDailyTask._get_account_overrides
@@ -245,11 +245,11 @@ class TestMultiAccountDailyTask(unittest.TestCase):
                 return daily
 
             def run_task_by_class(self, task_class):
-                daily.wait_login()
+                daily.is_main()
                 observed.append(daily.config['Which Tacet Suppression to Farm'])
 
-            def _detect_current_account_from_login(self):
-                return '185****0362'
+            def _detect_account_from_world_profile(self):
+                return '特征码：108627353'
 
             def log_info(self, *args):
                 pass
@@ -257,10 +257,14 @@ class TestMultiAccountDailyTask(unittest.TestCase):
             def tr(self, message):
                 return message
 
-        self.assertTrue(MultiAccountDailyTask._run_daily_for_account(FakeTask(), None))
+        # The login-list account is bookkeeping only; the ESC profile code
+        # determines which slot's DailyTask settings are applied.
+        self.assertTrue(
+            MultiAccountDailyTask._run_daily_for_account(FakeTask(), '185****0362')
+        )
         self.assertEqual(observed, [6])
         self.assertEqual(daily.config['Which Tacet Suppression to Farm'], 1)
-        self.assertNotIn('wait_login', daily.__dict__)
+        self.assertNotIn('is_main', daily.__dict__)
 
     def test_daily_runner_stops_when_enabled_account_config_does_not_match(self):
         class FakeDailyTask:
@@ -268,15 +272,15 @@ class TestMultiAccountDailyTask(unittest.TestCase):
                 self.config = {'Which Tacet Suppression to Farm': 1}
                 self._allow_bring_to_front = False
 
-            def wait_login(self):
-                raise AssertionError('DailyTask must not start with an unmatched account config')
+            def is_main(self):
+                return True
 
         daily = FakeDailyTask()
 
         class FakeTask:
             config = {
                 'Account 1 Daily Task Override': True,
-                'Account 1 Keyword': '6758',
+                'Account 1 In-game Profile Code': '4946',
                 'Account 1: Which Tacet Suppression to Farm': 3,
             }
             _get_account_overrides = MultiAccountDailyTask._get_account_overrides
@@ -287,6 +291,12 @@ class TestMultiAccountDailyTask(unittest.TestCase):
             def get_task_by_class(self, task_class):
                 return daily
 
+            def run_task_by_class(self, task_class):
+                daily.is_main()
+
+            def _detect_account_from_world_profile(self):
+                return '特征码：108627353'
+
             def log_info(self, *args):
                 pass
 
@@ -294,7 +304,7 @@ class TestMultiAccountDailyTask(unittest.TestCase):
                 return message
 
         with self.assertRaises(AccountConfigNotDetected):
-            MultiAccountDailyTask._run_daily_for_account(FakeTask(), '185****0362')
+            MultiAccountDailyTask._run_daily_for_account(FakeTask(), None)
         self.assertEqual(daily.config['Which Tacet Suppression to Farm'], 1)
 
     def test_unknown_account_enters_world_then_uses_ingame_logout(self):
@@ -320,81 +330,6 @@ class TestMultiAccountDailyTask(unittest.TestCase):
         MultiAccountDailyTask._open_account_login_for_reselection(task)
 
         self.assertEqual(task.actions, [('ensure_main', 180), ('_switch_to_login', None)])
-
-    def test_pre_connect_banner_matches_configured_keyword_without_asterisks(self):
-        class TextBox:
-            name = '当前登录账号 1850000362'
-
-        class FakeTask:
-            config = {
-                'Account 1 Daily Task Override': True,
-                'Account 1 Keyword': '362',
-            }
-
-            def ocr(self, *args):
-                self.ocr_region = args
-                return [TextBox()]
-
-            def log_info(self, *args):
-                pass
-
-            def tr(self, message):
-                return message
-
-        task = FakeTask()
-        account = MultiAccountDailyTask._detect_account_from_login_banner(task)
-        self.assertEqual(account, TextBox.name)
-        self.assertEqual(task.ocr_region, (0.30, 0.02, 0.72, 0.18))
-
-    def test_daily_runner_applies_override_from_post_login_banner(self):
-        class FakeDailyTask:
-            def __init__(self):
-                self.config = {'Which Tacet Suppression to Farm': 1}
-                self._allow_bring_to_front = False
-
-            def wait_login(self):
-                return False
-
-            def is_main(self):
-                return True
-
-        daily = FakeDailyTask()
-        observed = []
-
-        class FakeTask:
-            config = {
-                'Account 1 Daily Task Override': True,
-                'Account 1 Keyword': '362',
-                'Account 1: Which Tacet Suppression to Farm': 6,
-            }
-            _get_account_overrides = MultiAccountDailyTask._get_account_overrides
-            _account_overrides_required = MultiAccountDailyTask._account_overrides_required
-            _apply_daily_overrides = MultiAccountDailyTask._apply_daily_overrides
-            _restore_daily_overrides = MultiAccountDailyTask._restore_daily_overrides
-
-            def get_task_by_class(self, task_class):
-                return daily
-
-            def run_task_by_class(self, task_class):
-                daily.is_main()
-                observed.append(daily.config['Which Tacet Suppression to Farm'])
-
-            def _detect_current_account_from_login(self):
-                return None
-
-            def _detect_account_from_login_banner(self):
-                return '当前登录账号 185****0362'
-
-            def log_info(self, *args):
-                pass
-
-            def tr(self, message):
-                return message
-
-        self.assertTrue(MultiAccountDailyTask._run_daily_for_account(FakeTask(), None))
-        self.assertEqual(observed, [6])
-        self.assertEqual(daily.config['Which Tacet Suppression to Farm'], 1)
-        self.assertNotIn('is_main', daily.__dict__)
 
     def test_world_profile_code_matches_configured_suffix_and_closes_esc(self):
         class TextBox:
