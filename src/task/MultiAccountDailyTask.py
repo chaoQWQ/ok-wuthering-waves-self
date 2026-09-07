@@ -10,7 +10,6 @@ from src.task.WWOneTimeTask import WWOneTimeTask
 from src.task.BaseCombatTask import BaseCombatTask
 from src.task.BaseWWTask import LOGIN_TEXTS, BaseWWTask
 from src.task.MouseResetTask import MouseResetTask
-from src.Labels import Labels
 from src.utils.wgc_compat import enable_windows_graphics_capture
 
 enable_windows_graphics_capture()
@@ -234,32 +233,16 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         )
 
     def _open_account_login_for_reselection(self):
-        """Reach the account dropdown without clicking the title-screen connect button."""
+        """Reach the in-game account dropdown through a bounded world transition."""
         if self.do_find_account_drop_down():
             return
-        switch_account = self.find_one(
-            Labels.switch_account,
-            vertical_variance=0.1,
-            threshold=0.7,
-        )
-        if switch_account:
-            self.log_info(
-                self.tr('Account config is unknown on title screen; opening Switch Account')
-            )
-            focus_was_allowed = getattr(self, '_allow_bring_to_front', False)
-            self._allow_bring_to_front = True
-            try:
-                self._click_direct(switch_account, after_sleep=2)
-            finally:
-                self._allow_bring_to_front = focus_was_allowed
-            self.find_account_drop_down()
-            return
-        if self.in_team_and_world():
-            self._switch_to_login()
-            return
-        # A transition may be in progress. Wait for the account login page
-        # rather than guessing a coordinate or entering the game unconfigured.
-        self.find_account_drop_down()
+        # The title-screen Switch Account button opens a separate native login
+        # window which BitBlt cannot reliably capture. Finish the normal Connect
+        # transition first, then use the in-game logout flow whose account list
+        # is visible to the configured game-window capture.
+        if not self.in_team_and_world():
+            self.ensure_main(time_out=180)
+        self._switch_to_login()
 
     def _apply_daily_overrides(self, daily_task, overrides):
         """Patch DailyTask config with per-account overrides; return saved originals."""
@@ -325,17 +308,11 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
 
         def wait_login_with_account_config():
             if not overrides_applied:
-                detected_account = self._detect_current_account_from_login()
+                detected_account = (
+                    self._detect_current_account_from_login()
+                    or self._detect_account_from_login_banner()
+                )
                 apply_account_overrides(detected_account)
-                if (
-                    not overrides_applied
-                    and self._account_overrides_required()
-                    and self.find_one(Labels.switch_account, vertical_variance=0.1, threshold=0.7)
-                ):
-                    self._open_account_login_for_reselection()
-                    raise AccountConfigNotDetected(
-                        self.tr('Account config is not shown on title screen')
-                    )
                 if (
                     not overrides_applied
                     and self._account_overrides_required()
@@ -502,15 +479,27 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
 
     def _detect_account_from_login_banner(self):
         """Read the short-lived account notice shown near the top after login."""
-        texts = self.ocr(0.1, 0, 0.9, 0.3, match=account_pattern)
-        if texts:
-            account = texts[0].name
-            self.log_info(
-                self.tr('Detected account from post-login banner: {account}').format(
-                    account=account
+        # The notice is closer to the screen centre on some resolutions. OCR
+        # may also drop the asterisks, so match configured slot keywords first.
+        texts = self.ocr(0.12, 0.03, 0.88, 0.68)
+        keywords = []
+        for n in range(1, NUM_ACCOUNT_SLOTS + 1):
+            if self.config.get(_slot_enable(n)):
+                keyword = normalize_account_name(
+                    (self.config.get(_slot_keyword(n)) or '').strip()
                 )
-            )
-            return account
+                if keyword:
+                    keywords.append(keyword)
+        for text in texts:
+            normalized = normalize_account_name(text.name)
+            if any(keyword in normalized for keyword in keywords) or account_pattern.search(text.name):
+                account = text.name
+                self.log_info(
+                    self.tr('Detected account from pre-connect banner: {account}').format(
+                        account=account
+                    )
+                )
+                return account
         return None
 
     _click_direct = BaseWWTask.click_direct

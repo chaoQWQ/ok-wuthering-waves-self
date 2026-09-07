@@ -1,6 +1,5 @@
 import unittest
 
-from src.Labels import Labels
 from src.task.BaseWWTask import LOGIN_TEXTS
 from src.task.MultiAccountDailyTask import (
     AccountConfigNotDetected,
@@ -234,29 +233,42 @@ class TestMultiAccountDailyTask(unittest.TestCase):
             MultiAccountDailyTask._run_daily_for_account(FakeTask(), '185****0362')
         self.assertEqual(daily.config['Which Tacet Suppression to Farm'], 1)
 
-    def test_unknown_title_screen_account_opens_switch_account(self):
-        switch_box = object()
-
+    def test_unknown_account_enters_world_then_uses_ingame_logout(self):
         class FakeTask:
-            _allow_bring_to_front = False
-            _click_direct = MultiAccountDailyTask._click_direct
-
             def __init__(self):
-                self.clicked = []
-                self.dropdown_waited = False
+                self.in_world = False
+                self.actions = []
 
             def do_find_account_drop_down(self):
                 return None
 
-            def find_one(self, feature, **kwargs):
-                return switch_box if feature == Labels.switch_account else None
+            def in_team_and_world(self):
+                return self.in_world
 
-            def click(self, target, after_sleep=0):
-                self.clicked.append(target)
+            def ensure_main(self, time_out):
+                self.actions.append(('ensure_main', time_out))
+                self.in_world = True
 
-            def find_account_drop_down(self):
-                self.dropdown_waited = True
-                return object()
+            def _switch_to_login(self):
+                self.actions.append(('_switch_to_login', None))
+
+        task = FakeTask()
+        MultiAccountDailyTask._open_account_login_for_reselection(task)
+
+        self.assertEqual(task.actions, [('ensure_main', 180), ('_switch_to_login', None)])
+
+    def test_pre_connect_banner_matches_configured_keyword_without_asterisks(self):
+        class TextBox:
+            name = '当前登录账号 1850000362'
+
+        class FakeTask:
+            config = {
+                'Account 1 Daily Task Override': True,
+                'Account 1 Keyword': '362',
+            }
+
+            def ocr(self, *args):
+                return [TextBox()]
 
             def log_info(self, *args):
                 pass
@@ -264,12 +276,8 @@ class TestMultiAccountDailyTask(unittest.TestCase):
             def tr(self, message):
                 return message
 
-        task = FakeTask()
-        MultiAccountDailyTask._open_account_login_for_reselection(task)
-
-        self.assertEqual(task.clicked, [switch_box])
-        self.assertTrue(task.dropdown_waited)
-        self.assertFalse(task._allow_bring_to_front)
+        account = MultiAccountDailyTask._detect_account_from_login_banner(FakeTask())
+        self.assertEqual(account, TextBox.name)
 
     def test_daily_runner_applies_override_from_post_login_banner(self):
         class FakeDailyTask:
