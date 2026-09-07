@@ -51,6 +51,8 @@ class TacetTask(WWOneTimeTask, BaseCombatTask):
             must_use = 180 - used_stamina
         else:
             must_use = 0
+        recovery_retries = 0
+        max_recovery_retries = 3
         self.info_incr('used stamina', 0)
         while True:
             self.sleep(1)
@@ -67,9 +69,22 @@ class TacetTask(WWOneTimeTask, BaseCombatTask):
             is_team = self.teleport_to_tacet(index)
             if is_team:
                 self.click_team_challenge()
+            recovered_from_death = False
             while True:
                 self.wait_in_team_and_world(time_out=120)
-                self.combat_once(target=True)
+                try:
+                    self.combat_once(target=True)
+                except CharRevivedException:
+                    recovery_retries += 1
+                    if recovery_retries >= max_recovery_retries:
+                        self.log_info(
+                            f'Tacet Suppression exceeded death recovery retries ({max_recovery_retries}), stop farming',
+                            notify=True,
+                        )
+                        return None
+                    self.log_info('Tacet Suppression death recovered; re-enter from F2 book')
+                    recovered_from_death = True
+                    break
                 self.walk_to_treasure()
                 self.pick_f(handle_claim=False)
                 self.sleep(2)
@@ -78,6 +93,7 @@ class TacetTask(WWOneTimeTask, BaseCombatTask):
                     self.log_info('is not claim treasure, restart challenge')
                     continue
                 can_continue, used = self.use_stamina(once=self.stamina_once, must_use=must_use)
+                recovery_retries = 0
                 self.info_incr('used stamina', used)
                 self.sleep(4)
                 if not can_continue:
@@ -88,6 +104,8 @@ class TacetTask(WWOneTimeTask, BaseCombatTask):
                     self.click_relative(0.640, 0.851, hcenter=True, after_sleep=0.2)
                     self.wait_click_skip_dialog_confirm()
                 must_use -= used
+            if recovered_from_death:
+                continue
 
     def not_enough_stamina(self, back=True):
         self.log_info(f"used all stamina")

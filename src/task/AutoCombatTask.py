@@ -77,6 +77,11 @@ class AutoCombatTask(BaseCombatTask, TriggerTask):
                 self.get_current_char().perform()
             except CharDeadException:
                 self.log_error(f'Characters dead', notify=True)
+                if self.revive_action():
+                    self.info_set('Revive', 'Success')
+                    self.log_info('Auto combat death recovered', notify=True)
+                else:
+                    self.info_set('Revive', 'Failed')
                 break
             except NotInCombatException as e:
                 logger.info(f'auto_combat_task_out_of_combat {int(time.time() - combat_start)} {e}')

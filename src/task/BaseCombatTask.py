@@ -298,7 +298,10 @@ class BaseCombatTask(CombatCheck):
         if not travel:
             raise RuntimeError(f'Can not find the travel button')
         self.click_box(travel, relative_x=1.5)
-        self.wait_in_team_and_world(time_out=20)
+        # Game loading can legitimately exceed 20 seconds on slower disks or
+        # after a long session. Keep this bounded, but align it with the other
+        # world-transition waits so a successful revive is not reported failed.
+        self.wait_in_team_and_world(time_out=120)
         self.sleep(2)
 
     def raise_not_in_combat(self, message):

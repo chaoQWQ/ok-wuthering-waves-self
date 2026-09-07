@@ -84,17 +84,26 @@ class FarmEchoTask(WWOneTimeTask, BaseCombatTask):
         return True
 
     def revive_action(self):
-        if self._in_realm:
+        try:
+            # Always dismiss the death dialog first. Previously the outdoor
+            # recovery immediately tried to open the map while the modal was
+            # still present, and realm deaths left the modal on screen.
+            self.close_revive_popup()
+            if self._in_realm:
+                self.log_info('Farm Echo died in realm; popup closed and task will stop safely')
+                return False
+            self.teleport_to_heal()
+            self.run_until(lambda: False, 's', 1, running=True)
+            self.teleport_to_nearest_boss()
+            self.sleep(0.5)
+            self.run_until(lambda: self.in_combat() or self.find_treasure_icon(), 'w', time_out=12, running=True,
+                           target=True)
+            self.execute_treasure_hunt()
+            self.is_revived = True
+            return True
+        except Exception as error:
+            self.log_error('Farm Echo death recovery failed', error)
             return False
-        self.teleport_to_heal()
-        self.run_until(lambda: False, 's', 1, running=True)
-        self.teleport_to_nearest_boss()
-        self.sleep(0.5)
-        self.run_until(lambda: self.in_combat() or self.find_treasure_icon(), 'w', time_out=12, running=True,
-                       target=True)
-        self.execute_treasure_hunt()
-        self.is_revived = True
-        return True
 
     def run(self):
         WWOneTimeTask.run(self)

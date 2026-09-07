@@ -32,6 +32,7 @@ class NightmareNestTask(WWOneTimeTask, BaseCombatTask):
         self._capture_success = False
         self._capture_mode = False
         self._unreachable_nests = set()
+        self._death_recovery_counts = {}
         self._nest_tab_of_current_nest = 'go_nest'
         self.default_config.update({'Which to Farm': ['Nightmare Purification', 'Tacet Discord Nest']})
         self.config_type['Which to Farm'] = {'type': "multi_selection",
@@ -41,6 +42,7 @@ class NightmareNestTask(WWOneTimeTask, BaseCombatTask):
         self._capture_mode = False
         self._capture_success = False
         self._unreachable_nests.clear()
+        self._death_recovery_counts.clear()
         WWOneTimeTask.run(self)
         self.ensure_main(time_out=30)
         self._init_queue()
@@ -53,6 +55,7 @@ class NightmareNestTask(WWOneTimeTask, BaseCombatTask):
         self._capture_mode = True
         self._capture_success = False
         self._unreachable_nests.clear()
+        self._death_recovery_counts.clear()
         WWOneTimeTask.run(self)
         self.ensure_main(time_out=30)
         self._init_queue()
@@ -78,6 +81,8 @@ class NightmareNestTask(WWOneTimeTask, BaseCombatTask):
         return self._capture_success
 
     def combat_nest(self, nest):
+        if not hasattr(self, '_death_recovery_counts'):
+            self._death_recovery_counts = {}
         target_box = nest.box if isinstance(nest, NestTarget) else nest
         self.click(target_box, after_sleep=2)
         feature = self.wait_feature(['fast_travel_custom', 'gray_teleport', 'remove_custom', 'team_close'], time_out=10,
@@ -101,7 +106,19 @@ class NightmareNestTask(WWOneTimeTask, BaseCombatTask):
                 need_find = self.combat_once(wait_combat_time=wait_combat_time, target=True,
                                              raise_if_not_found=False)
             except CharRevivedException:
-                self.log_info('nightmare nest: death recovered, re-enter from F2 book')
+                cache_key = getattr(nest, 'cache_key', str(target_box))
+                attempts = self._death_recovery_counts.get(cache_key, 0) + 1
+                self._death_recovery_counts[cache_key] = attempts
+                if attempts >= 3:
+                    self._unreachable_nests.add(cache_key)
+                    self.log_info(
+                        'nightmare nest: exceeded death recovery retries (3), skip target',
+                        notify=True,
+                    )
+                else:
+                    self.log_info(
+                        f'nightmare nest: death recovered ({attempts}/3), re-enter from F2 book'
+                    )
                 return
             captured_early = False
             if self._capture_mode:
@@ -142,6 +159,7 @@ class NightmareNestTask(WWOneTimeTask, BaseCombatTask):
         # 与刷全部一致：退本后再结束 combat_nest，避免还在巢穴内回 Daily/开书
         if is_team:
             self.esc_world_confirm()
+        self._death_recovery_counts.pop(getattr(nest, 'cache_key', str(target_box)), None)
         self.sleep(1)
 
     def _should_continue_combat_after_pickup(self):
