@@ -133,13 +133,21 @@ class FarmEchoTask(WWOneTimeTask, BaseCombatTask):
                     self._just_entered_boss_realm = False
                 elif not self.in_combat():
                     if self._in_realm and not self.in_world():
-                        self.send_key('esc', after_sleep=0.5)
-                        self.wait_click_feature('claim_cancel_button_hcenter_vcenter', relative_x=2,
-                                                raise_if_not_found=True,
-                                                post_action=lambda: self.send_key('esc', after_sleep=1),
-                                                settle_time=1)
-                        self.wait_in_team_and_world(time_out=120)
+                        # Double-check: wait up to 2 s to rule out a transient in_combat() miss
+                        # (e.g. between animation frames) before committing to exit the realm.
+                        # If still not in combat after the wait, proceed to exit via esc.
+                        self.sleep(1)
+                        if self.in_combat():
+                            self.log_info('in_realm exit skipped: back in combat after re-check')
+                        else:
+                            self.log_info('not in combat in realm, exiting realm')
+                            try:
+                                self.esc_world_confirm()
+                            except Exception as e:
+                                self.log_warning(f'esc_world_confirm failed (may have already exited): {e}')
+                                self.wait_in_team_and_world(time_out=30)
                         self.sleep(0.1)
+
                     else:
                         if self._has_treasure:
                             self.wait_until(

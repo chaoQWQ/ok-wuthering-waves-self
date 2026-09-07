@@ -64,8 +64,9 @@ class TacetTask(WWOneTimeTask, BaseCombatTask):
 
             self.open_boss_book('wuyin')
             index = config.get('Which Tacet Suppression to Farm', 1) - 1
-            self.teleport_to_tacet(index)
-            self.click_team_challenge()
+            is_team = self.teleport_to_tacet(index)
+            if is_team:
+                self.click_team_challenge()
             while True:
                 self.wait_in_team_and_world(time_out=120)
                 self.combat_once(target=True)

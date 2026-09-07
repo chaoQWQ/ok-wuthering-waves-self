@@ -51,6 +51,13 @@ class FakeLoginTask:
     def click(self, target, after_sleep=0):
         self.clicked.append([b.name for b in target])
 
+    def click_direct(self, target, after_sleep=0):
+        """Delegates to click() so that login-button recording still works."""
+        if isinstance(target, list):
+            self.clicked.append([b.name for b in target])
+        else:
+            self.clicked.append([getattr(target, 'name', str(target))])
+
     def sleep(self, timeout):
         self.slept.append(timeout)
 

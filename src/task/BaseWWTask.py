@@ -37,6 +37,11 @@ class BaseWWTask(BaseTask):
         self.key_config = self.get_global_config('Game Hotkey')  # 游戏热键配置
         self.next_monthly_card_start = 0
         self.scene: WWScene | None = None
+        # Controls whether click_direct() calls ensure_in_front() to bring the game
+        # window to the foreground.  Off by default so that normal task execution does
+        # not forcibly steal window focus; MultiAccountDailyTask enables it temporarily
+        # during account-switching where foreground focus is required.
+        self._allow_bring_to_front = False
 
     @property
     def logged_in(self):
@@ -743,8 +748,10 @@ class BaseWWTask(BaseTask):
 
         Certain controls (such as the login screen buttons and dropdowns) require
         foreground focus and hardware mouse input, which background PostMessage fails on.
+        Only brings the window to the foreground when ``self._allow_bring_to_front`` is
+        True so that normal task execution does not forcibly steal window focus.
         """
-        if hasattr(self, 'ensure_in_front'):
+        if getattr(self, '_allow_bring_to_front', False) and hasattr(self, 'ensure_in_front'):
             try:
                 self.ensure_in_front()
             except Exception:

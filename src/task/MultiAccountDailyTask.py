@@ -289,13 +289,25 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         self.done_set.clear()
         self.all_accounts.clear()
 
-        # Run DailyTask for the account that is currently logged in.
-        # Account identity is detected after returning to the login screen.
-        self._run_daily_for_account(None)
+        # Try to identify the initial account BEFORE running DailyTask so that
+        # per-account config overrides (e.g. "farm tacet #3") are applied from
+        # the very first run.  If the game is already at the login screen we can
+        # read the account name from the OCR; otherwise we fall back to None and
+        # detect the identity after switching to login (legacy behaviour).
+        initial_account = None
+        if self.do_find_account_drop_down():
+            initial_account = self._detect_current_account_from_login()
+            self.log_info(
+                self.tr('Detected initial account before DailyTask: {account}').format(
+                    account=initial_account or '(unknown)'
+                )
+            )
+
+        self._run_daily_for_account(initial_account)
         self.ensure_main(time_out=100)
         self._switch_to_login()
         detected = self._detect_current_account_from_login()
-        self._mark_done(detected)
+        self._mark_done(detected or initial_account)
 
         self.info_set('Completed', self.done_set)
 
@@ -305,6 +317,7 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             self._mark_done(next_account)
             self.ensure_main(time_out=100)
             self._switch_to_login()
+
 
     def _click_center_offset(self, offset_x, offset_y, after_sleep=0.5):
         h, w = self.frame.shape[:2]
@@ -349,6 +362,10 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         mouse_reset_was_enabled = mouse_reset_task.enabled if mouse_reset_task else False
         if mouse_reset_was_enabled:
             mouse_reset_task.disable()
+        # Enable foreground-focus acquisition only for the login/account-switch
+        # interaction; restored unconditionally in the finally block so the game
+        # window never steals focus during normal task execution.
+        self._allow_bring_to_front = True
         try:
             max_retries = 5
             for attempt in range(1, max_retries + 1):
@@ -393,8 +410,10 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             self.log_info(self.tr('Login successful'))
             return current_account
         finally:
+            self._allow_bring_to_front = False
             if mouse_reset_was_enabled:
                 mouse_reset_task.enable()
+
 
     def find_account_drop_down(self):
         return self.wait_until(self.do_find_account_drop_down, time_out=60, settle_time=2, raise_if_not_found=True)
