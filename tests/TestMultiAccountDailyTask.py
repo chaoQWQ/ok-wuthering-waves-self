@@ -271,6 +271,56 @@ class TestMultiAccountDailyTask(unittest.TestCase):
         self.assertTrue(task.dropdown_waited)
         self.assertFalse(task._allow_bring_to_front)
 
+    def test_daily_runner_applies_override_from_post_login_banner(self):
+        class FakeDailyTask:
+            def __init__(self):
+                self.config = {'Which Tacet Suppression to Farm': 1}
+                self._allow_bring_to_front = False
+
+            def wait_login(self):
+                return False
+
+            def is_main(self):
+                return True
+
+        daily = FakeDailyTask()
+        observed = []
+
+        class FakeTask:
+            config = {
+                'Account 1 Daily Task Override': True,
+                'Account 1 Keyword': '362',
+                'Account 1: Which Tacet Suppression to Farm': 6,
+            }
+            _get_account_overrides = MultiAccountDailyTask._get_account_overrides
+            _account_overrides_required = MultiAccountDailyTask._account_overrides_required
+            _apply_daily_overrides = MultiAccountDailyTask._apply_daily_overrides
+            _restore_daily_overrides = MultiAccountDailyTask._restore_daily_overrides
+
+            def get_task_by_class(self, task_class):
+                return daily
+
+            def run_task_by_class(self, task_class):
+                daily.is_main()
+                observed.append(daily.config['Which Tacet Suppression to Farm'])
+
+            def _detect_current_account_from_login(self):
+                return None
+
+            def _detect_account_from_login_banner(self):
+                return '当前登录账号 185****0362'
+
+            def log_info(self, *args):
+                pass
+
+            def tr(self, message):
+                return message
+
+        self.assertTrue(MultiAccountDailyTask._run_daily_for_account(FakeTask(), None))
+        self.assertEqual(observed, [6])
+        self.assertEqual(daily.config['Which Tacet Suppression to Farm'], 1)
+        self.assertNotIn('is_main', daily.__dict__)
+
     def test_click_direct_falls_back_to_click_without_hwnd_window(self):
         class FakeTask:
             def __init__(self):

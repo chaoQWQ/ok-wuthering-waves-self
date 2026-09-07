@@ -320,6 +320,8 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         # there so the first account never falls back to DailyTask defaults.
         original_wait_login = daily_task.wait_login
         wait_login_was_overridden = 'wait_login' in daily_task.__dict__
+        original_is_main = getattr(daily_task, 'is_main', None)
+        is_main_was_overridden = 'is_main' in daily_task.__dict__
 
         def wait_login_with_account_config():
             if not overrides_applied:
@@ -346,6 +348,24 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
 
         if not overrides_applied:
             daily_task.wait_login = wait_login_with_account_config
+
+        def is_main_with_account_banner(*args, **kwargs):
+            if not overrides_applied:
+                apply_account_overrides(self._detect_account_from_login_banner())
+            result = original_is_main(*args, **kwargs)
+            if result and not overrides_applied and self._account_overrides_required():
+                # One final OCR attempt on the first confirmed world frame. If
+                # the short-lived banner is already gone, abort before DailyTask
+                # opens F2 and return to explicit account reselection.
+                apply_account_overrides(self._detect_account_from_login_banner())
+                if not overrides_applied:
+                    raise AccountConfigNotDetected(
+                        self.tr('Could not identify account config after entering the game world')
+                    )
+            return result
+
+        if not overrides_applied and original_is_main is not None:
+            daily_task.is_main = is_main_with_account_banner
         focus_was_allowed = getattr(daily_task, '_allow_bring_to_front', False)
         # DailyTask owns the initial login wait.  Physical login controls must
         # be clicked with the game in front, just like later account switches.
@@ -382,6 +402,10 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
                 daily_task.wait_login = original_wait_login
             else:
                 daily_task.__dict__.pop('wait_login', None)
+            if is_main_was_overridden:
+                daily_task.is_main = original_is_main
+            else:
+                daily_task.__dict__.pop('is_main', None)
             self._restore_daily_overrides(daily_task, originals)
 
     # ------------------------------------------------------------------
@@ -474,6 +498,19 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         if texts:
             self.log_info(self.tr('Current account: {account}').format(account=texts[0]))
             return texts[0].name
+        return None
+
+    def _detect_account_from_login_banner(self):
+        """Read the short-lived account notice shown near the top after login."""
+        texts = self.ocr(0.1, 0, 0.9, 0.3, match=account_pattern)
+        if texts:
+            account = texts[0].name
+            self.log_info(
+                self.tr('Detected account from post-login banner: {account}').format(
+                    account=account
+                )
+            )
+            return account
         return None
 
     _click_direct = BaseWWTask.click_direct
