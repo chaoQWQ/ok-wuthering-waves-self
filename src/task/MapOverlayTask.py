@@ -25,6 +25,8 @@ from src.utils.MapItemOverlay import (
 from src.utils.map_geometry import make_hitbox, bearing_degrees
 from src.utils.NodeIconCache import NodeIconCache
 from src.utils.PathRoute import load_path_route, build_path_layers, PathParseError, PathLayer, PATH_NODE_ICON_KEY
+from src.utils.ChestRoute import load_chest_route, ChestRouteParseError
+from src.utils.ChestGuidanceFilter import ChestGuidanceFilter
 from src.utils.TargetTracker import (
     THRESHOLD_MIN, THRESHOLD_MAX, validate_threshold, TargetTracker,
     TargetRef, right_click_dispatch,
@@ -43,6 +45,31 @@ OVERLAY_DRAW_KEY = "map_items"
 # >1s，若沿用 duration=1 会导致覆盖层在慢帧时闪烁/消失（问题4）。检测循环约每
 # 100ms 会重画一次，用 3s 作为过期时间足以覆盖偶发慢帧而不会残留过久。
 OVERLAY_DRAW_DURATION = 3.0
+
+# Chest-search phase 1 intentionally stops at visual guidance + manual
+# confirmation.  It does not generate movement input or attempt to open a
+# chest.  The confirmation distance is only a guard against accidentally
+# marking a chest while the player is still far away.
+CHEST_CONFIRM_DISTANCE_DEFAULT = 1500
+CHEST_TARGET_REFRESH_INTERVAL = 0.5
+CHEST_CONFIRM_POLL_MIGRATION_KEY = '_Chest confirm polling migration v1'
+
+# User-facing collection groups mapped to the raw ``location.type_id`` values
+# shipped by map_items.db.  Labels remain stable English config values and are
+# translated by gettext for the task UI.
+COLLECTION_GROUP_TYPE_IDS = {
+    'Chests': ('qzx_01', 'qzx_02', 'qzx_03', 'qzx_04'),
+    'Sonance Caskets': ('sx', 'sx·lgn', 'sx·qq'),
+    'Tidal Heritage': ('cx_01', 'cx_02', 'cx_03'),
+    'Windchimers': ('Play_12',),
+    'Whisperwind Butterflies': ('xsd',),
+    'Flying Hunters': ('fls',),
+    'Scenic Spots': ('gjd',),
+    'Overflowing Palettes': ('ych',),
+    'Music Fireflies': ('ylfy',),
+    'Abyssal Caches': ('YHYC',),
+}
+DEFAULT_COLLECTION_GROUPS = ['Chests']
 
 MAP_DIR = get_path_relative_to_exe('assets', 'stitched')
 
@@ -65,6 +92,12 @@ ASSETS_SUSPEND_WAIT = 5.0
 # Fixed route file (Path_Mode source) and completion-marks database
 # (Requirements 4.2, 3.1). Resolved relative to the executable like MAP_DIR.
 PATH_FILE = get_path_relative_to_exe('assets', 'path.json')
+# The first video-assisted route is metadata-only until its video markers are
+# calibrated to database location ids.  Keeping the default relative makes the
+# setting portable between source checkout and packaged executable.
+CHEST_ROUTE_FILE_DEFAULT = os.path.join(
+    'assets', 'chest_routes', '1.0_yunlinggu_yulongtai_p5.json'
+)
 MARKS_DB_PATH = os.path.join(MAP_DIR, 'map_marks.db')
 
 # Local cache directory for downloaded route-node icons (Requirement 11.4).
@@ -110,6 +143,47 @@ class ClickTarget(NamedTuple):
     section_id: int = -1
     index: int = -1
     name: str = ""
+
+
+class ChestTarget(NamedTuple):
+    """The currently selected database chest for Normal_Mode guidance.
+
+    ``location_id`` is the static ``location.id`` from ``map_items.db``.  The
+    map id is kept separately by :class:`OverlayController` because the same
+    location id must never be reused across a map switch without revalidation.
+    """
+
+    location_id: object
+    name: str
+    type_id: str
+    x: float
+    y: float
+    distance: float
+
+
+def collection_type_ids(selected_groups) -> tuple:
+    """Expand configured collection-group labels into database type ids."""
+    if isinstance(selected_groups, str):
+        selected_groups = [selected_groups]
+    selected_groups = list(selected_groups or [])
+    result = []
+    for group in selected_groups:
+        for type_id in COLLECTION_GROUP_TYPE_IDS.get(str(group), ()):
+            if type_id not in result:
+                result.append(type_id)
+    # query_nearby treats an empty filter as "all types".  An explicit empty
+    # selection must instead draw/search nothing.
+    return tuple(result) if result else ('__no_collection_type__',)
+
+
+def selected_collection_type_ids(config) -> tuple:
+    """Resolve the new group selector with a legacy-filter fallback."""
+    groups = config.get('Collection types')
+    if groups is None:
+        legacy = config.get('_Item type filter', COLLECTION_GROUP_TYPE_IDS['Chests'])
+        return tuple(legacy or ('__no_collection_type__',))
+    return collection_type_ids(groups)
+
 
 def sort_completed_to_bottom(draw_items, hitboxes, click_targets, completed_ids):
     """把已完成项排到列表最前（先绘制=底层），返回重排后的三个同序列表。
@@ -272,9 +346,16 @@ class OverlayController:
         self._marks_db = None
         self._completed_ids = set()
         self._marks_loaded = False
+        self._marks_account_id = None
         # Self-built clickable big-map window (Scheme C); created lazily.
         self._interaction_window = None
         self._interaction_unavailable = False
+        # Dedicated click-through Qt window for the minimap direction cue. It
+        # bypasses the native GDI overlay's unreliable z-order on some Windows
+        # DPI configurations while keeping all input handling unchanged.
+        self._minimap_direction_window = None
+        self._minimap_direction_unavailable = False
+        self._last_minimap_direction_at = 0.0
         # Global Advance_Hotkey listener (pynput GlobalHotKeys) on a background
         # thread; started on entering Path_Mode, stopped on leaving Path_Mode or
         # task destroy (Requirements 9.3, 9.9). Its callback only mutates target
@@ -305,6 +386,10 @@ class OverlayController:
         # _build_bigmap_content 中根据 tracker.target 重算，传给交互窗口画 3px 红圈
         # （问题3）；右键取消目标后 tracker.target 变 None，下一帧此值即变 None，红圈消失。
         self._last_target_marker = None
+        # Low-rate diagnostics for the selected chest -> minimap projection.
+        # This is deliberately separate from the normal overlay frame counter
+        # so a projection failure is visible instead of being silently hidden.
+        self._chest_visual_log_counter = 0
         # 上一次设置到交互窗口的几何 (x, y, w, h)，未变化则跳过 set_window_geometry，
         # 减少多余 GUI 事件（额外优化）。
         self._last_geometry = None
@@ -316,6 +401,42 @@ class OverlayController:
         self._status_last_scale = None
         self._status_last_mode = None
         self._status_last_target_info = None
+        # Normal_Mode chest-search state.  This is deliberately separate from
+        # Path_Mode's TargetTracker: database locations are static map items,
+        # not route nodes, and phase 1 only guides the player until manual
+        # confirmation is received.
+        self._chest_target = None
+        self._chest_target_map_id = None
+        # The opening hint is the exact same location.description used by the
+        # clickable big-map bubble. Cache it per target so the minimap overlay
+        # never opens SQLite on every detection frame and the text cannot
+        # flicker while the selected target remains unchanged.
+        self._chest_hint_target_id = None
+        self._chest_hint_text = None
+        self._chest_guidance_filter = ChestGuidanceFilter()
+        self._chest_last_query_at = 0.0
+        self._chest_confirm_requested = False
+        # Collection confirmation uses the same read-only Win32 key-state
+        # polling as the display toggle.  It avoids the focus-dependent
+        # ``pynput.GlobalHotKeys`` delivery seen in the game while adding no
+        # hook and consuming no key input.
+        self._chest_confirm_key_down = False
+        self._chest_confirm_poll_warned = False
+        self._collection_filter_signature = None
+        # Set by the read-only hotkey sampler and consumed on the task thread.
+        # Keeping config/UI mutation on this thread avoids races with rendering.
+        self._display_toggle_requested = False
+        # The display toggle is sampled with the same read-only Win32 key-state
+        # API already used by movement stabilization.  A rising-edge latch
+        # makes one physical press produce exactly one toggle.
+        self._display_toggle_key_down = False
+        self._display_toggle_poll_warned = False
+        # Optional video-route metadata.  A metadata-only manifest is useful
+        # for validating the source/map/count pipeline, but never changes
+        # nearest-chest selection until calibrated nodes are added.
+        self._chest_route = None
+        self._chest_route_path = None
+        self._chest_route_load_failed = False
         # Connect the window's mouse signals to the controller exactly once.
         self._signals_connected = False
         # One-shot warning latches so the per-frame error paths surface their
@@ -361,6 +482,11 @@ class OverlayController:
             self._path_mode = True
         else:
             self._path_mode = False
+        # Path_Mode and chest-search targets are mutually exclusive.  Keeping
+        # a hidden DB target while a route is active would make the confirmation
+        # hotkey ambiguous after switching modes.
+        if self._path_mode:
+            self._clear_chest_target()
         self._sync_config_mode(self._path_mode)
         self.task.info_set('Path mode', '路线模式' if self._path_mode else '普通模式')
         return self._path_mode
@@ -469,6 +595,13 @@ class OverlayController:
     # ------------------------------------------------------------------
     # Completion marks (Requirements 3.5, 3.6, 3.7).
     # ------------------------------------------------------------------
+    def _collection_account_id(self) -> str:
+        """Return the explicit local profile used for completion records."""
+        from src.utils.MapMarksDB import normalize_account_id
+        return normalize_account_id(
+            self.task.config.get('Collection account', 'default')
+        )
+
     def _ensure_marks(self) -> None:
         """Load the completed-mark set once, failure-safe (Requirement 3.7).
 
@@ -478,28 +611,435 @@ class OverlayController:
         ``info_set`` -- the background detection loop and map matching are never
         interrupted (Requirements 3.7, 1.6, 10.3).
         """
-        if self._marks_loaded:
+        account_id = self._collection_account_id()
+        if self._marks_loaded and self._marks_account_id == account_id:
             return
+        account_changed = (
+            self._marks_account_id is not None
+            and self._marks_account_id != account_id
+        )
         self._marks_loaded = True
+        self._marks_account_id = account_id
         from src.utils.MapMarksDB import MapMarksDB, load_completed_or_empty
         # 1) Opening the DB may itself raise (Requirement 3.7) -> empty + warn.
-        try:
-            self._marks_db = MapMarksDB(MARKS_DB_PATH)
-        except Exception as exc:
-            logger.warning(f"[Overlay] marks db open failed: {exc}")
-            self._marks_db = None
-            self._completed_ids = set()
-            self._warn_marks_read()
-            return
+        if self._marks_db is None:
+            try:
+                self._marks_db = MapMarksDB(MARKS_DB_PATH)
+            except Exception as exc:
+                logger.warning(f"[Overlay] marks db open failed: {exc}")
+                self._marks_db = None
+                self._completed_ids = set()
+                self._warn_marks_read()
+                return
         # 2) Reading may fail even with an open handle; load_completed_or_empty
         # yields an empty set on failure (best-effort), and we probe to know
         # whether to surface the read-failure message.
         try:
-            self._completed_ids = self._marks_db.load_completed()
+            self._completed_ids = self._marks_db.load_completed(account_id)
+            if account_changed:
+                self._clear_chest_target()
+                self._chest_last_query_at = 0.0
+            self.task.info_set('Collection account', account_id)
+            logger.info(
+                f"[CollectionAccount] profile={account_id!r} "
+                f"completed={len(self._completed_ids)}"
+            )
         except Exception as exc:
             logger.warning(f"[Overlay] marks db read failed: {exc}")
-            self._completed_ids = load_completed_or_empty(self._marks_db)
+            self._completed_ids = load_completed_or_empty(
+                self._marks_db, account_id
+            )
             self._warn_marks_read()
+
+    # ------------------------------------------------------------------
+    # Phase-1 chest search: target selection + manual confirmation.
+    # ------------------------------------------------------------------
+    def _chest_search_enabled(self) -> bool:
+        """Whether Normal_Mode should keep a nearest chest target."""
+        return bool(self.task.config.get('Chest search', False)) and not self._path_mode
+
+    @staticmethod
+    def _same_id(left, right) -> bool:
+        """Compare SQLite ids defensively across integer/text representations."""
+        if left == right:
+            return True
+        try:
+            return str(left) == str(right)
+        except Exception:
+            return False
+
+    def _is_completed_id(self, location_id) -> bool:
+        return any(self._same_id(location_id, completed)
+                   for completed in (self._completed_ids or set()))
+
+    def _clear_chest_target(self) -> None:
+        self._chest_target = None
+        self._chest_target_map_id = None
+        self._chest_hint_target_id = None
+        self._chest_hint_text = None
+        self._chest_guidance_filter.reset()
+
+    def _chest_hint_for_target(self, target) -> str:
+        """Return and cache the big-map description for a chest target.
+
+        The big-map click handler and this minimap hint deliberately share the
+        same ``get_location_description`` + ``bubble_text`` path.  This keeps
+        both views consistent, including the standard empty-description
+        placeholder, while limiting the short-lived SQLite lookup to once per
+        selected chest.
+        """
+        if target is None:
+            self._chest_hint_target_id = None
+            self._chest_hint_text = None
+            return ''
+        if (self._chest_hint_text is not None and
+                self._same_id(self._chest_hint_target_id,
+                              target.location_id)):
+            return self._chest_hint_text
+
+        description = None
+        overlay = getattr(self.task, '_overlay', None)
+        if overlay is not None:
+            description = overlay.get_location_description(target.location_id)
+        text = bubble_text(description)
+        self._chest_hint_target_id = target.location_id
+        self._chest_hint_text = str(text)
+        logger.info(
+            f"[ChestHint] target={target.location_id} "
+            f"length={len(self._chest_hint_text)}"
+        )
+        return self._chest_hint_text
+
+    @staticmethod
+    def _resolve_chest_route_path(raw_path) -> Optional[str]:
+        """Resolve a user setting without making assumptions about CWD."""
+        if raw_path is None:
+            return None
+        path = str(raw_path).strip()
+        if not path:
+            return None
+        if os.path.isabs(path):
+            return os.path.normpath(path)
+        parts = [part for part in path.replace('\\', '/').split('/') if part]
+        return get_path_relative_to_exe(*parts) if parts else None
+
+    def _ensure_chest_route_loaded(self):
+        """Load optional video metadata once, failure-safe.
+
+        The loader is intentionally independent from the game/OCR loop.  A
+        malformed or missing manifest only affects the status line; nearest
+        database chest search continues as before.
+        """
+        if not self._chest_search_enabled():
+            return None
+        raw_path = self.task.config.get(
+            'Chest route file', CHEST_ROUTE_FILE_DEFAULT
+        )
+        path = self._resolve_chest_route_path(raw_path)
+        if path == self._chest_route_path:
+            return self._chest_route
+        self._chest_route_path = path
+        self._chest_route = None
+        self._chest_route_load_failed = False
+        if path is None:
+            return None
+        try:
+            self._chest_route = load_chest_route(path)
+        except ChestRouteParseError as exc:
+            self._chest_route_load_failed = True
+            logger.warning(f"[ChestSearch] video route load failed: {exc}")
+            self.task.info_set('Chest search', f'宝箱路线加载失败：{exc}')
+        return self._chest_route
+
+    def _chest_distance(self, player_pos, target) -> Optional[float]:
+        if not self._valid_player_pos(player_pos) or target is None:
+            return None
+        try:
+            px, py = player_ocr_to_game_units(player_pos)
+            return math.hypot(float(target.x) - px, float(target.y) - py)
+        except (TypeError, ValueError):
+            return None
+
+    def _update_chest_search(self, player_pos, state_id) -> None:
+        """Refresh the nearest uncompleted chest target without producing input.
+
+        The query is throttled because ``run()`` can execute at 10 Hz.  Once a
+        target exists only its distance is refreshed; the target is replaced
+        after a confirmation or when the map changes.  This keeps the overlay
+        stable while the player moves between frames.
+        """
+        if not self._chest_search_enabled():
+            self._clear_chest_target()
+            return
+        self._ensure_chest_route_loaded()
+        if state_id is None:
+            # Minimap feature matching can briefly lose the map lock while the
+            # player turns, fights, or crosses detailed terrain.  The target
+            # was selected from a positively identified big map, so retain it
+            # through this *unknown* state.  It will still be replaced as soon
+            # as a different concrete map id is identified.  Clearing here made
+            # the direction cue flash for only a few frames after closing the
+            # big map, which was unusable for manual navigation.
+            if self._chest_target is not None:
+                distance = self._chest_distance(player_pos, self._chest_target)
+                if distance is not None:
+                    self._chest_target = self._chest_target._replace(
+                        distance=distance
+                    )
+            return
+        selected_type_ids = selected_collection_type_ids(self.task.config)
+        if selected_type_ids != self._collection_filter_signature:
+            self._collection_filter_signature = selected_type_ids
+            self._clear_chest_target()
+            self._chest_last_query_at = 0.0
+            logger.info(
+                f"[CollectionSearch] selected types={selected_type_ids!r}"
+            )
+        if not self._valid_player_pos(player_pos):
+            return
+
+        map_id = str(state_id)
+        if self._chest_target is not None and self._chest_target_map_id != map_id:
+            self._clear_chest_target()
+        self._ensure_marks()
+
+        if self._chest_target is not None:
+            if self._is_completed_id(self._chest_target.location_id):
+                self._clear_chest_target()
+            else:
+                distance = self._chest_distance(player_pos, self._chest_target)
+                if distance is not None:
+                    self._chest_target = self._chest_target._replace(distance=distance)
+                return
+
+        now = time.monotonic()
+        if now - self._chest_last_query_at < CHEST_TARGET_REFRESH_INTERVAL:
+            return
+        self._chest_last_query_at = now
+
+        overlay = getattr(self.task, '_overlay', None)
+        if overlay is None:
+            try:
+                self.task._init_overlay()
+            except Exception as exc:
+                logger.warning(f"[ChestSearch] overlay init failed: {exc}")
+                return
+            overlay = getattr(self.task, '_overlay', None)
+        if overlay is None:
+            return
+
+        try:
+            px, py = player_ocr_to_game_units(player_pos)
+            radius = float(self.task.config.get(
+                '_Search radius (world units)', 10000
+            ))
+            if radius <= 0:
+                return
+            rows = overlay.query_nearby(
+                px, py, radius,
+                type_filter=selected_type_ids,
+                state_id=state_id,
+                with_location_id=True,
+            )
+        except Exception as exc:
+            logger.warning(f"[ChestSearch] query failed: {exc}")
+            return
+
+        for location_id, name, type_id, ix, iy, dist in rows:
+            if self._is_completed_id(location_id):
+                continue
+            self._chest_target = ChestTarget(
+                location_id, str(name or '收集物'), str(type_id or ''),
+                float(ix), float(iy), float(dist),
+            )
+            self._chest_target_map_id = map_id
+            logger.info(
+                f"[ChestSearch] target id={location_id} name={name!r} "
+                f"map_id={map_id} distance={float(dist):.0f}"
+            )
+            return
+
+        self._chest_target = None
+        self._chest_target_map_id = map_id
+        self._chest_guidance_filter.reset()
+
+    def on_chest_confirm_hotkey(self) -> None:
+        """Request confirmation; the detection loop performs the DB write.
+
+        The read-only Win32 key-state poll calls this on the task thread.  It
+        only flips a flag; the normal position-update path validates distance
+        and performs the database write.
+        """
+        if self._chest_search_enabled():
+            self._chest_confirm_requested = True
+
+    def on_map_display_toggle_hotkey(self) -> None:
+        """Request a complete high-value-map display toggle."""
+        self._display_toggle_requested = True
+
+    def _process_map_display_toggle(self) -> bool:
+        """Toggle both minimap and world-map high-value-item overlays."""
+        self._poll_map_display_toggle_hotkey()
+        if not self._display_toggle_requested:
+            return False
+        self._display_toggle_requested = False
+        currently_enabled = bool(
+            self.task.config.get('_Overlay enabled', True)
+            or self.task.config.get('World map overlay', True)
+        )
+        enabled = not currently_enabled
+        self.task.config['_Overlay enabled'] = enabled
+        self.task.config['World map overlay'] = enabled
+        if enabled:
+            message = '地图高价值物品显示：已开启'
+        else:
+            # Hide every presentation surface immediately.  The selected chest
+            # and completion marks remain intact so enabling resumes the same
+            # search state instead of losing user progress.
+            self.task._clear_overlay()
+            self._hide_interaction_window()
+            self._hide_minimap_direction_window()
+            message = '地图高价值物品显示：已关闭'
+        self.task.info_set('High-value items display', message)
+        logger.info(f"[MapDisplay] toggle hotkey enabled={enabled}")
+        return True
+
+    def _process_chest_confirm(self, player_pos, state_id=None) -> None:
+        """Mark the selected chest only after the user confirms it manually."""
+        if not self._chest_confirm_requested:
+            return
+        self._chest_confirm_requested = False
+        if not self._chest_search_enabled():
+            return
+
+        target = self._chest_target
+        if (target is not None and state_id is not None
+                and self._chest_target_map_id != str(state_id)):
+            # A map switch can happen between the hotkey event and this frame;
+            # never apply a confirmation to a target from the previous map.
+            self._clear_chest_target()
+            self.task.info_set('Chest search', '地图已切换，请等待新的收集目标')
+            return
+        distance = self._chest_distance(player_pos, target)
+        if target is None or distance is None:
+            self.task.info_set('Chest search', '未找到可确认的收集目标')
+            return
+
+        try:
+            limit = float(self.task.config.get(
+                '_Chest confirm distance (world units)',
+                CHEST_CONFIRM_DISTANCE_DEFAULT,
+            ))
+        except (TypeError, ValueError):
+            limit = CHEST_CONFIRM_DISTANCE_DEFAULT
+        limit = max(1.0, limit)
+        if distance > limit:
+            self.task.info_set(
+                'Chest search',
+                f'请先靠近收集物（当前距离 {distance:.0f}，确认范围 {limit:.0f}）',
+            )
+            return
+
+        self._ensure_marks()
+        old_completed = set(self._completed_ids or set())
+        new_completed = set(old_completed)
+        new_completed.add(target.location_id)
+        self._completed_ids = self._persist_mark_change(
+            old_completed, new_completed
+        )
+        if not self._is_completed_id(target.location_id):
+            self.task.info_set('Chest search', '收集物标记失败，请重试')
+            return
+
+        self.task.info_set('Chest search', f'已确认领取：{target.name}')
+        self._clear_chest_target()
+        self._chest_last_query_at = 0.0
+
+    def _chest_status_info(self) -> str:
+        """Return a compact status-panel line for the current chest target."""
+        if not self._chest_search_enabled():
+            return '收集物搜寻：未启用'
+        target = self._chest_target
+        if target is None:
+            return '收集物搜寻：当前地图无未确认目标'
+        return f'收集目标：{target.name} 距离{int(round(target.distance))} 待确认'
+
+    def _chest_route_status_info(self) -> Optional[str]:
+        """Return the optional video-route validation status for the panel."""
+        if not self._chest_search_enabled():
+            return None
+        if 'Chests' not in self.task.config.get(
+                'Collection types', DEFAULT_COLLECTION_GROUPS):
+            return None
+        route = self._ensure_chest_route_loaded()
+        if route is None:
+            if self._chest_route_load_failed:
+                return '宝箱路线：加载失败（已回退地图数据）'
+            return '宝箱路线：未配置'
+        if route.calibrated:
+            state = f'已校准{sum(bool(node.location_id) for node in route.nodes)}点'
+        else:
+            state = '点位待校准'
+        current_map = self.task._locked_map_id
+        try:
+            if current_map is not None and int(current_map) != route.state_id:
+                state += f'，当前地图{current_map}不匹配'
+        except (TypeError, ValueError):
+            pass
+        return f'宝箱路线：{route.route_label}（{state}）'
+
+    def _chest_minimap_visual(self, player_pos, state_id=None):
+        """Build the minimap marker and edge arrow for the selected chest."""
+        target = self._chest_target
+        if target is None or not self._valid_player_pos(player_pos):
+            return None, None
+        minimap_box = self.task.get_box_by_name('box_minimap')
+        if minimap_box is None:
+            return None, None
+        try:
+            scale_per_1000 = self.task._minimap_scale_per_1000()
+            scale = float(scale_per_1000) / 1000.0
+            if scale <= 0:
+                return None, None
+            sample = self._chest_guidance_filter.update(
+                player_pos, target.location_id, target.x, target.y,
+                map_confirmed=state_id is not None,
+                movement_active=self._manual_movement_active(),
+            )
+            px, py = sample.player_x, sample.player_y
+            center_x = minimap_box.x + minimap_box.width / 2
+            center_y = minimap_box.y + minimap_box.height / 2
+            marker = self.task._overlay.project_to_minimap(
+                target.x, target.y, px, py, scale, center_x, center_y
+            )
+            bearing = sample.bearing
+            self._chest_target = target._replace(distance=sample.distance)
+            # The target may be outside the visible minimap search circle;
+            # keep only the edge direction indicator in that case, otherwise a
+            # native full-screen canvas could paint a red box elsewhere on the
+            # game window.
+            radius = min(minimap_box.width, minimap_box.height) / 2
+            if math.hypot(marker[0] - center_x, marker[1] - center_y) > radius:
+                marker = None
+            self._chest_visual_log_counter += 1
+            if (self._chest_visual_log_counter <= 3 or
+                    self._chest_visual_log_counter % 50 == 0):
+                logger.info(
+                    f"[ChestMinimapDirection] target={target.location_id} "
+                    f"player=({px:.0f},{py:.0f}) "
+                    f"target_pos=({target.x:.0f},{target.y:.0f}) "
+                    f"bearing={bearing:.1f} distance={sample.distance:.0f} "
+                    f"nearby={sample.nearby} rejected={sample.rejected} "
+                    f"marker={marker} box=("
+                    f"{minimap_box.x},{minimap_box.y},"
+                    f"{minimap_box.width},{minimap_box.height})"
+                )
+            return marker, (
+                bearing, minimap_box, sample.distance, sample.nearby
+            )
+        except (TypeError, ValueError, AttributeError) as error:
+            logger.warning(f"[ChestMinimapDirection] projection failed: {error!r}")
+            return None, None
 
     # ------------------------------------------------------------------
     # Three-state entry points (called from run())
@@ -515,8 +1055,10 @@ class OverlayController:
         self._sync_mode_from_config()
         self._hide_interaction_window()
         if not self.task.config.get('_Overlay enabled'):
+            self._hide_minimap_direction_window()
             return
         if self._path_mode and self._route is not None:
+            self._hide_minimap_direction_window()
             # Player coordinate update: evaluate auto-advance before drawing so
             # the edge direction arrow reflects the (possibly) advanced target
             # (Requirements 8.2, 9.1, 9.2). No target -> no-op (Requirement 9.4).
@@ -530,11 +1072,20 @@ class OverlayController:
             # 普通模式：先加载完成集合再绘制，使小地图排除已完成物品（问题1a）。
             # build_draw_items(minimap=True) 会剔除 completed_ids 中的项。
             self._ensure_marks()
+            self._process_chest_confirm(player_pos, state_id)
+            self._update_chest_search(player_pos, state_id)
+            target_marker, edge_arrow = self._chest_minimap_visual(
+                player_pos, state_id
+            )
+            # Build status after guidance filtering so its distance agrees with
+            # the visible arrow/banner instead of exposing the raw OCR jump.
             status_lines = self.compute_status_lines(player_pos, minimap=True)
             self.task._draw_overlay(
                 player_pos, state_id=state_id, completed_ids=self._completed_ids,
-                status_lines=status_lines,
+                status_lines=status_lines, target_marker=target_marker,
+                edge_arrow=edge_arrow,
             )
+            self._draw_minimap_direction_window(edge_arrow, target_marker)
 
     def on_bigmap(self, player_pos, game_scale) -> None:
         """Big-map state: render via the clickable InteractionOverlayWindow.
@@ -546,6 +1097,11 @@ class OverlayController:
         rendering so the feature degrades gracefully (the richer fallback +
         message is task 11.5).
         """
+        self._hide_minimap_direction_window()
+        if not self.task.config.get('World map overlay', True):
+            self._hide_interaction_window()
+            self.task._clear_overlay()
+            return
         # 游戏窗口不可见/不在前台时的可见性门控（问题3a / 关键 bug 修复）。
         # ok 的 hwnd.visible == is_foreground()，仅当游戏窗口为前台时才为 True；
         # 点击我们自己的交互窗口会让游戏失去前台焦点，使 visible 变为 False，若此时
@@ -566,6 +1122,9 @@ class OverlayController:
                 self._hide_interaction_window()
                 return
         self._sync_mode_from_config()
+        if not self._path_mode:
+            self._process_chest_confirm(player_pos, self.task._locked_map_id)
+            self._update_chest_search(player_pos, self.task._locked_map_id)
         window = self._ensure_interaction_window()
         if window is None:
             # Create-failure fallback (Requirement 1.9): render the big map with
@@ -630,6 +1189,11 @@ class OverlayController:
         content behind.
         """
         self._hide_interaction_window()
+        hwnd = getattr(self.task, 'hwnd', None)
+        visible = getattr(hwnd, 'visible', True) if hwnd is not None else True
+        if (not visible or
+                time.monotonic() - self._last_minimap_direction_at > 5.0):
+            self._hide_minimap_direction_window()
 
     # ------------------------------------------------------------------
     # Mouse-event actions (task 11.3): Requirements 2, 3, 6, 7
@@ -768,6 +1332,124 @@ class OverlayController:
         except Exception as exc:  # pragma: no cover - defensive on listener thread
             logger.warning(f"[Overlay] advance hotkey failed: {exc}")
 
+    def _confirm_hotkey(self) -> str:
+        """Return the configured manual chest-confirm hotkey."""
+        return str(self.task.config.get('Chest confirm hotkey', '<ctrl>+<f10>') or '').strip()
+
+    def _map_display_toggle_hotkey(self) -> str:
+        """Return the configured map-overlay show/hide hotkey."""
+        return str(self.task.config.get(
+            'Map display toggle hotkey', '<ctrl>+<f8>'
+        ) or '').strip()
+
+    @staticmethod
+    def _hotkey_vk_codes(hotkey):
+        """Translate the supported pynput-style hotkey into Win32 VK codes."""
+        text = str(hotkey or '').strip().lower()
+        if not text:
+            return None
+        aliases = {
+            'ctrl': 0x11, 'control': 0x11,
+            'ctrl_l': 0x11, 'ctrl_r': 0x11,
+            'shift': 0x10, 'shift_l': 0x10, 'shift_r': 0x10,
+            'alt': 0x12, 'alt_l': 0x12, 'alt_r': 0x12,
+            'space': 0x20, 'tab': 0x09, 'enter': 0x0D,
+        }
+        result = []
+        for raw_part in text.split('+'):
+            part = raw_part.strip()
+            if part.startswith('<') and part.endswith('>'):
+                part = part[1:-1].strip()
+            code = aliases.get(part)
+            if code is None and len(part) == 1 and part.isalpha():
+                code = ord(part.upper())
+            if code is None and len(part) == 1 and part.isdigit():
+                code = ord(part)
+            if code is None and part.startswith('f') and part[1:].isdigit():
+                number = int(part[1:])
+                if 1 <= number <= 24:
+                    code = 0x70 + number - 1
+            if code is None:
+                return None
+            if code not in result:
+                result.append(code)
+        return tuple(result) if result else None
+
+    @staticmethod
+    def _win32_hotkey_down(vk_codes):
+        if os.name != 'nt':
+            return False
+        import ctypes
+        user32 = ctypes.windll.user32
+        return all(user32.GetAsyncKeyState(code) & 0x8000
+                   for code in vk_codes)
+
+    def _poll_map_display_toggle_hotkey(self) -> None:
+        """Detect the display key's rising edge without installing a new hook."""
+        hotkey = self._map_display_toggle_hotkey()
+        vk_codes = self._hotkey_vk_codes(hotkey)
+        if vk_codes is None:
+            self._display_toggle_key_down = False
+            if hotkey and not self._display_toggle_poll_warned:
+                self._display_toggle_poll_warned = True
+                logger.warning(
+                    f"[MapDisplay] unsupported toggle hotkey: {hotkey!r}"
+                )
+            return
+        try:
+            is_down = bool(self._win32_hotkey_down(vk_codes))
+        except Exception as exc:
+            is_down = False
+            if not self._display_toggle_poll_warned:
+                self._display_toggle_poll_warned = True
+                logger.warning(
+                    f"[MapDisplay] toggle hotkey polling failed: {exc}"
+                )
+        if is_down and not self._display_toggle_key_down:
+            self.on_map_display_toggle_hotkey()
+            logger.info(f"[MapDisplay] toggle hotkey detected: {hotkey!r}")
+        self._display_toggle_key_down = is_down
+
+    def _poll_chest_confirm_hotkey(self) -> None:
+        """Detect the collection-confirm key's rising edge without a hook."""
+        hotkey = self._confirm_hotkey()
+        vk_codes = self._hotkey_vk_codes(hotkey)
+        if vk_codes is None:
+            self._chest_confirm_key_down = False
+            if hotkey and not self._chest_confirm_poll_warned:
+                self._chest_confirm_poll_warned = True
+                logger.warning(
+                    f"[ChestConfirm] unsupported confirm hotkey: {hotkey!r}"
+                )
+            return
+        try:
+            is_down = bool(self._win32_hotkey_down(vk_codes))
+        except Exception as exc:
+            is_down = False
+            if not self._chest_confirm_poll_warned:
+                self._chest_confirm_poll_warned = True
+                logger.warning(
+                    f"[ChestConfirm] hotkey polling failed: {exc}"
+                )
+        if is_down and not self._chest_confirm_key_down:
+            if self._chest_search_enabled():
+                self.on_chest_confirm_hotkey()
+                self.task.info_set(
+                    'Chest search', '已检测确认快捷键，正在校验目标距离'
+                )
+                logger.info(
+                    f"[ChestConfirm] hotkey detected: {hotkey!r}"
+                )
+            else:
+                self.task.info_set(
+                    'Chest search', '确认快捷键已检测，但收集物搜寻未启用'
+                )
+                logger.info(
+                    f"[ChestConfirm] hotkey ignored while search disabled: "
+                    f"{hotkey!r}"
+                )
+        self._chest_confirm_key_down = is_down
+
     def maybe_auto_advance(self, player_pos) -> bool:
         """Auto-advance the target when the player reaches it.
 
@@ -805,11 +1487,27 @@ class OverlayController:
         if self._hotkey_listener is not None:
             return
         hotkey = self.task.config.get('Advance hotkey', '<ctrl>+<f9>')
+        toggle_hotkey = self._map_display_toggle_hotkey()
+        callbacks = {hotkey: self.on_advance_hotkey}
+        # Map display and collection confirmation deliberately use read-only
+        # GetAsyncKeyState polling in the task loop. GlobalHotKeys did not
+        # reliably deliver every configured combination while the game owned
+        # focus. The historical listener remains only for route advancement.
+        if toggle_hotkey and toggle_hotkey in callbacks:
+            logger.warning(
+                f"[Overlay] map display hotkey conflicts with another hotkey: "
+                f"{toggle_hotkey!r}"
+            )
         try:
             from pynput import keyboard
-            listener = keyboard.GlobalHotKeys({hotkey: self.on_advance_hotkey})
+            listener = keyboard.GlobalHotKeys(callbacks)
             listener.daemon = True
             listener.start()
+            logger.info(
+                f"[Overlay] keyboard hotkeys registered: advance={hotkey!r}; "
+                f"confirm_poll={self._confirm_hotkey()!r}; "
+                f"map_display_poll={toggle_hotkey!r}"
+            )
         except Exception as exc:  # pragma: no cover - pynput/runtime specific
             logger.warning(
                 f"[Overlay] advance hotkey register failed ({hotkey!r}): {exc}"
@@ -938,13 +1636,15 @@ class OverlayController:
         removed = old_completed - new_completed
         try:
             for location_id in added:
-                self._marks_db.add(location_id)
+                self._marks_db.add(location_id, self._marks_account_id)
             for location_id in removed:
-                self._marks_db.remove(location_id)
+                self._marks_db.remove(location_id, self._marks_account_id)
         except Exception as exc:
             logger.warning(f"[Overlay] mark persist failed: {exc}")
             from src.utils.MapMarksDB import reconcile_completed
-            reconciled = reconcile_completed(new_completed, self._marks_db)
+            reconciled = reconcile_completed(
+                new_completed, self._marks_db, self._marks_account_id
+            )
             self._warn_marks_save()
             return reconciled
         # A successful write re-arms the save warning for any future failure.
@@ -1029,7 +1729,7 @@ class OverlayController:
         else:
             scale = task._get_default_scale_per_1000() / 1000.0
 
-        type_filter = task.config.get('_Item type filter')
+        type_filter = selected_collection_type_ids(task.config)
         player_x = player_pos[0] * 100
         player_y = player_pos[1] * 100
 
@@ -1206,6 +1906,14 @@ class OverlayController:
         ``tracker.target`` 一致的节点，取其 ``(sx, sy)`` 作为红圈圆心。无目标、非路线
         模式、或该目标节点不在当前帧可见节点中（找不到）时返回 None，使红圈消失。
         """
+        if not self._path_mode and self._chest_search_enabled():
+            chest = self._chest_target
+            if chest is None:
+                return None
+            for ct in click_targets:
+                if ct.kind == 'item' and self._same_id(ct.ref_id, chest.location_id):
+                    return (ct.sx, ct.sy)
+            return None
         tracker = self._tracker
         if not self._path_mode or tracker is None:
             return None
@@ -1360,7 +2068,9 @@ class OverlayController:
         Assembles the player coordinates, locked map id, map scale (pixels per
         1000 game units), mode (大地图/小地图 + 普通/路线) and tracking-target info
         into the fixed line order via :func:`format_status_lines`
-        (Requirement 12.4). Called every frame from ``on_minimap`` / ``on_bigmap``
+        (Requirement 12.4). When phase-1 chest search is enabled in Normal_Mode,
+        one additional line reports the selected chest and confirmation state.
+        Called every frame from ``on_minimap`` / ``on_bigmap``
         and handed to the matching render target (Requirement 12.9).
 
         Field availability follows Requirements 12.10 / 12.11:
@@ -1395,9 +2105,15 @@ class OverlayController:
                 self._status_last_scale = scale_per_1000
             self._status_last_mode = mode_desc
             self._status_last_target_info = target_info
-            return format_status_lines(
+            lines = format_status_lines(
                 player_pos, map_id, scale_per_1000, mode_desc, target_info
             )
+            if not self._path_mode and self.task.config.get('Chest search', False):
+                lines.append(self._chest_status_info())
+                route_line = self._chest_route_status_info()
+                if route_line:
+                    lines.append(route_line)
+            return lines
 
         # Player coordinates unavailable -> coordinate "未知", keep the other
         # fields' last valid values (Requirement 12.10).
@@ -1407,10 +2123,16 @@ class OverlayController:
             if self._status_last_target_info is not None
             else target_info
         )
-        return format_status_lines(
+        lines = format_status_lines(
             None, self._status_last_map_id, self._status_last_scale,
             last_mode, last_target,
         )
+        if not self._path_mode and self.task.config.get('Chest search', False):
+            lines.append(self._chest_status_info())
+            route_line = self._chest_route_status_info()
+            if route_line:
+                lines.append(route_line)
+        return lines
 
     def _status_scale_per_1000(self, minimap, game_scale):
         """Resolve the map scale (pixels per 1000 game units) for the panel.
@@ -1601,9 +2323,111 @@ class OverlayController:
         if self._interaction_window is not None:
             self._interaction_window.hide_overlay()
 
+    def _draw_minimap_direction_window(self, edge_arrow, target_marker=None):
+        """Render the selected chest direction through the Qt topmost layer."""
+        if edge_arrow is None:
+            self._hide_minimap_direction_window()
+            return
+        hwnd = getattr(self.task, 'hwnd', None)
+        if hwnd is not None and not getattr(hwnd, 'visible', True):
+            self._hide_minimap_direction_window()
+            return
+        window = self._ensure_minimap_direction_window()
+        if window is None:
+            return
+        bearing, minimap_box = edge_arrow[0], edge_arrow[1]
+        distance = edge_arrow[2] if len(edge_arrow) > 2 else None
+        nearby = bool(edge_arrow[3]) if len(edge_arrow) > 3 else False
+        window.render_direction(
+            self._client_geometry(), bearing, minimap_box,
+            distance=distance, target_marker=target_marker, nearby=nearby,
+            hint_text=self._chest_hint_for_target(self._chest_target),
+        )
+        self._last_minimap_direction_at = time.monotonic()
+
+    @staticmethod
+    def _manual_movement_active():
+        """Read common movement keys without installing another input hook."""
+        if os.name != 'nt':
+            return True
+        try:
+            import ctypes
+            user32 = ctypes.windll.user32
+            # W/A/S/D, Space, Shift and arrow keys cover the default movement
+            # controls and common traversal modifiers. GetAsyncKeyState is a
+            # read-only snapshot and does not generate or intercept input.
+            keys = (0x57, 0x41, 0x53, 0x44, 0x20, 0x10,
+                    0x25, 0x26, 0x27, 0x28)
+            return any(user32.GetAsyncKeyState(key) & 0x8000 for key in keys)
+        except Exception:
+            # Preserve normal tracking if the platform query is unavailable.
+            return True
+
+    def _ensure_minimap_direction_window(self):
+        if self._minimap_direction_unavailable:
+            return None
+        if self._minimap_direction_window is not None:
+            return self._minimap_direction_window
+        try:
+            window = self._create_minimap_direction_window()
+        except Exception as exc:
+            logger.warning(f"[Overlay] minimap direction window create failed: {exc}")
+            window = None
+        if window is None:
+            self._minimap_direction_unavailable = True
+            return None
+        self._minimap_direction_window = window
+        logger.info("[MinimapDirectionQt] window created")
+        return window
+
+    def _create_minimap_direction_window(self):
+        from PySide6.QtCore import QMetaObject, QObject, Qt, Slot
+        from PySide6.QtWidgets import QApplication
+
+        app = QApplication.instance()
+        if app is None:
+            return None
+
+        class _Creator(QObject):
+            def __init__(self):
+                super().__init__()
+                self.window = None
+                self.error = None
+
+            @Slot()
+            def build(self):
+                try:
+                    from src.utils.MinimapDirectionWindow import (
+                        MinimapDirectionWindow,
+                    )
+                    self.window = MinimapDirectionWindow()
+                except Exception as exc:  # pragma: no cover - Qt runtime
+                    self.error = exc
+
+        creator = _Creator()
+        gui_thread = app.thread()
+        from PySide6.QtCore import QThread
+        if QThread.currentThread() is gui_thread:
+            creator.build()
+        else:
+            creator.moveToThread(gui_thread)
+            QMetaObject.invokeMethod(creator, "build", Qt.BlockingQueuedConnection)
+        if creator.error is not None:
+            raise creator.error
+        return creator.window
+
+    def _hide_minimap_direction_window(self):
+        if self._minimap_direction_window is not None:
+            self._minimap_direction_window.hide_overlay()
+
     def close(self) -> None:
         """Release the interaction window, node icon cache and marks DB."""
         self._stop_hotkey()
+        self._chest_confirm_requested = False
+        self._chest_confirm_key_down = False
+        self._display_toggle_requested = False
+        self._display_toggle_key_down = False
+        self._clear_chest_target()
         if self._icon_cache is not None:
             try:
                 self._icon_cache.stop()
@@ -1616,6 +2440,12 @@ class OverlayController:
             except Exception:  # pragma: no cover - Qt runtime
                 pass
             self._interaction_window = None
+        if self._minimap_direction_window is not None:
+            try:
+                self._minimap_direction_window.hide_overlay()
+            except Exception:  # pragma: no cover - Qt runtime
+                pass
+            self._minimap_direction_window = None
         if self._marks_db is not None:
             try:
                 self._marks_db.close()
@@ -1660,10 +2490,34 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
             'Advance hotkey': '<ctrl>+<f9>',
             # 左下角信息面板（Status_Panel）开关，默认显示
             'Show status panel': True,
+            # 阶段 1：自动选择最近未确认宝箱并显示导航提示；不自动移动或开箱。
+            'Chest search': False,
+            # 地图显示与最近目标搜寻共用这一组分类。
+            'Collection types': list(DEFAULT_COLLECTION_GROUPS),
+            # 本地领取记录档案；从下拉框选择游戏 UID 或自定义账号别名。
+            'Collection account': 'default',
+            # 仅用于把“添加账号”按钮排列在账号下拉框之后；按钮不会修改此值。
+            'Collection account management': False,
+            # 控制全部地图高价值物品覆盖层，按一次隐藏、再按一次显示。
+            'Map display toggle hotkey': '<ctrl>+<f8>',
+            # 使用 Win32 只读按键状态轮询，不注册新的全局钩子。
+            'Chest confirm hotkey': '<ctrl>+<f10>',
+            '_Chest confirm distance (world units)': CHEST_CONFIRM_DISTANCE_DEFAULT,
+            CHEST_CONFIRM_POLL_MIGRATION_KEY: False,
+            # 可选的视频路线清单；首个清单只验证来源/区域/数量，点位待校准。
+            'Chest route file': CHEST_ROUTE_FILE_DEFAULT,
         })
         self.config_type['_Item type filter'] = {'type': 'multi_selection', 'options': [
             'qzx_01', 'qzx_02', 'qzx_03', 'qzx_04',
         ]}
+        self.config_type['Collection types'] = {
+            'type': 'multi_selection',
+            'options': list(COLLECTION_GROUP_TYPE_IDS),
+        }
+        self.config_type['Collection account'] = {
+            'type': 'drop_down',
+            'options': ['default'],
+        }
         self.config_type['_Feature algorithm'] = {'type': 'drop_down', 'options': [
             'SURF', 'SIFT', 'SIFTGZ',
         ]}
@@ -1680,18 +2534,40 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
             'icon': FluentIcon.CLOUD_DOWNLOAD,
             'callback': self.start_assets_download,
         }
+        self.config_type['Collection account management'] = {
+            'type': 'button',
+            'text': 'Add account',
+            'icon': FluentIcon.ADD,
+            'callback': self.add_collection_account,
+        }
         # 面板可见文案统一用英文源串，由 i18n/<locale>/LC_MESSAGES/ok.po 提供翻译。
         self.config_description = {
             'Path mode': 'Show only the route from assets/path.json, hide high-value items',
             'Advance hotkey': 'Hotkey to advance the target manually (pynput format, e.g. <ctrl>+<f9>)',
             'Show status panel': 'Show the info panel at the bottom-left corner of the game window',
             'Download map assets': 'Download the latest map assets and extract them into the assets folder',
+            'Chest search': 'Select the nearest unconfirmed collectible and show its direction; movement and collection remain manual',
+            'Collection types': 'Choose which collectible groups are displayed and used for nearest-target guidance',
+            'Collection account': 'Choose the local completion profile used to store collected-item progress',
+            'Collection account management': 'Add a game UID or custom alias and switch to the new profile',
+            'Map display toggle hotkey': 'Hotkey to show or hide all map high-value-item overlays (pynput format, e.g. <ctrl>+<f8>)',
+            'Chest confirm hotkey': 'Press after manually collecting the selected target to mark it as completed',
+            '_Chest confirm distance (world units)': 'Only allow confirmation when the player is close to the selected chest',
+            'Chest route file': 'Optional video-route manifest; metadata-only routes do not change movement or chest selection',
+        }
+        self.config_type['_Chest confirm distance (world units)'] = {
+            'min': 1, 'max': 100000,
         }
         self._window = None
         self._last_valid = None
         self._consecutive_far = 0
         self._overlay = None
         self._overlay_registered = False
+        # Low-rate minimap render diagnostics.  This makes it possible to
+        # distinguish "no nearby database items" from a native overlay that
+        # failed to present, without logging every 100 ms frame.
+        self._minimap_draw_log_counter = 0
+        self._fallback_position_log_counter = 0
         self._overlay_controller = None
         self._fallback_failures = 0
         self._locked_map_id = None
@@ -1736,6 +2612,14 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
 
     def on_create(self):
         super().on_create()
+        self._migrate_chest_confirm_config()
+        # Convert the former free-text value into a durable profile, then build
+        # the dropdown before the task card is created.  This preserves custom
+        # aliases that users entered in earlier builds.
+        self._refresh_collection_account_options(
+            self.config.get('Collection account', 'default'),
+            ensure=True,
+        )
         # 程序启动后模式总是重置回普通模式，避免上次退出时残留在路线模式。
         if self.config.get('Path mode', False):
             self.config['Path mode'] = False
@@ -1747,6 +2631,79 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
             communicate.executor_paused.connect(self._on_executor_paused)
         except Exception as e:  # pragma: no cover - Qt 运行时相关
             logger.warning(f'[Overlay] connect executor_paused failed: {e}')
+
+    def _migrate_chest_confirm_config(self):
+        """One-time migration from the old hook and 250-unit distance guard."""
+        if self.config.get(CHEST_CONFIRM_POLL_MIGRATION_KEY, False):
+            return
+        if not str(self.config.get('Chest confirm hotkey', '') or '').strip():
+            self.config['Chest confirm hotkey'] = '<ctrl>+<f10>'
+        try:
+            old_limit = float(self.config.get(
+                '_Chest confirm distance (world units)', 250
+            ))
+        except (TypeError, ValueError):
+            old_limit = 250
+        if old_limit <= 250:
+            self.config['_Chest confirm distance (world units)'] = (
+                CHEST_CONFIRM_DISTANCE_DEFAULT
+            )
+        self.config[CHEST_CONFIRM_POLL_MIGRATION_KEY] = True
+        logger.info(
+            f"[ChestConfirm] migrated hotkey="
+            f"{self.config.get('Chest confirm hotkey')!r} distance="
+            f"{self.config.get('_Chest confirm distance (world units)')}"
+        )
+
+    def _refresh_collection_account_options(self, selected=None, ensure=False):
+        """Reload the persisted profile list used by the account dropdown."""
+        from src.utils.MapMarksDB import (
+            DEFAULT_ACCOUNT_ID, MapMarksDB, normalize_account_id,
+        )
+
+        selected = normalize_account_id(selected)
+        accounts = [DEFAULT_ACCOUNT_ID]
+        db = None
+        try:
+            os.makedirs(os.path.dirname(MARKS_DB_PATH), exist_ok=True)
+            db = MapMarksDB(MARKS_DB_PATH)
+            if ensure:
+                db.ensure_account(selected)
+            accounts = db.list_accounts()
+        except Exception as exc:
+            logger.warning(f'[Overlay] collection account list failed: {exc}')
+        finally:
+            if db is not None:
+                db.close()
+
+        if selected not in accounts:
+            accounts.append(selected)
+        self.config_type['Collection account']['options'] = accounts
+        return accounts
+
+    def add_collection_account(self, *args):
+        """Prompt for a profile, persist it, select it, and rebuild the card."""
+        from src.utils.CollectionAccountDialog import prompt_collection_account
+
+        parent = getattr(og, 'main_window', None)
+        account_id = prompt_collection_account(parent)
+        if not account_id:
+            return
+
+        self._refresh_collection_account_options(account_id, ensure=True)
+        self.config['Collection account'] = account_id
+        self.info_set('Collection account', account_id)
+
+        # Task cards copy dropdown options when they are built.  Rebuild on the
+        # next GUI turn so the new option is visible immediately and the button
+        # that invoked this callback is not deleted while its signal runs.
+        try:
+            from PySide6.QtCore import QTimer
+            from ok.core.events import communicate
+
+            QTimer.singleShot(0, communicate.task_list_updated.emit)
+        except Exception as exc:  # pragma: no cover - headless compatibility
+            logger.warning(f'[Overlay] refresh account dropdown failed: {exc}')
 
     def _on_executor_paused(self, paused):
         """执行器暂停时强制清一遍附加层；恢复运行时由检测循环重新绘制。"""
@@ -2470,18 +3427,54 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
             self.sleep(0.5)
             return
 
+        # Poll before every map/display guard.  If the overlay is currently
+        # hidden, on_minimap/on_bigmap are intentionally not called, so polling
+        # only inside those methods would make the hotkey able to turn display
+        # off but unable to turn it back on.
+        controller = self._overlay_ctl()
+        controller._process_map_display_toggle()
+        controller._poll_chest_confirm_hotkey()
+
         # 启用附加功能后的一次性检查（版本号展示 + 资源缺失自动下载）。配置里已启用、
         # 程序启动后直接进入循环的情况也会在这里覆盖到。
         self._ensure_feature_started()
 
-        if self.scene.in_team(self.in_team_and_world):
+        # ``in_team`` is a useful guard for combat tasks, but it is not a
+        # reliable prerequisite for map rendering: the team portraits/text can
+        # be hidden during normal-world transitions (or fail template matching
+        # at a different UI scale) while the coordinate OCR and minimap remain
+        # valid.  Keep the original guard for the normal path, then allow a
+        # strictly read-only coordinate fallback when the frame is not the big
+        # map.  No input is generated by this fallback and AutoCombatTask still
+        # uses its unchanged ``in_team`` gate.
+        in_team = self.scene.in_team(self.in_team_and_world)
+        fallback_minimap = False
+        in_big_map = None
+        raw_position = None
+        if not in_team:
+            in_big_map = self._in_big_map()
+            if not in_big_map and self.config.get('_Overlay enabled'):
+                raw_position = self._get_position_detector().detect_position(self.frame)
+                fallback_minimap = bool(raw_position)
+                if fallback_minimap:
+                    self._fallback_position_log_counter += 1
+                    if (self._fallback_position_log_counter <= 3 or
+                            self._fallback_position_log_counter % 50 == 0):
+                        logger.info(
+                            f"[MinimapFallback] in_team=False, position={raw_position}"
+                        )
+
+        if in_team or fallback_minimap:
             self._fallback_failures = 0
             self._in_team_failures = 0
             self._last_match_scale = None
 
-            start = time.time()
-            raw_position = self._get_position_detector().detect_position(self.frame)
-            elapsed = (time.time() - start) * 1000
+            if raw_position is None:
+                start = time.time()
+                raw_position = self._get_position_detector().detect_position(self.frame)
+                elapsed = (time.time() - start) * 1000
+            else:
+                elapsed = 0.0
 
             if raw_position:
                 result = self._denoise(raw_position)
@@ -2564,7 +3557,8 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
             self.sleep(interval / 1000)
             return
 
-        in_big_map = self._in_big_map()
+        if in_big_map is None:
+            in_big_map = self._in_big_map()
         self._ensure_view_probe()
         self._view_probe_mark_big_map(in_big_map)
         est = self._ensure_view_estimator()
@@ -2725,7 +3719,7 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
     _scale_log_counter = 0
 
     def _draw_overlay(self, player_pos, state_id=None, completed_ids=None,
-                      status_lines=None):
+                      status_lines=None, edge_arrow=None, target_marker=None):
         overlay_view = self.get_overlay_view()
         if overlay_view is None:
             return
@@ -2751,7 +3745,7 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
                 f"search_radius={radius:.0f}"
             )
 
-        type_filter = self.config.get('_Item type filter')
+        type_filter = selected_collection_type_ids(self.config)
         player_x = player_pos[0] * 100
         player_y = player_pos[1] * 100
 
@@ -2761,10 +3755,20 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         )
 
         callback = MapItemOverlay.make_paint_callback(
-            draw_items, status_lines=status_lines
+            draw_items, edge_arrow=edge_arrow, target_marker=target_marker,
+            status_lines=status_lines
         )
         overlay_view.draw(OVERLAY_DRAW_KEY, callback, duration=OVERLAY_DRAW_DURATION)
         self._overlay_registered = True
+        self._minimap_draw_log_counter += 1
+        if self._minimap_draw_log_counter <= 3 or self._minimap_draw_log_counter % 50 == 0:
+            edge_bearing = edge_arrow[0] if edge_arrow is not None else None
+            logger.info(
+                f"[MinimapOverlay] map_id={state_id} draw_items={len(draw_items)} "
+                f"edge_bearing={edge_bearing} target_marker={target_marker} "
+                f"overlay_hwnd={getattr(overlay_view, '_hwnd', None)} "
+                f"overlay_visible={getattr(overlay_view, '_visible', None)}"
+            )
 
     def _compute_game_scale(self, result):
         if result.map_scale <= 0 or not result.game_center:
@@ -2788,7 +3792,7 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         else:
             scale_per_1000 = self._get_default_scale_per_1000()
             scale = scale_per_1000 / 1000.0
-        type_filter = self.config.get('_Item type filter')
+        type_filter = selected_collection_type_ids(self.config)
         player_x = player_pos[0] * 100
         player_y = player_pos[1] * 100
 

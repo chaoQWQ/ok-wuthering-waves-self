@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "source": "https://www.bilibili.com/video/BV17QwyzVEbZ/?p=5",
+  "video_id": "BV17QwyzVEbZ",
+  "part": 5,
+  "version": "1.0",
+  "map": {
+    "name": "云陵谷·玉龙台",
+    "state_id": 8
+  },
+  "counts": {
+    "chests": 17,
+    "sound_boxes": 1,
+    "scenic_points": 1,
+    "butterflies": 3
+  },
+  "timeline_type_ids": [
+    "qzx_01", "qzx_02", "qzx_01", "qzx_01", "sx", "gjd",
+    "qzx_03", "qzx_02", "xsd", "qzx_02", "qzx_03", null,
+    "qzx_03", "qzx_01", "xsd", "xsd", "qzx_02", "qzx_01",
+    null, "qzx_02", "qzx_01", "qzx_01"
+  ],
+  "timeline_type_evidence": "P5 视频底部编号时间轴；第 12、19 项文字不是标准宝箱品质，暂不限制",
+  "verified_location_ids": {
+    "5": "1259098429200068608",
+    "6": "1257138721367920640"
+  },
+  "status": "metadata_only",
+  "nodes": []
+}

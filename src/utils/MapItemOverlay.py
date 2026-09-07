@@ -14,9 +14,13 @@ from PySide6.QtGui import (
     QPolygon,
     QRegion,
 )
+from ok.util.logger import Logger
 
 from src.utils.map_geometry import distance_game_units, edge_arrow_position
 from src.utils.PathRoute import PATH_NODE_ICON_KEY
+
+logger = Logger.get_logger(__name__)
+_native_direction_log_counter = 0
 
 ITEM_COLORS = {
     'qzx_01': QColor(255, 165, 0),
@@ -24,6 +28,19 @@ ITEM_COLORS = {
     'qzx_03': QColor(255, 0, 255),
     'qzx_04': QColor(0, 165, 255),
     'cx_0': QColor(0, 255, 0),
+    'sx': QColor(235, 220, 170),
+    'sx·lgn': QColor(235, 220, 170),
+    'sx·qq': QColor(235, 220, 170),
+    'cx_01': QColor(80, 235, 145),
+    'cx_02': QColor(205, 90, 255),
+    'cx_03': QColor(255, 220, 60),
+    'Play_12': QColor(245, 245, 220),
+    'xsd': QColor(220, 95, 255),
+    'fls': QColor(100, 205, 255),
+    'gjd': QColor(135, 225, 255),
+    'ych': QColor(255, 150, 80),
+    'ylfy': QColor(150, 255, 125),
+    'YHYC': QColor(255, 200, 80),
 }
 FALLBACK_COLOR = QColor(255, 255, 255)
 
@@ -351,6 +368,166 @@ def _load_item_pixmaps(assets_dir):
             pixmap = QPixmap(img_path)
             if not pixmap.isNull():
                 ITEM_PIXMAPS[type_id] = pixmap.scaled(ICON_SIZE, ICON_SIZE)
+
+
+def _native_color_tuple(color):
+    """Return an RGB tuple usable by ``ok``'s native GDI canvas.
+
+    The current ``ok-script`` Windows overlay passes a small ``GdiCanvas``
+    object to custom painters rather than a Qt ``QPainter``.  Keep the
+    conversion local to this render adapter so the database and Qt rendering
+    paths continue to use their existing color objects unchanged.
+    """
+    if isinstance(color, QColor):
+        return color.red(), color.green(), color.blue()
+    if isinstance(color, (tuple, list)) and len(color) >= 3:
+        try:
+            return int(color[0]), int(color[1]), int(color[2])
+        except (TypeError, ValueError):
+            pass
+    return 255, 255, 255
+
+
+def _native_edge_indicator_geometry(bearing_deg, minimap_box):
+    """Return GDI-friendly points for an always-visible minimap direction cue.
+
+    The native Windows overlay does not expose Qt's ``drawArc``/``drawPolygon``
+    primitives.  Represent the direction with three progressively smaller
+    hollow squares laid from the minimap rim toward its centre.  Bearing uses
+    the same compass convention as :func:`bearing_degrees`: 0=up, 90=right.
+
+    Returns ``(markers, label)`` where each marker is ``(x, y, size)`` and the
+    label is ``(x, y)``.  Coordinates are window-local logical pixels.
+    """
+    bw = int(getattr(minimap_box, "width"))
+    bh = int(getattr(minimap_box, "height"))
+    bx = float(getattr(minimap_box, "x"))
+    by = float(getattr(minimap_box, "y"))
+    radius = min(bw, bh) / 2.0
+    if radius <= 12:
+        return (), None
+
+    cx = bx + bw / 2.0
+    cy = by + bh / 2.0
+    angle = math.radians(float(bearing_deg) % 360.0)
+    dx = math.sin(angle)
+    dy = -math.cos(angle)
+
+    markers = []
+    # A large rim square plus two inner trail squares form a clear radial arrow
+    # using only the primitives available on GdiCanvas.
+    for inset, size in ((9, 16), (23, 10), (35, 6)):
+        distance = max(0.0, radius - inset)
+        mx = int(round(cx + dx * distance - size / 2.0))
+        my = int(round(cy + dy * distance - size / 2.0))
+        markers.append((mx, my, size))
+
+    # Keep a fixed-position label directly below the minimap.  The old label
+    # followed the arrow tip and could overlap the game's own minimap art or
+    # land too close to a window edge.  A stable banner also makes it obvious
+    # that the direction calculation is alive even when the rim squares happen
+    # to sit over a similarly coloured HUD element.
+    label_x = int(round(bx + 8))
+    label_y = int(round(by + bh + 8))
+    return tuple(markers), (label_x, label_y)
+
+
+def _paint_native_canvas(painter, draw_items, edge_arrow=None,
+                         target_marker=None, status_lines=None):
+    """Render a minimal, visible marker set on ``ok``'s GDI canvas.
+
+    ``Win32GdiOverlay`` is deliberately Qt-free and exposes only rectangle and
+    text primitives.  Calling the Qt-only painter API from that callback would
+    raise ``AttributeError`` and leave the whole minimap blank.  A compact
+    square/cross marker preserves the important navigation information (type
+    color, position and short name); an optional target is highlighted with a
+    red outline and its bearing is shown as text.  The original click-through
+    overlay and capture/input risk remain unchanged.  The Qt branch below
+    remains the full-fidelity path used by the interactive big-map window.
+    """
+    half = ICON_SIZE // 2
+    for item in draw_items:
+        sx, sy, _pixmap, name, color = item[0], item[1], item[2], item[3], item[4]
+        rgb = _native_color_tuple(color)
+        # Two nested outlines make the marker readable even when the game map
+        # has similarly colored terrain.  GdiCanvas scales coordinates to the
+        # native frame and keeps the window input-transparent.
+        painter.rectangle(sx - half, sy - half, ICON_SIZE, ICON_SIZE,
+                          color=rgb, line_width=2)
+        painter.rectangle(sx - 2, sy - 2, 4, 4, color=rgb, line_width=1)
+        if name:
+            painter.text(sx + half + 3, sy - 7, str(name)[:4], color=rgb)
+
+    # ``GdiCanvas`` intentionally exposes only a small primitive set.  Keep
+    # the native path lightweight: highlight the selected target with a red
+    # square and expose its bearing as text rather than calling Qt-only arc or
+    # ellipse APIs.  This preserves visibility on the current Windows native
+    # minimap overlay while remaining compatible with older canvas versions.
+    if target_marker is not None:
+        try:
+            sx, sy = int(target_marker[0]), int(target_marker[1])
+            painter.rectangle(sx - half - 3, sy - half - 3,
+                              ICON_SIZE + 6, ICON_SIZE + 6,
+                              color=(255, 60, 60), line_width=2)
+        except (TypeError, ValueError, AttributeError):
+            pass
+
+    if edge_arrow is not None:
+        try:
+            bearing, minimap_box = float(edge_arrow[0]), edge_arrow[1]
+            distance = None
+            if len(edge_arrow) > 2 and edge_arrow[2] is not None:
+                distance = int(round(float(edge_arrow[2])))
+            markers, label = _native_edge_indicator_geometry(
+                bearing, minimap_box
+            )
+            for marker_index, (mx, my, size) in enumerate(markers):
+                color = (255, 40, 40) if marker_index == 0 else (255, 180, 40)
+                painter.rectangle(
+                    mx, my, size, size, color=color,
+                    line_width=3 if marker_index == 0 else 2,
+                )
+            if label is not None:
+                # Draw a double outline around the fixed label so the cue is
+                # visible against both bright sky and dark terrain.  ASCII is
+                # intentional here: the stock GDI font on some systems cannot
+                # render Chinese glyphs in a layered window.
+                banner_width = 188
+                painter.rectangle(
+                    label[0] - 5, label[1] - 5, banner_width, 25,
+                    color=(255, 35, 35), line_width=3,
+                )
+                painter.rectangle(
+                    label[0] - 1, label[1] - 1, banner_width - 8, 17,
+                    color=(255, 210, 40), line_width=1,
+                )
+                label_text = f"CHEST {bearing:.0f} deg"
+                if distance is not None:
+                    label_text += f"  {distance}m"
+                painter.text(
+                    label[0] + 3, label[1] + 1, label_text,
+                    color=(255, 255, 80),
+                )
+            global _native_direction_log_counter
+            _native_direction_log_counter += 1
+            if (_native_direction_log_counter <= 3 or
+                    _native_direction_log_counter % 50 == 0):
+                logger.info(
+                    f"[NativeMinimapDirection] bearing={bearing:.1f} "
+                    f"distance={distance} box=("
+                    f"{minimap_box.x},{minimap_box.y},"
+                    f"{minimap_box.width},{minimap_box.height}) "
+                    f"tip={markers[0] if markers else None} label={label}"
+                )
+        except (TypeError, ValueError, AttributeError, IndexError) as error:
+            logger.warning(f"[NativeMinimapDirection] paint failed: {error!r}")
+
+    if status_lines:
+        for index, line in enumerate(status_lines):
+            # Direction text now lives next to the minimap, so the status panel
+            # can consistently start at the window's top-left.
+            y = 16 + index * 18
+            painter.text(16, y, str(line), color=(255, 255, 255))
 
 
 # --------------------------------------------------------------------------
@@ -905,6 +1082,20 @@ class MapItemOverlay:
         绘制，保持既有行为。
         """
         def paint(painter, view):
+            # ``ok-script``'s Windows native overlay supplies ``GdiCanvas``
+            # rather than Qt's ``QPainter``.  The latter has ``setOpacity``
+            # and ``drawPixmap``; the former intentionally has only a small
+            # rectangle/text API.  Handle that capability difference before
+            # entering the Qt-only path so a native minimap cannot fail its
+            # entire custom painter with ``AttributeError``.
+            if not (hasattr(painter, "setOpacity") and
+                    hasattr(painter, "drawPixmap")):
+                _paint_native_canvas(
+                    painter, draw_items, edge_arrow=edge_arrow,
+                    target_marker=target_marker, status_lines=status_lines,
+                )
+                return
+
             clipped = clip_box is not None
             if clipped:
                 painter.save()
@@ -940,7 +1131,7 @@ class MapItemOverlay:
                         painter.drawText(sx + 5, sy - 5, name[:4])
                 painter.setOpacity(1.0)
                 if edge_arrow is not None:
-                    bearing_deg, minimap_box = edge_arrow
+                    bearing_deg, minimap_box = edge_arrow[0], edge_arrow[1]
                     paint_edge_direction_arrow(painter, bearing_deg, minimap_box)
                 # 目标红圈（问题1b）：在图标与方位箭头之后画 3px 红色空心圆，圈住
                 # 当前路线目标节点；无目标（target_marker is None）时不绘制。

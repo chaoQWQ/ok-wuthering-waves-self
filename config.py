@@ -2,10 +2,16 @@ import os
 import re
 from pathlib import Path
 
+from src.utils.wgc_compat import enable_windows_graphics_capture
 from ok import Box, ConfigOption, Icon
 from src.task.process_feature import process_feature
 
 version = "dev"
+
+
+# Install the native-overlay compatibility early. WGC itself remains subject
+# to ok-script's platform capability check.
+enable_windows_graphics_capture()
 
 
 def _find_most_recently_run_pc_exe():
@@ -251,6 +257,7 @@ config = {
     'launcher_error_log_file': 'logs/launcher_error.log',
     'version': version,
     'onetime_tasks': [  # tasks to execute
+        ["src.task.ManualRouteRecorderTask", "ManualRouteRecorderTask"],
         ["src.task.DailyTask", "DailyTask"],
         ["src.task.FarmEchoTask", "FarmEchoTask"],
         ["src.task.NightmareNestTask", "NightmareNestTask"],
