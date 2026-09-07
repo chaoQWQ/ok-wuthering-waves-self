@@ -4,17 +4,17 @@ import unittest
 
 class TestWgcCompat(unittest.TestCase):
     @unittest.skipUnless(sys.platform == "win32", "WGC is a Windows-only capture API")
-    def test_config_keeps_basic_wgc_available_on_supported_builds(self):
-        # Importing config installs the compatibility check used by the device
-        # selector.  This must not depend on the newer no-border API.
+    def test_config_respects_upstream_wgc_platform_gate(self):
+        # Importing config may apply stability fixes, but must not replace the
+        # upstream capability check and force WGC on unsupported builds.
         import config  # noqa: F401
         import ok.util.window as window
         from ok.device.capture_methods.update import windows_graphics_available
+        from src.utils.wgc_compat import enable_windows_graphics_capture
 
-        if window.WINDOWS_BUILD_NUMBER < window.WGC_MIN_BUILD:
-            self.skipTest("host Windows build predates basic WGC support")
-        self.assertTrue(window.windows_graphics_available())
-        self.assertTrue(windows_graphics_available())
+        expected = bool(window.windows_graphics_available())
+        self.assertEqual(bool(windows_graphics_available()), expected)
+        self.assertEqual(enable_windows_graphics_capture(), expected)
 
     @unittest.skipUnless(sys.platform == "win32", "native overlay is Windows-only")
     def test_native_overlay_uses_unowned_popup_compatibility(self):
@@ -29,6 +29,9 @@ class TestWgcCompat(unittest.TestCase):
     def test_wgc_target_signature_ignores_top_hwnd_and_child_hwnds(self):
         import config  # noqa: F401
         from ok.device.capture_methods.hwnd_window import HwndWindow
+        from src.utils.wgc_compat import _enable_wgc_deadlock_and_stability_compat
+
+        self.assertTrue(_enable_wgc_deadlock_and_stability_compat())
 
         class MockWindow:
             hwnd = 1234
@@ -53,7 +56,9 @@ class TestWgcCompat(unittest.TestCase):
         import config  # noqa: F401
         import threading
         from ok.device.capture_methods.windows_graphics import WindowsGraphicsCaptureMethod
+        from src.utils.wgc_compat import _enable_wgc_deadlock_and_stability_compat
 
+        self.assertTrue(_enable_wgc_deadlock_and_stability_compat())
         self.assertTrue(getattr(WindowsGraphicsCaptureMethod, "_okww_stability_compat", False))
 
         class MockSession:

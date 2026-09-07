@@ -1,13 +1,10 @@
-"""Windows Graphics Capture compatibility for supported Windows 10 builds.
+"""Local stability fixes for Windows Graphics Capture and the native overlay.
 
-The installed ``ok-script`` release exposes two separate Windows build gates:
-one for WGC itself and one for the newer ``IsBorderRequired`` API.  Its
-availability helper currently uses the latter gate for both, which disables
-WGC on Windows 10 19041+ even though the basic capture API is available.
-
-This module only adjusts the capability check.  The capture implementation
-already guards the optional border API, so no input, process, or game state
-operations are added here.
+The installed ``ok-script`` release intentionally decides which Windows
+builds should use WGC.  Keep that platform gate intact: forcing WGC on older
+builds can wedge frame capture while the game's transient login windows are
+being destroyed.  This module only patches WGC after the upstream capability
+check succeeds.
 """
 
 from __future__ import annotations
@@ -141,12 +138,7 @@ def _enable_wgc_deadlock_and_stability_compat() -> bool:
 
 
 def enable_windows_graphics_capture() -> bool:
-    """Enable the basic WGC capability check on supported Windows builds.
-
-    Returns ``True`` when the host build and WinRT activation interface are
-    available.  On non-Windows hosts, or when the WinRT interface cannot be
-    loaded, this returns ``False`` without changing the installed package.
-    """
+    """Apply compatibility fixes when upstream says WGC is supported."""
 
     try:
         import sys
@@ -156,47 +148,13 @@ def enable_windows_graphics_capture() -> bool:
 
         import ok.util.window as window
 
-        # The minimap uses ok-script's native GDI overlay.  Apply this before
-        # the application constructs that overlay; the big-map interaction
-        # window is independent and needs no change.
+        # The minimap uses ok-script's native GDI overlay. Apply this before
+        # the application constructs that overlay, independently of WGC.
         _enable_overlay_owner_compat()
-        _enable_wgc_deadlock_and_stability_compat()
-
-        build = window.WINDOWS_BUILD_NUMBER
-        minimum_build = getattr(window, "WGC_MIN_BUILD", 19041)
-        if build < minimum_build:
-            return False
-
-        def wgc_available() -> bool:
-            try:
-                from ok.rotypes import idldsl  # noqa: F401 - activates WinRT type support
-                from ok.rotypes.roapi import GetActivationFactory
-                from ok.rotypes.Windows.Graphics.Capture import IGraphicsCaptureItemInterop
-
-                GetActivationFactory("Windows.Graphics.Capture.GraphicsCaptureItem").astype(
-                    IGraphicsCaptureItemInterop
-                )
-                return True
-            except Exception as exc:
-                window.logger.error(f"check available failed: {exc}", exception=exc)
-                return False
-
-        # DeviceManager imports this helper lazily during application start;
-        # patching the module attribute is enough for that path.  Patch the
-        # already-imported capture selector as well for embedded/debug starts.
-        window.windows_graphics_available = wgc_available
-        try:
-            import ok.device.capture_methods.update as capture_update
-
-            capture_update.windows_graphics_available = wgc_available
-        except Exception:
-            pass
-        available = wgc_available()
+        available = bool(window.windows_graphics_available())
         if available:
-            window.logger.info(
-                f"WGC compatibility enabled for Windows build {build} "
-                f"(minimum basic build {minimum_build})"
-            )
+            _enable_wgc_deadlock_and_stability_compat()
+            window.logger.info(f"WGC stability compatibility enabled for Windows build {window.WINDOWS_BUILD_NUMBER}")
         return available
     except Exception:
         return False

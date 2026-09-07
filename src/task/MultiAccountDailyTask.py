@@ -15,6 +15,7 @@ from src.utils.wgc_compat import enable_windows_graphics_capture
 enable_windows_graphics_capture()
 
 account_pattern = re.compile(r'\*\*\*\*')
+_ACCOUNT_LIST_EXHAUSTED = object()
 
 # Number of independent per-account DailyTask override slots shown in the UI
 NUM_ACCOUNT_SLOTS = 5
@@ -253,6 +254,10 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         daily_task = self.get_task_by_class(DailyTask)
         overrides = self._get_account_overrides(account) if account else {}
         originals = self._apply_daily_overrides(daily_task, overrides)
+        focus_was_allowed = getattr(daily_task, '_allow_bring_to_front', False)
+        # DailyTask owns the initial login wait.  Physical login controls must
+        # be clicked with the game in front, just like later account switches.
+        daily_task._allow_bring_to_front = True
         try:
             self.run_task_by_class(DailyTask)
             return True
@@ -278,6 +283,7 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
                 )
             return False
         finally:
+            daily_task._allow_bring_to_front = focus_was_allowed
             self._restore_daily_overrides(daily_task, originals)
 
     # ------------------------------------------------------------------
@@ -345,6 +351,8 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
 
     def _click_account_in_list(self):
         accounts = self.ocr(match=account_pattern)
+        if not accounts:
+            return None
         next_account = None
         # self.screenshot('_click_account_in_list')
         for account in accounts:
@@ -354,7 +362,9 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
                 next_account = account.name
                 self._click_direct(account, after_sleep=2)
         self.log_info(self.tr('Click next account: {account}').format(account=next_account))
-        return next_account
+        # A loaded account list with no eligible entry is a successful terminal
+        # state, not a reason to keep waiting until wait_until raises a timeout.
+        return next_account if next_account is not None else _ACCOUNT_LIST_EXHAUSTED
 
     def _select_and_login_account(self):
         current_account = None
@@ -382,6 +392,9 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
                     lambda: self._click_account_in_list(),
                     time_out=10, raise_if_not_found=True
                 )
+                if account is _ACCOUNT_LIST_EXHAUSTED:
+                    self.log_info(self.tr('All configured accounts have been processed'))
+                    return None
                 self.sleep(1)
                 current_account = self._detect_current_account_from_login()
                 self.log_info(self.tr('Selected account: {selected}, displayed account: {displayed}').format(

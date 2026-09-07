@@ -3,6 +3,7 @@ import unittest
 from src.task.BaseWWTask import LOGIN_TEXTS
 from src.task.MultiAccountDailyTask import (
     MultiAccountDailyTask,
+    _ACCOUNT_LIST_EXHAUSTED,
     account_pattern,
     normalize_account_name,
 )
@@ -84,6 +85,69 @@ class TestMultiAccountDailyTask(unittest.TestCase):
 
         self.assertEqual(selected, "cc****03@example.com.hk")
         self.assertEqual(task.clicked, ["cc****03@example.com.hk"])
+
+    def test_loaded_account_list_with_no_remaining_account_is_terminal(self):
+        class AccountBox:
+            def __init__(self, name):
+                self.name = name
+
+        class FakeTask:
+            def __init__(self):
+                self.done_set = {normalize_account_name("aa****01@example.com")}
+                self.all_accounts = set()
+                self.config = {}
+
+            _is_done = MultiAccountDailyTask._is_done
+            _is_skipped = MultiAccountDailyTask._is_skipped
+
+            def ocr(self, match=None):
+                return [AccountBox("aa****01@example.com")]
+
+            def info_set(self, *args):
+                pass
+
+            def log_info(self, *args):
+                pass
+
+            def tr(self, message):
+                return message
+
+        result = MultiAccountDailyTask._click_account_in_list(FakeTask())
+        self.assertIs(result, _ACCOUNT_LIST_EXHAUSTED)
+
+    def test_empty_account_list_keeps_waiting(self):
+        class FakeTask:
+            def ocr(self, match=None):
+                return []
+
+        self.assertIsNone(MultiAccountDailyTask._click_account_in_list(FakeTask()))
+
+    def test_daily_runner_allows_foreground_login_and_restores_flag(self):
+        class FakeDailyTask:
+            def __init__(self):
+                self.config = {}
+                self._allow_bring_to_front = False
+
+        daily = FakeDailyTask()
+
+        class FakeTask:
+            config = {}
+            _get_account_overrides = MultiAccountDailyTask._get_account_overrides
+            _apply_daily_overrides = MultiAccountDailyTask._apply_daily_overrides
+            _restore_daily_overrides = MultiAccountDailyTask._restore_daily_overrides
+
+            def get_task_by_class(self, task_class):
+                return daily
+
+            def run_task_by_class(self, task_class):
+                self.assert_foreground_enabled()
+
+            def assert_foreground_enabled(self):
+                if not daily._allow_bring_to_front:
+                    raise AssertionError('foreground login was not enabled')
+
+        self.assertTrue(MultiAccountDailyTask._run_daily_for_account(FakeTask(), None))
+        self.assertFalse(daily._allow_bring_to_front)
 
     def test_click_direct_falls_back_to_click_without_hwnd_window(self):
         class FakeTask:
