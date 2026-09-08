@@ -3,6 +3,9 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
+
+from ok import og
 
 from src.utils.AssetsDownloader import extract_zip_over, missing_required_assets
 from src.utils.MapItemOverlay import MapItemOverlay
@@ -22,6 +25,43 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class TestMapOverlayCore(unittest.TestCase):
+    def test_global_overlay_follows_map_task_lifecycle_setting(self):
+        class App:
+            def __init__(self):
+                self.calls = []
+
+            def set_overlay_setting(self, name, value):
+                self.calls.append((name, value))
+
+        app = App()
+        with patch.object(og, 'app', app):
+            MapOverlayTask._set_global_overlay_enabled(False)
+            MapOverlayTask._set_global_overlay_enabled(True)
+
+        self.assertEqual(app.calls, [('boxes', False), ('boxes', True)])
+
+    def test_map_overlay_task_is_disabled_by_default(self):
+        source = (REPO_ROOT / 'src' / 'task' / 'MapOverlayTask.py').read_text(
+            encoding='utf-8'
+        )
+        module = ast.parse(source)
+        class_node = next(
+            node for node in module.body
+            if isinstance(node, ast.ClassDef) and node.name == 'MapOverlayTask'
+        )
+        init_node = next(
+            node for node in class_node.body
+            if isinstance(node, ast.FunctionDef) and node.name == '__init__'
+        )
+        enabled_values = []
+        for node in ast.walk(init_node):
+            if not isinstance(node, ast.Dict):
+                continue
+            for key, value in zip(node.keys, node.values):
+                if isinstance(key, ast.Constant) and key.value == '_enabled':
+                    enabled_values.append(ast.literal_eval(value))
+        self.assertEqual(enabled_values, [False])
+
     def test_chest_guidance_rejects_unconfirmed_ocr_jump(self):
         guidance = ChestGuidanceFilter()
         first = guidance.update((0, 0), "chest", 10000, 0)

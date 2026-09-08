@@ -2462,7 +2462,9 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         self.description = "Get player position and display nearby high value items"
         self.icon = FluentIcon.GLOBE
         self.default_config.update({
-            '_enabled': True,
+            # 覆盖层会持续重绘全屏透明窗口。地图功能默认关闭，只有用户主动启用后
+            # 才创建覆盖层，避免普通自动化期间占用额外的 CPU/GDI 资源。
+            '_enabled': False,
             'Detect interval (ms)': 100,
             '_Overlay enabled': True,
             '_Search radius (world units)': 10000,
@@ -2612,6 +2614,9 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
 
     def on_create(self):
         super().on_create()
+        # ``use_overlay`` 会持久化在 configs/_ok.json；旧版本可能留下 True。
+        # 以地图任务的实际启用状态为准同步一次，确保普通自动化启动时不会创建覆盖层。
+        self._set_global_overlay_enabled(self.enabled)
         self._migrate_chest_confirm_config()
         # Convert the former free-text value into a durable profile, then build
         # the dropdown before the task card is created.  This preserves custom
@@ -2706,12 +2711,28 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
             logger.warning(f'[Overlay] refresh account dropdown failed: {exc}')
 
     def _on_executor_paused(self, paused):
-        """执行器暂停时强制清一遍附加层；恢复运行时由检测循环重新绘制。"""
+        """暂停时关闭覆盖层；恢复且地图任务启用时再创建。"""
         if paused:
             self._force_clear_overlay()
+            self._set_global_overlay_enabled(False)
+        elif self.enabled:
+            self._set_global_overlay_enabled(True)
+
+    @staticmethod
+    def _set_global_overlay_enabled(enabled):
+        """让全局识别框/覆盖层只跟随地图任务生命周期启用。"""
+        app = getattr(og, 'app', None)
+        setter = getattr(app, 'set_overlay_setting', None)
+        if not callable(setter):
+            return
+        try:
+            setter('boxes', bool(enabled))
+        except Exception as e:  # pragma: no cover - Qt 运行时相关
+            logger.warning(f'[Overlay] set global overlay enabled={enabled} failed: {e}')
 
     def enable(self):
         super().enable()
+        self._set_global_overlay_enabled(True)
         # enable() 会 info_clear()，因此版本号等信息在其之后重新写入。
         self._ensure_feature_started()
 
@@ -2721,6 +2742,7 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         self._feature_started = False
         # 停用附加功能时强制清一遍附加层，避免最后一帧残留在游戏画面上。
         self._force_clear_overlay()
+        self._set_global_overlay_enabled(False)
 
     def validate_config(self, key, value):
         """校验配置项；返回非空消息表示拒绝该值。
@@ -3853,6 +3875,7 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
 
     def on_destroy(self):
         self._force_clear_overlay()
+        self._set_global_overlay_enabled(False)
         if self._view_probe is not None:
             try:
                 self._view_probe.stop()

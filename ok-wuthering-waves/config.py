@@ -157,6 +157,8 @@ monthly_card_config_option = ConfigOption('Monthly Card Config', {
 
 config = {
     'debug': False,  # Optional, default: False
+    # 全局识别框/透明覆盖层默认关闭；MapOverlayTask 启用时会按需打开。
+    'use_overlay': False,
     'custom_tasks': True,
     "gui": {
         "type": "qt",
