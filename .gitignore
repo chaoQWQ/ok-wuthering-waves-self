@@ -78,7 +78,6 @@ ok-wuthering-waves/assets/result.json
 # artifacts, not source assets.
 .codex-remote-attachments/
 ok-wuthering-waves/assets/.assets_download.zip
-ok-wuthering-waves/tools/start_okww.ps1
 # Map-overlay runtime assets are downloaded from wuwa-map releases. Keep only
 # the placeholder in Git so local feature databases and maps are never staged.
 ok-wuthering-waves/assets/stitched/*
