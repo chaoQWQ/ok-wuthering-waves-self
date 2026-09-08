@@ -73,14 +73,14 @@ autohelper
 working_images/
 repo/
 
-assets/result.json
+ok-wuthering-waves/assets/result.json
 # Local Codex attachments and resumable map-asset downloads are workspace
 # artifacts, not source assets.
 .codex-remote-attachments/
-assets/.assets_download.zip
-tools/start_okww.ps1
+ok-wuthering-waves/assets/.assets_download.zip
+ok-wuthering-waves/tools/start_okww.ps1
 # Map-overlay runtime assets are downloaded from wuwa-map releases. Keep only
 # the placeholder in Git so local feature databases and maps are never staged.
-assets/stitched/*
-!assets/stitched/.gitkeep
-src/gui/CharacterCodeTab.py
+ok-wuthering-waves/assets/stitched/*
+!ok-wuthering-waves/assets/stitched/.gitkeep
+ok-wuthering-waves/src/gui/CharacterCodeTab.py

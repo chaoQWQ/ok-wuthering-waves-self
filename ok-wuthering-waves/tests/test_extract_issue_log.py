@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 
-SCRIPT_PATH = Path(__file__).parents[1] / ".github" / "scripts" / "extract_issue_log.py"
+SCRIPT_PATH = Path(__file__).parents[2] / ".github" / "scripts" / "extract_issue_log.py"
 SPEC = importlib.util.spec_from_file_location("extract_issue_log", SCRIPT_PATH)
 extract_issue_log = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None

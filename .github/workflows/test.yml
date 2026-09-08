@@ -49,10 +49,12 @@ jobs:
           echo PYTHONIOENCODING=utf-8 >> $GITHUB_ENV
 
       - name: Install Dependencies
+        working-directory: ok-wuthering-waves
         run: |
           pip install -r requirements.txt
 
       - name: Run tests
+        working-directory: ok-wuthering-waves
         env:
           GITHUB_TOKEN: ''
           GH_TOKEN: ''

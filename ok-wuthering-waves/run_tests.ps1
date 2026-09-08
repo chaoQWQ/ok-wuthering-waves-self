@@ -2,6 +2,10 @@ $Python = if (Test-Path ".\.venv\Scripts\python.exe") {
   ".\.venv\Scripts\python.exe"
 } elseif (Test-Path ".\.venv\bin\python") {
   ".\.venv\bin\python"
+} elseif (Test-Path "..\.venv\Scripts\python.exe") {
+  "..\.venv\Scripts\python.exe"
+} elseif (Test-Path "..\.venv\bin\python") {
+  "..\.venv\bin\python"
 } else {
   "python"
 }

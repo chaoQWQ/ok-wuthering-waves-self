@@ -5,15 +5,15 @@ on:
     branches:
       - master
     paths:
-      - docs/**
-      - mkdocs.yml
-      - pyproject.toml
+      - ok-wuthering-waves/docs/**
+      - ok-wuthering-waves/mkdocs.yml
+      - ok-wuthering-waves/pyproject.toml
       - .github/workflows/docs.yml
   pull_request:
     paths:
-      - docs/**
-      - mkdocs.yml
-      - pyproject.toml
+      - ok-wuthering-waves/docs/**
+      - ok-wuthering-waves/mkdocs.yml
+      - ok-wuthering-waves/pyproject.toml
       - .github/workflows/docs.yml
   workflow_dispatch:
 
@@ -36,18 +36,20 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: pyproject.toml
+          cache-dependency-path: ok-wuthering-waves/pyproject.toml
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v6
       - name: Install documentation dependencies
+        working-directory: ok-wuthering-waves
         run: |
           python -m pip install "mkdocs-material>=9.5,<10"
           python -m pip install --no-deps ".[docs]"
       - run: mkdocs build --strict
+        working-directory: ok-wuthering-waves
       - if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v5
         with:
-          path: site
+          path: ok-wuthering-waves/site
 
   deploy:
     if: github.event_name != 'pull_request'

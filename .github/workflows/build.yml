@@ -51,20 +51,23 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
           cache-dependency-path: |
-            requirements.txt
-            pyproject.toml
+            ok-wuthering-waves/requirements.txt
+            ok-wuthering-waves/pyproject.toml
 
       - name: Install dependencies
+        working-directory: ok-wuthering-waves
         run: |
           python -m pip install -r requirements.txt
           python -m pip install ".[dev]"
 
       - name: Prepare release requirements
+        working-directory: ok-wuthering-waves
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: python -m ok.update.inline_ok_requirements --tag "$env:RELEASE_TAG"
 
       - name: Run tests
+        working-directory: ok-wuthering-waves
         env:
           GITHUB_TOKEN: ''
           GH_TOKEN: ''
@@ -135,15 +138,17 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
           cache-dependency-path: |
-            requirements.txt
-            pyproject.toml
+            ok-wuthering-waves/requirements.txt
+            ok-wuthering-waves/pyproject.toml
 
       - name: Install dependencies
+        working-directory: ok-wuthering-waves
         run: |
           python -m pip install -r requirements.txt
           python -m pip install ".[dev]"
 
       - name: Prepare release requirements
+        working-directory: ok-wuthering-waves
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: python -m ok.update.inline_ok_requirements --tag "$env:RELEASE_TAG"
@@ -152,12 +157,17 @@ jobs:
         id: release_version
         if: env.BUILD_EXE == 'true'
         shell: pwsh
+        working-directory: ok-wuthering-waves
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           $isRelease = $env:RELEASE_TAG -match '^v?\d+\.\d+\.\d+$'
           "is_release=$($isRelease.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
           Write-Host "Release version: $isRelease"
+
+      - name: Stage project for release tooling
+        shell: pwsh
+        run: Get-ChildItem -LiteralPath .\ok-wuthering-waves -Force | Move-Item -Destination . -Force
 
       - name: Synchronize update repositories
         id: sync
@@ -203,18 +213,24 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
           cache-dependency-path: |
-            requirements.txt
-            pyproject.toml
+            ok-wuthering-waves/requirements.txt
+            ok-wuthering-waves/pyproject.toml
 
       - name: Install dependencies
+        working-directory: ok-wuthering-waves
         run: |
           python -m pip install -r requirements.txt
           python -m pip install ".[dev]"
 
       - name: Prepare release requirements
+        working-directory: ok-wuthering-waves
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: python -m ok.update.inline_ok_requirements --tag "$env:RELEASE_TAG"
+
+      - name: Stage project for release tooling
+        shell: pwsh
+        run: Get-ChildItem -LiteralPath .\ok-wuthering-waves -Force | Move-Item -Destination . -Force
 
       - name: Reuse base executable
         id: reuse_executable
