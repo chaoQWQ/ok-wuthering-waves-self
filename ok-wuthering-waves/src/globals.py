@@ -10,6 +10,9 @@ logger = Logger.get_logger(__name__)
 class Globals:
 
     def __init__(self, exit_event):
+        from pathlib import Path
+        from src.utils.FaultRecorder import start_fault_recorder
+        self.fault_recorder = start_fault_recorder(Path(get_path_relative_to_exe('')), exit_event)
         self._yolo_model = None
         self.mini_map_arrow = None
         self.logged_in = False

@@ -12,6 +12,7 @@ import cv2
 
 from src.Labels import Labels
 from src.scene.WWScene import WWScene
+from src.utils.FaultRecorder import record_input
 
 logger = Logger.get_logger(__name__)
 number_re = re.compile(r'(\d+)')
@@ -29,6 +30,26 @@ WIDE_MODE_UI_SCALE = 0.75
 
 class BaseWWTask(BaseTask):
     map_zoomed = False
+
+    def send_key(self, key, *args, **kwargs):
+        record_input(self, 'send_key', key)
+        return super().send_key(key, *args, **kwargs)
+
+    def send_key_down(self, key, *args, **kwargs):
+        record_input(self, 'key_down', key)
+        return super().send_key_down(key, *args, **kwargs)
+
+    def send_key_up(self, key, *args, **kwargs):
+        record_input(self, 'key_up', key)
+        return super().send_key_up(key, *args, **kwargs)
+
+    def mouse_down(self, *args, **kwargs):
+        record_input(self, 'mouse_down', kwargs.get('key', 'left'))
+        return super().mouse_down(*args, **kwargs)
+
+    def mouse_up(self, *args, **kwargs):
+        record_input(self, 'mouse_up', kwargs.get('key', 'left'))
+        return super().mouse_up(*args, **kwargs)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -387,6 +408,7 @@ class BaseWWTask(BaseTask):
 
     def click(self, x=-1, y=-1, move_back=False, name=None, interval=-1, move=False, down_time=0.01, after_sleep=0,
               key="left"):
+        record_input(self, 'click', key)
         if x == -1 and y == -1:
             x = self.width_of_screen(0.5)
             y = self.height_of_screen(0.5)
