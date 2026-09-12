@@ -69,6 +69,11 @@ class BaseWWTask(BaseTask):
             is_connected = False
         if not is_connected:
             self.log_error('Game window disconnected; stopping task input')
+            # Raising alone leaves the one-time task enabled, so the executor
+            # can immediately select it again against the same missing window.
+            stop_current_task = getattr(executor, 'stop_current_task', None)
+            if callable(stop_current_task):
+                stop_current_task()
             raise TaskDisabledException()
 
     @property

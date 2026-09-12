@@ -319,6 +319,7 @@ class TestDailyMergeEchoTask(unittest.TestCase):
         daily_task.config = {ADDITIONAL_TASKS: [AUTO_FARM_NIGHTMARE_NEST]}
         nightmare_task = Mock()
         nightmare_task.config = {"Which to Farm": []}
+        nightmare_task.farm_targets_override = None
         daily_task.get_task_by_class = Mock(return_value=nightmare_task)
         daily_task.log_error = Mock()
         daily_task.tr = lambda message: message
@@ -327,6 +328,17 @@ class TestDailyMergeEchoTask(unittest.TestCase):
         with self.assertRaisesRegex(Exception, message):
             daily_task.validate_additional_tasks()
         daily_task.log_error.assert_not_called()
+
+    def test_daily_accepts_multi_account_settlements_with_empty_standalone_selection(self):
+        daily_task = DailyTask.__new__(DailyTask)
+        daily_task.config = {ADDITIONAL_TASKS: [AUTO_FARM_NIGHTMARE_NEST]}
+        nightmare_task = NightmareNestTask.__new__(NightmareNestTask)
+        nightmare_task.config = {'Which to Farm': []}
+        nightmare_task.farm_targets_override = ['Tacet Discord Nest']
+        daily_task.get_task_by_class = Mock(return_value=nightmare_task)
+        self.assertTrue(daily_task.validate_additional_tasks())
+        nightmare_task._init_queue()
+        self.assertEqual(['go_nest'], [action.__name__ for action in nightmare_task.queues])
 
     def test_daily_accepts_valid_additional_task_configs(self):
         daily_task = DailyTask.__new__(DailyTask)
@@ -337,6 +349,7 @@ class TestDailyMergeEchoTask(unittest.TestCase):
         farm_echo_task.config = {"Teleport to Boss": "Boss Challenge"}
         nightmare_task = Mock()
         nightmare_task.config = {"Which to Farm": ["Nightmare Purification"]}
+        nightmare_task.farm_targets_override = None
         daily_task.get_task_by_class = Mock(
             side_effect=lambda task_class: {
                 FarmEchoTask: farm_echo_task,

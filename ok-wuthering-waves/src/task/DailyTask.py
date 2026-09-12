@@ -147,7 +147,10 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
                 )
         if AUTO_FARM_NIGHTMARE_NEST in additional_tasks:
             nightmare_task = self.get_task_by_class(NightmareNestTask)
-            if not nightmare_task.config.get('Which to Farm'):
+            targets = getattr(nightmare_task, 'farm_targets_override', None)
+            if targets is None:
+                targets = nightmare_task.config.get('Which to Farm')
+            if not targets:
                 raise Exception(
                     self.tr(
                         'Auto Farm all Nightmare Nest requires at least one "Which to Farm" option.'

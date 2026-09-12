@@ -10,6 +10,7 @@ from src.task.WWOneTimeTask import WWOneTimeTask
 from src.task.BaseCombatTask import BaseCombatTask
 from src.task.BaseWWTask import LOGIN_TEXTS, BaseWWTask
 from src.task.MouseResetTask import MouseResetTask
+from src.task.NightmareNestTask import NightmareNestTask
 from src.utils.wgc_compat import enable_windows_graphics_capture
 
 enable_windows_graphics_capture()
@@ -343,6 +344,12 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         # DailyTask owns the initial login wait.  Physical login controls must
         # be clicked with the game in front, just like later account switches.
         daily_task._allow_bring_to_front = True
+        # Both daily echo capture and full farming share this task. Restrict
+        # only this account run, without rewriting the standalone task config.
+        nest_task = self.get_task_by_class(NightmareNestTask)
+        previous_targets = getattr(nest_task, 'farm_targets_override', None)
+        targets_were_overridden = 'farm_targets_override' in nest_task.__dict__
+        nest_task.farm_targets_override = ['Tacet Discord Nest']
         try:
             self.run_task_by_class(DailyTask)
             return True
@@ -370,6 +377,10 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
                 )
             return False
         finally:
+            if targets_were_overridden:
+                nest_task.farm_targets_override = previous_targets
+            else:
+                nest_task.__dict__.pop('farm_targets_override', None)
             daily_task._allow_bring_to_front = focus_was_allowed
             if is_main_was_overridden:
                 daily_task.is_main = original_is_main

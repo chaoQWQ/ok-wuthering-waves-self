@@ -16,6 +16,18 @@ class FakeBox:
 
 class TestNightmareNestTask(unittest.TestCase):
 
+    def test_multi_account_targets_exclude_nightmare_without_changing_config(self):
+        task = NightmareNestTask.__new__(NightmareNestTask)
+        task.config = {'Which to Farm': ['Nightmare Purification']}
+        task.farm_targets_override = ['Tacet Discord Nest']
+        task._init_queue()
+        self.assertEqual(['go_nest'], [action.__name__ for action in task.queues])
+        self.assertEqual(['Nightmare Purification'], task.config['Which to Farm'])
+        del task.farm_targets_override
+        task._init_queue()
+        self.assertEqual(['go_nightmare', 'go_nightmare_scroll'],
+                         [action.__name__ for action in task.queues])
+
     def test_nest_is_checked_before_nightmare_changes_book_scroll(self):
         task = NightmareNestTask.__new__(NightmareNestTask)
         task.config = {'Which to Farm': ['Nightmare Purification', 'Tacet Discord Nest']}

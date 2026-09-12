@@ -16,8 +16,13 @@ class TestMultiAccountDailyTask(unittest.TestCase):
 
     def test_disconnected_game_window_stops_task_input(self):
         class FakeExecutor:
+            stopped = False
+
             def connected(self):
                 return False
+
+            def stop_current_task(self):
+                self.stopped = True
 
         class FakeTask:
             executor = FakeExecutor()
@@ -29,6 +34,7 @@ class TestMultiAccountDailyTask(unittest.TestCase):
         with self.assertRaises(TaskDisabledException):
             BaseWWTask._raise_if_game_window_disconnected(task)
         self.assertIn('disconnected', task.message)
+        self.assertTrue(task.executor.stopped)
 
     def test_team_challenge_allows_slow_teleport_loading(self):
         class FakeTask:
@@ -259,9 +265,12 @@ class TestMultiAccountDailyTask(unittest.TestCase):
             def assert_foreground_enabled(self):
                 if not daily._allow_bring_to_front:
                     raise AssertionError('foreground login was not enabled')
+                if daily.farm_targets_override != ['Tacet Discord Nest']:
+                    raise AssertionError('multi-account farming must only visit settlements')
 
         self.assertTrue(MultiAccountDailyTask._run_daily_for_account(FakeTask(), None))
         self.assertFalse(daily._allow_bring_to_front)
+        self.assertNotIn('farm_targets_override', daily.__dict__)
 
     def test_daily_runner_applies_override_from_world_profile(self):
         class FakeDailyTask:
@@ -309,6 +318,8 @@ class TestMultiAccountDailyTask(unittest.TestCase):
         )
         self.assertEqual(observed, [6])
         self.assertEqual(daily.config['Which Tacet Suppression to Farm'], 1)
+
+        self.assertNotIn('farm_targets_override', daily.__dict__)
         self.assertNotIn('is_main', daily.__dict__)
 
     def test_daily_runner_stops_when_enabled_account_config_does_not_match(self):
@@ -351,6 +362,7 @@ class TestMultiAccountDailyTask(unittest.TestCase):
         with self.assertRaises(AccountConfigNotDetected):
             MultiAccountDailyTask._run_daily_for_account(FakeTask(), None)
         self.assertEqual(daily.config['Which Tacet Suppression to Farm'], 1)
+        self.assertNotIn('farm_targets_override', daily.__dict__)
 
     def test_unknown_account_enters_world_then_uses_ingame_logout(self):
         class FakeTask:
