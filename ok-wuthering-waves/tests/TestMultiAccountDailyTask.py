@@ -269,7 +269,7 @@ class TestMultiAccountDailyTask(unittest.TestCase):
                 if daily.farm_targets_override != ['Tacet Discord Nest']:
                     raise AssertionError('multi-account farming must only visit settlements')
 
-        self.assertTrue(MultiAccountDailyTask._run_daily_for_account(FakeTask(), None))
+        self.assertTrue(MultiAccountDailyTask._execute_daily_for_account(FakeTask(), None))
         self.assertFalse(daily._allow_bring_to_front)
         self.assertNotIn('farm_targets_override', daily.__dict__)
 
@@ -315,7 +315,7 @@ class TestMultiAccountDailyTask(unittest.TestCase):
         # The login-list account is bookkeeping only; the ESC profile code
         # determines which slot's DailyTask settings are applied.
         self.assertTrue(
-            MultiAccountDailyTask._run_daily_for_account(FakeTask(), '185****0362')
+            MultiAccountDailyTask._execute_daily_for_account(FakeTask(), '185****0362')
         )
         self.assertEqual(observed, [6])
         self.assertEqual(daily.config['Which Tacet Suppression to Farm'], 1)
@@ -361,7 +361,7 @@ class TestMultiAccountDailyTask(unittest.TestCase):
                 return message
 
         with self.assertRaises(AccountConfigNotDetected):
-            MultiAccountDailyTask._run_daily_for_account(FakeTask(), None)
+            MultiAccountDailyTask._execute_daily_for_account(FakeTask(), None)
         self.assertEqual(daily.config['Which Tacet Suppression to Farm'], 1)
         self.assertNotIn('farm_targets_override', daily.__dict__)
 

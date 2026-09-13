@@ -1,4 +1,5 @@
 import re
+from datetime import datetime
 
 from ok import Box, TaskDisabledException
 from src.task.DailyTask import (
@@ -13,6 +14,7 @@ from src.task.BaseWWTask import LOGIN_TEXTS, BaseWWTask
 from src.task.MouseResetTask import MouseResetTask
 from src.task.NightmareNestTask import NightmareNestTask
 from src.utils.wgc_compat import enable_windows_graphics_capture
+from src.utils.DailyEmail import send_daily_report
 
 enable_windows_graphics_capture()
 
@@ -307,6 +309,21 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
     # ------------------------------------------------------------------
 
     def _run_daily_for_account(self, account):
+        result = {'account': account or '当前账号（未识别）', 'status': '中断'}
+        self._current_email_result = result
+        try:
+            succeeded = self._execute_daily_for_account(account)
+            result['status'] = '成功' if succeeded else '失败'
+            return succeeded
+        except AccountConfigNotDetected:
+            result['status'] = '未匹配账号配置'
+            raise
+        finally:
+            if hasattr(self, '_email_results'):
+                self._email_results.append(result)
+            self._current_email_result = None
+
+    def _execute_daily_for_account(self, account):
         """Run DailyTask for *account* with optional per-account config override.
 
         - Applies slot overrides only after the in-game ESC Profile Code is read.
@@ -325,6 +342,8 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             if overrides_applied or not detected_account:
                 return
             resolved_account = detected_account
+            if getattr(self, '_current_email_result', None) is not None:
+                self._current_email_result['account'] = account or detected_account
             overrides = self._get_account_overrides(detected_account)
             if self._account_overrides_required() and not overrides:
                 raise AccountConfigNotDetected(
@@ -412,6 +431,26 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
     # ------------------------------------------------------------------
 
     def run(self):
+        started = datetime.now().astimezone()
+        self._email_results = []
+        status = '异常中断'
+        try:
+            self._run_accounts()
+            status = '完成'
+            if any(result['status'] != '成功' for result in self._email_results):
+                status = '完成（存在失败或未完成的尝试）'
+        except TaskDisabledException:
+            status = '已停止'
+            raise
+        finally:
+            try:
+                if send_daily_report(self._email_results, started, datetime.now().astimezone(), status):
+                    self.log_info('多账号日常汇总邮件已发送')
+            except Exception:
+                # SMTP errors may contain credentials or addresses. Never log them.
+                self.log_warning('日常汇总邮件发送失败，请检查 QQ 邮箱环境变量、SMTP 服务和网络')
+
+    def _run_accounts(self):
         WWOneTimeTask.run(self)
         self.done_set.clear()
         self.failed_set.clear()
