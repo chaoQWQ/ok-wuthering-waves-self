@@ -1818,3 +1818,15 @@ msgstr "请输入游戏内 ESC 界面所显示特征码的至少后 4 位。输�
 
 msgid "Farm all Residual Settlements"
 msgstr "自动刷所有残象聚落"
+
+msgid "Email Notification"
+msgstr "邮件通知"
+
+msgid "QQ Email"
+msgstr "QQ 发件邮箱"
+
+msgid "QQ SMTP Authorization Code"
+msgstr "QQ 邮箱 SMTP 授权码"
+
+msgid "Receiver Email"
+msgstr "收件邮箱"

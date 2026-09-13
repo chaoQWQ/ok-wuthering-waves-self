@@ -14,7 +14,9 @@ from src.task.BaseWWTask import LOGIN_TEXTS, BaseWWTask
 from src.task.MouseResetTask import MouseResetTask
 from src.task.NightmareNestTask import NightmareNestTask
 from src.utils.wgc_compat import enable_windows_graphics_capture
-from src.utils.DailyEmail import send_daily_report
+from src.utils.DailyEmail import (
+    send_daily_report, EMAIL_ENABLED, EMAIL_SENDER, EMAIL_AUTH, EMAIL_TO,
+)
 
 enable_windows_graphics_capture()
 
@@ -90,14 +92,19 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         self.support_schedule_task = True
 
         # ---- base config (skip list) ----
-        self.default_config = {SKIP_ACCOUNTS: []}
+        self.default_config = {
+            SKIP_ACCOUNTS: [], EMAIL_ENABLED: False,
+            EMAIL_SENDER: '', EMAIL_AUTH: '', EMAIL_TO: '',
+        }
         self.config_description = {
             SKIP_ACCOUNTS: (
                 'Accounts to skip. Enter partial or full account names '
                 '(e.g. aa****01@example.com). Matching is case-insensitive substring.'
             ),
         }
-        self.config_type = {}
+        self.config_type = {
+            EMAIL_ENABLED: {'sub_configs': {True: [EMAIL_SENDER, EMAIL_AUTH, EMAIL_TO]}},
+        }
 
         # Shared description strings (reused across slots for compact i18n)
         desc_enable = 'Enable independent Daily Task configuration for this account slot.'
@@ -444,11 +451,12 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             raise
         finally:
             try:
-                if send_daily_report(self._email_results, started, datetime.now().astimezone(), status):
+                if send_daily_report(self._email_results, started, datetime.now().astimezone(), status,
+                                     config=self.config):
                     self.log_info('多账号日常汇总邮件已发送')
             except Exception:
                 # SMTP errors may contain credentials or addresses. Never log them.
-                self.log_warning('日常汇总邮件发送失败，请检查 QQ 邮箱环境变量、SMTP 服务和网络')
+                self.log_warning('日常汇总邮件发送失败，请检查多账号任务的邮箱配置、SMTP 服务和网络')
 
     def _run_accounts(self):
         WWOneTimeTask.run(self)

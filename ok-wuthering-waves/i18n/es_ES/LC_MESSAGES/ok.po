@@ -1688,3 +1688,15 @@ msgstr "Introduce al menos los últimos 4 dígitos del código de perfil que apa
 
 msgid "Farm all Residual Settlements"
 msgstr "Farmear todos los asentamientos de ecos residuales"
+
+msgid "Email Notification"
+msgstr "Notificación por correo"
+
+msgid "QQ Email"
+msgstr "Correo QQ del remitente"
+
+msgid "QQ SMTP Authorization Code"
+msgstr "Código de autorización SMTP de QQ"
+
+msgid "Receiver Email"
+msgstr "Correo del destinatario"

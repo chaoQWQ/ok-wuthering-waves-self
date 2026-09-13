@@ -1767,3 +1767,15 @@ msgstr "ゲーム内の ESC 画面に表示される特製コードの末尾4桁
 
 msgid "Farm all Residual Settlements"
 msgstr "残像集落をすべて自動周回"
+
+msgid "Email Notification"
+msgstr "メール通知"
+
+msgid "QQ Email"
+msgstr "QQ 送信元メールアドレス"
+
+msgid "QQ SMTP Authorization Code"
+msgstr "QQ SMTP 認証コード"
+
+msgid "Receiver Email"
+msgstr "宛先メールアドレス"

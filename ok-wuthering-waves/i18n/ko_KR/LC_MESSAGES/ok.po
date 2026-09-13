@@ -1768,3 +1768,15 @@ msgstr "게임 내 ESC 화면에 표시되는 프로필 코드의 마지막 4자
 
 msgid "Farm all Residual Settlements"
 msgstr "모든 잔상 정착지 자동 파밍"
+
+msgid "Email Notification"
+msgstr "이메일 알림"
+
+msgid "QQ Email"
+msgstr "QQ 발신 이메일"
+
+msgid "QQ SMTP Authorization Code"
+msgstr "QQ SMTP 인증 코드"
+
+msgid "Receiver Email"
+msgstr "수신 이메일"

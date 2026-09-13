@@ -3,7 +3,7 @@ import unittest
 from datetime import datetime, timezone
 from unittest.mock import patch
 
-from src.utils.DailyEmail import send_daily_report
+from src.utils.DailyEmail import send_daily_report, EMAIL_ENABLED, EMAIL_SENDER, EMAIL_AUTH
 from src.task.MultiAccountDailyTask import MultiAccountDailyTask
 from ok import TaskDisabledException
 
@@ -42,6 +42,7 @@ class TestDailyEmail(unittest.TestCase):
         for error, expected in [(None, '完成'), (RuntimeError('local'), '异常中断'),
                                 (TaskDisabledException(), '已停止')]:
             class FakeTask:
+                config = {EMAIL_ENABLED: True}
                 def _run_accounts(self):
                     if error:
                         raise error
@@ -60,6 +61,7 @@ class TestDailyEmail(unittest.TestCase):
             else:
                 MultiAccountDailyTask.run(task)
             send.assert_called_once()
+            self.assertIs(send.call_args.kwargs['config'], task.config)
             self.assertEqual(send.call_args.args[-1], expected)
         send.side_effect = RuntimeError('SMTP unavailable')
         with self.assertRaises(TaskDisabledException):
@@ -76,3 +78,18 @@ class TestDailyEmail(unittest.TestCase):
         MultiAccountDailyTask._run_daily_for_account(task, 'success')
         MultiAccountDailyTask._run_daily_for_account(task, 'failure')
         self.assertEqual([r['status'] for r in task._email_results], ['成功', '失败'])
+
+    @patch.dict(os.environ, {'WW_DAILY_EMAIL_ENABLED': '1'})
+    @patch('src.utils.DailyEmail.smtplib.SMTP_SSL')
+    def test_task_switch_overrides_environment(self, smtp):
+        self.assertFalse(send_daily_report([], None, None, '完成', {EMAIL_ENABLED: False}))
+        smtp.assert_not_called()
+
+    @patch('src.utils.DailyEmail.smtplib.SMTP_SSL')
+    @patch('src.utils.DailyEmail.ssl.create_default_context')
+    def test_task_settings_used(self, context, smtp):
+        now = datetime.now(timezone.utc)
+        send_daily_report([], now, now, '完成', {
+            EMAIL_ENABLED: True, EMAIL_SENDER: 'local@qq.com', EMAIL_AUTH: 'local-secret',
+        })
+        smtp.return_value.__enter__.return_value.login.assert_called_once_with('local@qq.com', 'local-secret')

@@ -1896,3 +1896,15 @@ msgstr "請輸入遊戲內 ESC 畫面所顯示特徵碼的至少後 4 位。輸�
 
 msgid "Farm all Residual Settlements"
 msgstr "自動刷所有殘象聚落"
+
+msgid "Email Notification"
+msgstr "郵件通知"
+
+msgid "QQ Email"
+msgstr "QQ 寄件信箱"
+
+msgid "QQ SMTP Authorization Code"
+msgstr "QQ 信箱 SMTP 授權碼"
+
+msgid "Receiver Email"
+msgstr "收件信箱"

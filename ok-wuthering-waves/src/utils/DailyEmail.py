@@ -1,4 +1,4 @@
-"""Optional QQ SMTP report; credentials stay outside task configs and logs."""
+"""Optional QQ SMTP report configured by the multi-account task."""
 
 import os
 import smtplib
@@ -6,13 +6,26 @@ import ssl
 from email.message import EmailMessage
 
 
-def send_daily_report(results, started, ended, status):
+EMAIL_ENABLED = 'Email Notification'
+EMAIL_SENDER = 'QQ Email'
+EMAIL_AUTH = 'QQ SMTP Authorization Code'
+EMAIL_TO = 'Receiver Email'
+
+
+def send_daily_report(results, started, ended, status, config=None):
     """Return False when disabled. Raise on configuration or delivery failure."""
-    if os.environ.get('WW_DAILY_EMAIL_ENABLED', '').strip().lower() not in ('1', 'true'):
+    if config is None:
+        config = {
+            EMAIL_ENABLED: os.environ.get('WW_DAILY_EMAIL_ENABLED', '').strip().lower() in ('1', 'true'),
+            EMAIL_SENDER: os.environ.get('WW_DAILY_EMAIL_SENDER', ''),
+            EMAIL_TO: os.environ.get('WW_DAILY_EMAIL_TO', ''),
+            EMAIL_AUTH: os.environ.get('WW_DAILY_EMAIL_AUTH_CODE', ''),
+        }
+    if not config.get(EMAIL_ENABLED, False):
         return False
-    sender = os.environ.get('WW_DAILY_EMAIL_SENDER', '').strip()
-    recipient = os.environ.get('WW_DAILY_EMAIL_TO', '').strip() or sender
-    password = os.environ.get('WW_DAILY_EMAIL_AUTH_CODE', '').strip()
+    sender = config.get(EMAIL_SENDER, '').strip()
+    recipient = config.get(EMAIL_TO, '').strip() or sender
+    password = config.get(EMAIL_AUTH, '').strip()
     if not sender or not recipient or not password:
         raise ValueError('Missing email settings')
     succeeded = sum(result['status'] == '成功' for result in results)
