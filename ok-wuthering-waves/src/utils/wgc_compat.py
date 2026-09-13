@@ -154,6 +154,8 @@ def enable_windows_graphics_capture() -> bool:
         available = bool(window.windows_graphics_available())
         if available:
             _enable_wgc_deadlock_and_stability_compat()
+            from src.utils.wgc_startup import enable_wgc_startup_compat
+            enable_wgc_startup_compat()
             window.logger.info(f"WGC stability compatibility enabled for Windows build {window.WINDOWS_BUILD_NUMBER}")
         return available
     except Exception:
