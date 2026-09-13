@@ -7,6 +7,7 @@ from src.task.BaseWWTask import BaseWWTask
 from src.task.DailyTask import (
     ADDITIONAL_TASKS,
     AUTO_FARM_NIGHTMARE_NEST,
+    AUTO_FARM_RESIDUAL_NEST,
     CHECK_WEEKLY_GARDEN,
     MERGE_ECHO_IF_DISCARDED_OVER_1000,
     TELEPORT_AND_FARM_4C_ECHO,
@@ -185,6 +186,7 @@ class TestDailyMergeEchoTask(unittest.TestCase):
                 "options": [
                     CHECK_WEEKLY_GARDEN,
                     AUTO_FARM_NIGHTMARE_NEST,
+                    AUTO_FARM_RESIDUAL_NEST,
                     MERGE_ECHO_IF_DISCARDED_OVER_1000,
                     TELEPORT_AND_FARM_4C_ECHO,
                 ],
@@ -267,6 +269,45 @@ class TestDailyMergeEchoTask(unittest.TestCase):
             DailyTask.run(daily_task)
 
         self.assertLess(events.index('stamina'), events.index(NightmareNestTask))
+
+    def test_daily_residual_mode_never_uses_nightmare_targets(self):
+        daily_task = DailyTask.__new__(DailyTask)
+        daily_task.config = {
+            'Which to Farm': 'Tacet Suppression',
+            'Farm Nightmare Nest for Daily Echo': True,
+            ADDITIONAL_TASKS: [AUTO_FARM_RESIDUAL_NEST],
+        }
+        daily_task.support_tasks = ['Tacet Suppression', 'Forgery Challenge', 'Simulation Challenge']
+        daily_task.validate_additional_tasks = Mock()
+        daily_task.ensure_main = Mock()
+        daily_task.sleep = Mock()
+        daily_task.log_debug = Mock()
+        daily_task.log_error = Mock()
+        daily_task.log_info = Mock()
+        daily_task.claim_daily = Mock()
+        daily_task.claim_mail = Mock()
+        daily_task.claim_battle_pass = Mock()
+        daily_task.run_additional_tasks = Mock()
+        daily_task.open_daily = Mock(return_value=(180, True))
+        daily_task.run_task_by_class = Mock()
+
+        tacet_task = Mock()
+        nightmare_task = Mock()
+        daily_task.get_task_by_class = Mock(
+            side_effect=lambda task_class: {
+                TacetTask: tacet_task,
+                NightmareNestTask: nightmare_task,
+            }[task_class]
+        )
+
+        with patch.object(WWOneTimeTask, 'run'), patch.object(BaseWWTask, 'logged_in', new_callable=PropertyMock):
+            DailyTask.run(daily_task)
+
+        daily_task.run_task_by_class.assert_called_once_with(NightmareNestTask)
+        self.assertNotIn('farm_targets_override', nightmare_task.__dict__)
+        daily_task.log_debug.assert_called_once_with(
+            'Farm all Residual Settlements (Tacet Discord Nest only)'
+        )
 
     def test_daily_does_not_alert_farm_echo_when_not_selected(self):
         daily_task = DailyTask.__new__(DailyTask)

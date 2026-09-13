@@ -1765,3 +1765,6 @@ msgstr "계정 5 게임 내 프로필 코드"
 
 msgid "Enter at least the last 4 digits of the Profile Code shown on the in-game ESC screen. Longer values are safer."
 msgstr "게임 내 ESC 화면에 표시되는 프로필 코드의 마지막 4자리 이상을 입력하세요. 길수록 안전합니다."
+
+msgid "Farm all Residual Settlements"
+msgstr "모든 잔상 정착지 자동 파밍"

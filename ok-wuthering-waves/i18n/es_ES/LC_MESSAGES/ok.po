@@ -1685,3 +1685,6 @@ msgstr "Código de perfil en el juego de la cuenta 5"
 
 msgid "Enter at least the last 4 digits of the Profile Code shown on the in-game ESC screen. Longer values are safer."
 msgstr "Introduce al menos los últimos 4 dígitos del código de perfil que aparece en la pantalla ESC del juego. Cuantos más dígitos, más seguro."
+
+msgid "Farm all Residual Settlements"
+msgstr "Farmear todos los asentamientos de ecos residuales"

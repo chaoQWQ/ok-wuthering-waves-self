@@ -3,7 +3,8 @@ import re
 from ok import Box, TaskDisabledException
 from src.task.DailyTask import (
     DailyTask, ADDITIONAL_TASKS, CHECK_WEEKLY_GARDEN,
-    AUTO_FARM_NIGHTMARE_NEST, MERGE_ECHO_IF_DISCARDED_OVER_1000,
+    AUTO_FARM_NIGHTMARE_NEST, AUTO_FARM_RESIDUAL_NEST,
+    MERGE_ECHO_IF_DISCARDED_OVER_1000,
     TELEPORT_AND_FARM_4C_ECHO,
 )
 from src.task.WWOneTimeTask import WWOneTimeTask
@@ -30,7 +31,7 @@ SKIP_ACCOUNTS = 'Skip Accounts'
 _SUPPORT_TASKS = ["Tacet Suppression", "Forgery Challenge", "Simulation Challenge"]
 _MATERIAL_OPTIONS = ['Resonator EXP', 'Weapon EXP', 'Shell Credit']
 _ADDITIONAL_TASK_OPTIONS = [
-    CHECK_WEEKLY_GARDEN, AUTO_FARM_NIGHTMARE_NEST,
+    CHECK_WEEKLY_GARDEN, AUTO_FARM_RESIDUAL_NEST,
     MERGE_ECHO_IF_DISCARDED_OVER_1000, TELEPORT_AND_FARM_4C_ECHO,
 ]
 
@@ -107,9 +108,9 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         desc_tacet = 'The Tacet Suppression number in the F2 list.'
         desc_forgery = 'The Forgery Challenge number in the F2 list.'
         desc_material = 'Resonator EXP / Weapon EXP / Shell Credit'
-        desc_nm = 'Farm 1 Echo from Nightmare Nest to complete Daily Task when needed.'
+        desc_nm = 'Farm 1 Echo from a residual settlement to complete Daily Task when needed.'
         desc_tasks = (
-            'Select optional tasks. Stamina farming runs first; Nightmare Nest runs afterward when needed, '
+            'Select optional tasks. Stamina farming runs first; residual settlements run afterward when needed, '
             'and the other tasks run last.'
         )
 
@@ -247,6 +248,15 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
                 for daily_key in SLOT_OVERRIDABLE:
                     val = self.config.get(_slot_key(n, daily_key))
                     if val is not None:
+                        if daily_key == ADDITIONAL_TASKS and val:
+                            # Migrate old saved slots that used the ambiguous
+                            # full-Nightmare label.  The multi-account runner
+                            # has always constrained this path to settlements.
+                            val = [
+                                AUTO_FARM_RESIDUAL_NEST
+                                if item == AUTO_FARM_NIGHTMARE_NEST else item
+                                for item in val
+                            ]
                         overrides[daily_key] = val
                 self.log_info(
                     self.tr('Applying account config override for {account}: slot {n}').format(
@@ -344,6 +354,11 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         # DailyTask owns the initial login wait.  Physical login controls must
         # be clicked with the game in front, just like later account switches.
         daily_task._allow_bring_to_front = True
+        # DailyTask uses this marker to make legacy global configs explicit in
+        # the log and to suppress its full Nightmare Purification branch.
+        residual_only_was_set = '_multi_account_residual_only' in daily_task.__dict__
+        previous_residual_only = getattr(daily_task, '_multi_account_residual_only', None)
+        daily_task._multi_account_residual_only = True
         # Both daily echo capture and full farming share this task. Restrict
         # only this account run, without rewriting the standalone task config.
         nest_task = self.get_task_by_class(NightmareNestTask)
@@ -382,6 +397,10 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             else:
                 nest_task.__dict__.pop('farm_targets_override', None)
             daily_task._allow_bring_to_front = focus_was_allowed
+            if residual_only_was_set:
+                daily_task._multi_account_residual_only = previous_residual_only
+            else:
+                daily_task.__dict__.pop('_multi_account_residual_only', None)
             if is_main_was_overridden:
                 daily_task.is_main = original_is_main
             else:

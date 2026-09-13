@@ -17,6 +17,7 @@ logger = Logger.get_logger(__name__)
 
 CHECK_WEEKLY_GARDEN = 'Check Weekly Garden'
 AUTO_FARM_NIGHTMARE_NEST = 'Auto Farm all Nightmare Nest'
+AUTO_FARM_RESIDUAL_NEST = 'Farm all Residual Settlements'
 MERGE_ECHO_IF_DISCARDED_OVER_1000 = 'Merge Echo If discarded > 1000'
 TELEPORT_AND_FARM_4C_ECHO = 'Teleport and Farm 4C Echo'
 ADDITIONAL_TASKS = 'Additional Tasks to Run After Daily Task'
@@ -42,7 +43,7 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
             'Which Forgery Challenge to Farm': 'The Forgery Challenge number in the F2 list.',
             'Material Selection': 'Resonator EXP / Weapon EXP / Shell Credit',
             'Farm Nightmare Nest for Daily Echo': 'Farm 1 Echo from Nightmare Nest to complete Daily Task when needed.',
-            ADDITIONAL_TASKS: 'Select optional tasks. Stamina farming runs first; Nightmare Nest runs afterward '
+            ADDITIONAL_TASKS: 'Select optional tasks. Stamina farming runs first; echo farming runs afterward '
                               'when needed, and the other tasks run last.',
         }
         material_option_list = ['Resonator EXP', 'Weapon EXP', 'Shell Credit']
@@ -66,6 +67,7 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
                 'options': [
                     CHECK_WEEKLY_GARDEN,
                     AUTO_FARM_NIGHTMARE_NEST,
+                    AUTO_FARM_RESIDUAL_NEST,
                     MERGE_ECHO_IF_DISCARDED_OVER_1000,
                     TELEPORT_AND_FARM_4C_ECHO,
                 ],
@@ -82,12 +84,17 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
         self.ensure_main(time_out=180)
 
         additional_tasks = self.config.get(ADDITIONAL_TASKS) or []
-        condition1 = AUTO_FARM_NIGHTMARE_NEST in additional_tasks
+        multi_account_residual_only = getattr(self, '_multi_account_residual_only', False)
+        residual_only = (
+            AUTO_FARM_RESIDUAL_NEST in additional_tasks
+            or (multi_account_residual_only and AUTO_FARM_NIGHTMARE_NEST in additional_tasks)
+        )
+        condition1 = AUTO_FARM_NIGHTMARE_NEST in additional_tasks and not residual_only
         condition2 = self.config.get('Farm Nightmare Nest for Daily Echo')
 
         used_stamina, daily_reward_ready = self.open_daily()
         need_stamina = not daily_reward_ready and used_stamina < 180
-        need_nightmare = condition1 or (
+        need_nightmare = residual_only or condition1 or (
                 condition2
                 and not daily_reward_ready
                 and self.config.get('Which to Farm', self.support_tasks[0]) != self.support_tasks[0]
@@ -107,16 +114,31 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
             self.sleep(4)
 
         if need_nightmare:
+            nest_task = None
             try:
-                # 劫持 NightmareNestTask.ensure_main 避免梦魇打完关书
-                self.get_task_by_class(NightmareNestTask).ensure_main = lambda *args, **kwargs: None
+                nest_task = self.get_task_by_class(NightmareNestTask)
+                # Keep the guidebook open while farming.  A residual-only run
+                # must never inherit the standalone Nightmare Purification list.
+                nest_task.ensure_main = lambda *args, **kwargs: None
 
                 if condition1:
                     self.log_debug('Auto Farm all Nightmare Nest')
                     self.run_task_by_class(NightmareNestTask)
+                elif residual_only:
+                    previous_targets = getattr(nest_task, 'farm_targets_override', None)
+                    had_targets_override = 'farm_targets_override' in nest_task.__dict__
+                    nest_task.farm_targets_override = ['Tacet Discord Nest']
+                    try:
+                        self.log_debug('Farm all Residual Settlements (Tacet Discord Nest only)')
+                        self.run_task_by_class(NightmareNestTask)
+                    finally:
+                        if had_targets_override:
+                            nest_task.farm_targets_override = previous_targets
+                        else:
+                            nest_task.__dict__.pop('farm_targets_override', None)
                 elif condition2:
                     self.log_debug('Farm Nightmare Nest for Daily Echo')
-                    self.get_task_by_class(NightmareNestTask).run_capture_mode()
+                    nest_task.run_capture_mode()
             except TaskDisabledException:
                 raise
             except Exception as e:
@@ -125,7 +147,8 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
                 self.ensure_main(time_out=180)
             finally:
                 # 还原 ensure_main，防范实例状态污染
-                self.get_task_by_class(NightmareNestTask).__dict__.pop('ensure_main', None)
+                if nest_task is not None:
+                    nest_task.__dict__.pop('ensure_main', None)
 
         self.claim_daily()
 

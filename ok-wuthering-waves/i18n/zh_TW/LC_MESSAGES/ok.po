@@ -1893,3 +1893,6 @@ msgstr "帳號 5 遊戲內特徵碼"
 
 msgid "Enter at least the last 4 digits of the Profile Code shown on the in-game ESC screen. Longer values are safer."
 msgstr "請輸入遊戲內 ESC 畫面所顯示特徵碼的至少後 4 位。輸入位數越多越安全。"
+
+msgid "Farm all Residual Settlements"
+msgstr "自動刷所有殘象聚落"

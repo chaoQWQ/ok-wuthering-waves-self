@@ -2,6 +2,7 @@ import unittest
 
 from ok import TaskDisabledException
 from src.task.BaseWWTask import LOGIN_TEXTS, BaseWWTask
+from src.task.DailyTask import AUTO_FARM_NIGHTMARE_NEST, AUTO_FARM_RESIDUAL_NEST
 from src.task.MultiAccountDailyTask import (
     AccountConfigNotDetected,
     MultiAccountDailyTask,
@@ -578,6 +579,30 @@ class TestMultiAccountDailyTask(unittest.TestCase):
 
         # Unmatched account returns empty
         self.assertEqual(task._get_account_overrides('cc****03@domain.com'), {})
+
+    def test_get_account_overrides_migrates_legacy_nightmare_label_to_settlements(self):
+        class FakeTask:
+            config = {
+                'Account 1 Daily Task Override': True,
+                'Account 1 Keyword': 'aa****01',
+                'Account 1: Additional Tasks to Run After Daily Task': [
+                    AUTO_FARM_NIGHTMARE_NEST,
+                ],
+            }
+
+            _get_account_overrides = MultiAccountDailyTask._get_account_overrides
+
+            def log_info(self, *args):
+                pass
+
+            def tr(self, message):
+                return message
+
+        overrides = FakeTask()._get_account_overrides('AA****01@domain.com')
+        self.assertEqual(
+            overrides['Additional Tasks to Run After Daily Task'],
+            [AUTO_FARM_RESIDUAL_NEST],
+        )
 
     def test_apply_and_restore_daily_overrides(self):
         class FakeDailyTask:

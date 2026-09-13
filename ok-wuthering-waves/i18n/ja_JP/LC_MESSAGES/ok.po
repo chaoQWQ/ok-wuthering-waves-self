@@ -1764,3 +1764,6 @@ msgstr "アカウント 5 ゲーム内特製コード"
 
 msgid "Enter at least the last 4 digits of the Profile Code shown on the in-game ESC screen. Longer values are safer."
 msgstr "ゲーム内の ESC 画面に表示される特製コードの末尾4桁以上を入力してください。桁数が多いほど安全です。"
+
+msgid "Farm all Residual Settlements"
+msgstr "残像集落をすべて自動周回"

@@ -22,3 +22,10 @@
 - 对分辨率、进入世界超时和更新器故障分别跟踪，避免与历史游戏崩溃混为一谈。
 
 详细 incident 关联与待办保存在本地 `logs/faults/analysis-state.json`，原始材料不提交 Git。
+
+## 13:40 巡检补充
+
+- 11:52:38–12:25:41 的多账号日志只出现 `open_boss_book canxiang` 和“已击败残象”列表，没有 `mengyan`、`go nightmare` 或“梦魇净化”记录。`NightmareNestTask` 是残象聚落和梦魇共用的类名，所以任务名会造成误判；这段运行证据指向残象聚落。
+- 本轮新增的切人、目标丢失和 Aemeath 大招无效记录仍属于脚本时序故障，未伴随新的 UE `CrashContext.runtime-xml`。它们不能证明游戏崩溃，也不能据此推断封禁。
+- 多账号日常现在提供单独的 `Farm all Residual Settlements` 选项；多账号运行上下文会屏蔽旧的“Auto Farm all Nightmare Nest”分支，旧配置会迁移为残象聚落选项，并把巢穴队列限制为 `Tacet Discord Nest`。保留独立 DailyTask 的梦魇选项，避免改变用户手动任务。
+- 变更已用多账号、DailyTask 残象模式和巢穴队列回归测试验证；应用未运行时才修改源码，未启动游戏或发送输入。
