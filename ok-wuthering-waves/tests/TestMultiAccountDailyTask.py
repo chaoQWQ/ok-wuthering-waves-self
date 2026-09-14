@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import Mock
 
 from ok import TaskDisabledException
 from src.task.BaseWWTask import LOGIN_TEXTS, BaseWWTask
@@ -14,6 +15,14 @@ from src.task.MultiAccountDailyTask import (
 
 
 class TestMultiAccountDailyTask(unittest.TestCase):
+
+    def test_exit_option_survives_account_config_initialization(self):
+        task = MultiAccountDailyTask(executor=Mock(), app=Mock())
+        self.assertIs(task.default_config['Exit After Task'], False)
+        self.assertEqual(
+            task.config_description['Exit After Task'],
+            'Exit the Game and the App after Successfully Executing the Task',
+        )
 
     def test_disconnected_game_window_stops_task_input(self):
         class FakeExecutor:

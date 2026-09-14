@@ -85,7 +85,6 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         super().__init__(*args, **kwargs)
         self.name = "👥 Multi Account Daily Task"
         self.description = "Automatically switch accounts and run Daily Task for each account"
-        self.add_exit_after_config()
         self.done_set = set()
         self.failed_set = set()
         self.all_accounts = set()
@@ -186,6 +185,9 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
                 'type': 'multi_selection',
                 'options': _ADDITIONAL_TASK_OPTIONS,
             }
+
+        # Register after building the config dictionaries so the exit option survives.
+        self.add_exit_after_config()
 
     # ------------------------------------------------------------------
     # Account state helpers
