@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from queue import Empty, Full, Queue
 import re
+import sys
 import threading
 import time
 import uuid
@@ -263,7 +264,21 @@ def summarize(project_root):
             'folder': str(folder), 'state_file': str(state_file)}
 
 
+def configure_cli_stdout(stream=None):
+    """Keep diagnostic JSON printable on Windows consoles using GBK defaults."""
+    stream = stream or sys.stdout
+    reconfigure = getattr(stream, 'reconfigure', None)
+    if reconfigure is None:
+        return False
+    try:
+        reconfigure(encoding='utf-8', errors='replace')
+    except (AttributeError, OSError, ValueError):
+        return False
+    return True
+
+
 if __name__ == '__main__':
+    configure_cli_stdout()
     import argparse
     parser = argparse.ArgumentParser(description='Collect existing crash reports and summarize unreviewed faults.')
     parser.add_argument('--collect', action='store_true')

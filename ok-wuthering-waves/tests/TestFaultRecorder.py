@@ -7,12 +7,23 @@ import threading
 import time
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
-from src.utils.FaultRecorder import FaultRecorder, record_input, redact, summarize
+from src.utils.FaultRecorder import (
+    FaultRecorder,
+    configure_cli_stdout,
+    record_input,
+    redact,
+    summarize,
+)
 
 
 class TestFaultRecorder(unittest.TestCase):
+    def test_cli_stdout_is_configured_for_unicode_json(self):
+        stream = Mock()
+        self.assertTrue(configure_cli_stdout(stream))
+        stream.reconfigure.assert_called_once_with(encoding='utf-8', errors='replace')
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

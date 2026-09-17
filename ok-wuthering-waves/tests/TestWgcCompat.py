@@ -1,8 +1,28 @@
 import sys
+from types import SimpleNamespace
 import unittest
+from unittest.mock import Mock
+
+
+from src.utils.wgc_compat import _defer_capture_until_hwnd
 
 
 class TestWgcCompat(unittest.TestCase):
+    def test_capture_selection_waits_for_game_hwnd(self):
+        stale_capture = Mock()
+        manager = SimpleNamespace(
+            hwnd_window=SimpleNamespace(hwnd=0),
+            capture_method=stale_capture,
+        )
+
+        self.assertTrue(_defer_capture_until_hwnd(manager))
+        stale_capture.close.assert_called_once_with()
+        self.assertIsNone(manager.capture_method)
+
+        manager.hwnd_window.hwnd = 1234
+        manager.capture_method = Mock()
+        self.assertFalse(_defer_capture_until_hwnd(manager))
+
     @unittest.skipUnless(sys.platform == "win32", "WGC is a Windows-only capture API")
     def test_config_respects_upstream_wgc_platform_gate(self):
         # Importing config may apply stability fixes, but must not replace the

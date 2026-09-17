@@ -137,6 +137,54 @@ def _enable_wgc_deadlock_and_stability_compat() -> bool:
     return True
 
 
+def _enable_capture_selection_guard() -> bool:
+    """Do not construct a fallback capture while the game HWND is still zero.
+
+    During game launch ``StartController`` can observe a stable window size a
+    few milliseconds before ``RefreshAdb`` publishes the new HWND to the
+    capture method.  Letting the normal preference loop continue at that
+    point constructs BitBlt with ``hwnd=0`` and records a misleading capture
+    failure.  Returning with no capture makes the existing startup retry wait
+    for the next window refresh; once the HWND is available, the normal WGC
+    validation path runs unchanged.
+    """
+    try:
+        from ok.device.DeviceManager import DeviceManager, logger as device_logger
+    except Exception:
+        return False
+
+    if getattr(DeviceManager, '_okww_capture_selection_guard', False):
+        return True
+
+    original_use_windows_capture = DeviceManager.use_windows_capture
+
+    def guarded_use_windows_capture(self):
+        if _defer_capture_until_hwnd(self, device_logger):
+            return
+        return original_use_windows_capture(self)
+
+    DeviceManager.use_windows_capture = guarded_use_windows_capture
+    DeviceManager._okww_capture_selection_guard = True
+    return True
+
+
+def _defer_capture_until_hwnd(device_manager, device_logger=None) -> bool:
+    """Return whether capture selection should wait for a nonzero game HWND."""
+    hwnd_window = getattr(device_manager, 'hwnd_window', None)
+    if hwnd_window is None or getattr(hwnd_window, 'hwnd', 0):
+        return False
+    stale_capture = getattr(device_manager, 'capture_method', None)
+    if stale_capture is not None:
+        try:
+            stale_capture.close()
+        except Exception:
+            pass
+        device_manager.capture_method = None
+    if device_logger is not None:
+        device_logger.info('capture selection deferred until game HWND is available')
+    return True
+
+
 def enable_windows_graphics_capture() -> bool:
     """Apply compatibility fixes when upstream says WGC is supported."""
 
@@ -154,6 +202,7 @@ def enable_windows_graphics_capture() -> bool:
         available = bool(window.windows_graphics_available())
         if available:
             _enable_wgc_deadlock_and_stability_compat()
+            _enable_capture_selection_guard()
             from src.utils.wgc_startup import enable_wgc_startup_compat
             enable_wgc_startup_compat()
             window.logger.info(f"WGC stability compatibility enabled for Windows build {window.WINDOWS_BUILD_NUMBER}")
