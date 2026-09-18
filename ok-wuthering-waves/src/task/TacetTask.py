@@ -1,6 +1,10 @@
 
-from ok import Logger
-from src.task.BaseCombatTask import BaseCombatTask, CharRevivedException
+from ok import Logger, TaskDisabledException
+from src.task.BaseCombatTask import (
+    BaseCombatTask,
+    CharRevivedException,
+    NotInCombatException,
+)
 from src.task.WWOneTimeTask import WWOneTimeTask
 
 logger = Logger.get_logger(__name__)
@@ -38,6 +42,60 @@ class TacetTask(WWOneTimeTask, BaseCombatTask):
         }
         self.stamina_once = 60
 
+    def _recover_after_round_state_error(self, error):
+        """Return to a stable world state before retrying a Tacet round.
+
+        ``combat_once`` deliberately treats a lost combat target as a normal
+        combat end.  A transient team-portrait loss can therefore leave the
+        task between the combat and reward screens.  Do not send movement or
+        interact keys in that state; settle the game back to the world first.
+        """
+        self.log_warning(f'Tacet round state lost; recovering before retry: {error}')
+        try:
+            self.screenshot('tacet_round_state_error')
+        except Exception as screenshot_error:
+            self.log_warning('Tacet round recovery screenshot failed', screenshot_error)
+        try:
+            self.ensure_main(esc=True, time_out=60)
+            return True
+        except TaskDisabledException:
+            raise
+        except Exception as recovery_error:
+            self.log_warning('Tacet round state recovery failed', recovery_error)
+            return False
+
+    def _walk_to_treasure_with_retry(self):
+        """Wait for a stable team state and retry one missed reward scan."""
+        try:
+            self.walk_to_treasure()
+            return
+        except TaskDisabledException:
+            raise
+        except Exception as first_error:
+            self.log_warning(
+                f'Tacet treasure was not detected on the first scan; retrying: {first_error}'
+            )
+
+        if not self.wait_in_team_and_world(time_out=20, raise_if_not_found=False):
+            raise NotInCombatException('team state unavailable before Tacet treasure retry')
+        self.sleep(2)
+        self.walk_to_treasure()
+
+    def _handle_round_state_error(self, error, recovery_retries, max_recovery_retries, stage):
+        """Recover a transient round error or raise after the retry budget."""
+        recovery_retries += 1
+        if recovery_retries >= max_recovery_retries:
+            self.log_info(
+                f'Tacet Suppression exceeded {stage} recovery retries ({max_recovery_retries}), stop farming',
+                notify=True,
+            )
+            raise RuntimeError(
+                f'Tacet {stage} state remained unstable after {max_recovery_retries} retries'
+            ) from error
+        if not self._recover_after_round_state_error(error):
+            raise RuntimeError(f'Tacet {stage} state recovery failed') from error
+        return recovery_retries
+
     def run(self):
         super().run()
         self.ensure_main(time_out=180)
@@ -73,11 +131,17 @@ class TacetTask(WWOneTimeTask, BaseCombatTask):
             is_team = self.teleport_to_tacet(index)
             if is_team:
                 self.click_team_challenge()
-            recovered_from_death = False
+            recovered_from_round_error = False
             while True:
                 self.wait_in_team_and_world(time_out=120)
                 try:
                     self.combat_once(target=True)
+                    # ``combat_once`` can return after a transient team
+                    # portrait loss.  Confirm the world/team state before
+                    # walking; otherwise a reward timeout causes a needless
+                    # account-level failure.
+                    if not self.wait_in_team_and_world(time_out=20, raise_if_not_found=False):
+                        raise NotInCombatException('team state unavailable after Tacet combat')
                 except CharRevivedException:
                     recovery_retries += 1
                     if recovery_retries >= max_recovery_retries:
@@ -87,9 +151,22 @@ class TacetTask(WWOneTimeTask, BaseCombatTask):
                         )
                         return None
                     self.log_info('Tacet Suppression death recovered; re-enter from F2 book')
-                    recovered_from_death = True
+                    recovered_from_round_error = True
                     break
-                self.walk_to_treasure()
+                except NotInCombatException as error:
+                    recovery_retries = self._handle_round_state_error(
+                        error, recovery_retries, max_recovery_retries, 'round'
+                    )
+                    recovered_from_round_error = True
+                    break
+                try:
+                    self._walk_to_treasure_with_retry()
+                except NotInCombatException as error:
+                    recovery_retries = self._handle_round_state_error(
+                        error, recovery_retries, max_recovery_retries, 'treasure'
+                    )
+                    recovered_from_round_error = True
+                    break
                 self.pick_f(handle_claim=False)
                 self.sleep(2)
                 if not self.has_claim_stamina():
@@ -108,7 +185,7 @@ class TacetTask(WWOneTimeTask, BaseCombatTask):
                     self.click_relative(0.640, 0.851, hcenter=True, after_sleep=0.2)
                     self.wait_click_skip_dialog_confirm()
                 must_use -= used
-            if recovered_from_death:
+            if recovered_from_round_error:
                 continue
 
     def not_enough_stamina(self, back=True):
