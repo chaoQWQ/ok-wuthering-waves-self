@@ -1908,3 +1908,6 @@ msgstr "QQ 信箱 SMTP 授權碼"
 
 msgid "Receiver Email"
 msgstr "收件信箱"
+
+msgid "JingRan"
+msgstr "景燃"

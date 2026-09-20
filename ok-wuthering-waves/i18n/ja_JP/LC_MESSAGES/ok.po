@@ -1779,3 +1779,6 @@ msgstr "QQ SMTP 認証コード"
 
 msgid "Receiver Email"
 msgstr "宛先メールアドレス"
+
+msgid "JingRan"
+msgstr "景燃"

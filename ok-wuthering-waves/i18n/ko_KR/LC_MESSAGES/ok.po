@@ -1780,3 +1780,6 @@ msgstr "QQ SMTP 인증 코드"
 
 msgid "Receiver Email"
 msgstr "수신 이메일"
+
+msgid "JingRan"
+msgstr "경연"

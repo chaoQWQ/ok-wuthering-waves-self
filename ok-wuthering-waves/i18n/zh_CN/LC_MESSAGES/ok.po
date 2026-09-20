@@ -1830,3 +1830,6 @@ msgstr "QQ 邮箱 SMTP 授权码"
 
 msgid "Receiver Email"
 msgstr "收件邮箱"
+
+msgid "JingRan"
+msgstr "景燃"

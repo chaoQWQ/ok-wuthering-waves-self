@@ -1700,3 +1700,6 @@ msgstr "Código de autorización SMTP de QQ"
 
 msgid "Receiver Email"
 msgstr "Correo del destinatario"
+
+msgid "JingRan"
+msgstr "Jingran"
