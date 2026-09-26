@@ -1163,7 +1163,7 @@ class BaseWWTask(BaseTask):
             self.sleep(0.02)
             self.send_key_up('alt')
             self.sleep(4)
-        gray_book_boss = self.wait_book(feature)
+        gray_book_boss = self.wait_book(feature, time_out=8)
         if not gray_book_boss:
             self.log_error("can't find gray_book_boss, make sure f2 is the hotkey for book", notify=True)
             raise Exception("can't find gray_book_boss, make sure f2 is the hotkey for book")
