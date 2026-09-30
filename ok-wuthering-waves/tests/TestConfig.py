@@ -46,6 +46,22 @@ class TestCalculatePcExePath(unittest.TestCase):
 
         self.assertEqual(r"C:\Games\Wuthering Waves Game\Wuthering Waves.exe", result)
 
+    def test_running_path_prefers_official_launcher_when_present(self):
+        with tempfile.TemporaryDirectory() as temp:
+            install_root = Path(temp)
+            running_path = (
+                install_root / "Wuthering Waves Game" / "Client" / "Binaries" / "Win64"
+                / "Client-Win64-Shipping.exe"
+            )
+            running_path.parent.mkdir(parents=True)
+            running_path.touch()
+            launcher = install_root / "launcher.exe"
+            launcher.touch()
+
+            result = config.calculate_pc_exe_path(str(running_path))
+
+        self.assertEqual(str(launcher), result)
+
     def test_registered_launcher_path_finds_sibling_game_folder(self):
         with tempfile.TemporaryDirectory() as temp:
             install_root = Path(temp)

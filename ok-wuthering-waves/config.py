@@ -119,6 +119,9 @@ def calculate_pc_exe_path(running_path):
     if running_path is None:
         return _find_most_recently_run_pc_exe() or _find_pc_exe_from_registry()
     game_exe_folder = Path(running_path).parents[3]
+    launcher_path = game_exe_folder.parent / "launcher.exe"
+    if launcher_path.is_file():
+        return str(launcher_path)
     return str(game_exe_folder / "Wuthering Waves.exe")
 
 
