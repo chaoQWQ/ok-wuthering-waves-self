@@ -4,6 +4,7 @@ from pathlib import Path
 
 from src.utils.wgc_compat import enable_windows_graphics_capture
 from ok import Box, ConfigOption, Icon
+from ok.util.GlobalConfig import create_basic_options
 from src.task.process_feature import process_feature
 
 version = "dev"
@@ -131,6 +132,12 @@ def blur_area(width, height):
     return Box(width * 0.879, height * 0.976, blur_width * 0.973, blur_height * 0.994)
 
 
+basic_config_option = create_basic_options(enable_blur=True)
+basic_config_option.default_config['Game Package'] = 'hd'
+basic_config_option.config_type['Game Package'] = {
+    'type': 'drop_down', 'options': ['sd', 'hd', 'uhd'],
+}
+
 key_config_option = ConfigOption('Game Hotkey', {
     'Echo Key': 'q',
     'Liberation Key': 'r',
@@ -169,7 +176,7 @@ config = {
     'config_folder': 'configs',
     'blur_area': blur_area,
     'gui_icon': 'icons/icon.png',
-    'global_configs': [key_config_option, char_config_option, monthly_card_config_option],
+    'global_configs': [basic_config_option, key_config_option, char_config_option, monthly_card_config_option],
     'custom_tabs': [["src.gui.CharacterCodeTab", "CharacterCodeTab"]],
     'ocr': {
         'lib': 'onnxocr',
