@@ -142,19 +142,11 @@ class FarmEchoTask(WWOneTimeTask, BaseCombatTask):
                     self._just_entered_boss_realm = False
                 elif not self.in_combat():
                     if self._in_realm and not self.in_world():
-                        # Double-check: wait up to 2 s to rule out a transient in_combat() miss
-                        # (e.g. between animation frames) before committing to exit the realm.
-                        # If still not in combat after the wait, proceed to exit via esc.
                         self.sleep(1)
                         if self.in_combat():
-                            self.log_info('in_realm exit skipped: back in combat after re-check')
+                            self.log_info('realm combat resumed after re-check')
                         else:
-                            self.log_info('not in combat in realm, exiting realm')
-                            try:
-                                self.esc_world_confirm()
-                            except Exception as e:
-                                self.log_warning(f'esc_world_confirm failed (may have already exited): {e}')
-                                self.wait_in_team_and_world(time_out=30)
+                            self.restart_realm_challenge()
                         self.sleep(0.1)
 
                     else:
@@ -213,6 +205,27 @@ class FarmEchoTask(WWOneTimeTask, BaseCombatTask):
                     self.teleport_to_configured_boss_and_prepare()
                     continue
                 raise
+
+    def restart_realm_challenge(self):
+        restart_text = re.compile(r'^\s*(重新挑战|重新挑戰|再次挑战|再次挑戰|Restart Challenge|Challenge Again|Retry)\s*$', re.IGNORECASE)
+        # 优先通过副本交互重新挑战。
+        if self.find_treasure_icon():
+            self.walk_to_box(self.find_treasure_icon, end_condition=self.find_f_with_text, y_offset=0.1)
+        interaction = self.find_f_with_text(target_text=restart_text)
+        if interaction:
+            self.send_key('f', after_sleep=1)
+        else:
+            # 使用菜单内明确标注的重新挑战按钮。
+            self.send_key('esc', after_sleep=1)
+            buttons = self.wait_ocr(match=restart_text, time_out=5, settle_time=1, raise_if_not_found=True)
+            buttons = find_boxes_by_name(buttons, restart_text)
+            if len(buttons) != 1:
+                raise RuntimeError('Can not identify a unique realm restart button')
+            self.click_box(buttons[0], after_sleep=1)
+        self.wait_click_skip_dialog_confirm()
+        self.wait_until(self.in_combat, time_out=30, raise_if_not_found=True)
+        self._has_treasure = False
+        self.log_info('realm challenge restarted and combat detected')
 
     def execute_treasure_hunt(self):
         if not self.in_combat() and self.find_treasure_icon() and self.walk_to_treasure_and_restart():
