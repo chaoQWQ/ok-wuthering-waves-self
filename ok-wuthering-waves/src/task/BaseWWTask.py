@@ -1358,49 +1358,9 @@ class BaseWWTask(BaseTask):
         self.draw_boxes(boxes=target, color="red")
         self.click(target, after_sleep=1)
 
-        # ``team_close`` is the generic diamond icon at the top-right of the
-        # game UI.  It is also present while the guidebook is still open, so
-        # using it here can falsely classify a failed/ignored click as a team
-        # destination.  Only the actionable team-start button identifies the
-        # team route; the other three features identify the normal travel
-        # route.
-        destination_features = [
-            'fast_travel_custom',
-            'gray_teleport',
-            'remove_custom',
-            'team_start_challenge',
-        ]
-        feature = None
-        for attempt in range(2):
-            feature = self.wait_feature(
-                destination_features,
-                time_out=10,
-                settle_time=0.5,
-                raise_if_not_found=False,
-            )
-            if feature is not None:
-                logger.info(
-                    f'book target {serial_number} destination detected: {feature.name}'
-                )
-                return feature.name == 'team_start_challenge'
-
-            # A guidebook button can swallow the first click during the page
-            # transition.  Retry only while the guidebook target is still
-            # visible; this avoids clicking arbitrary coordinates after the
-            # page has already started loading.
-            if attempt == 0:
-                remaining_btns = self.find_feature(
-                    'boss_proceed',
-                    box=self.box_of_screen(0.9113, 0.229, 0.9613, 0.861),
-                    threshold=0.8,
-                )
-                if remaining_btns:
-                    logger.warning(
-                        f'book target {serial_number} did not open after first click; retrying'
-                    )
-                    self.click(target, after_sleep=1)
-
-        raise Exception(f"can't enter selected book target {serial_number}")
+        feature = self.wait_feature(['fast_travel_custom', 'gray_teleport', 'remove_custom', 'team_close'], time_out=10,
+                                    settle_time=0.5, raise_if_not_found=True)
+        return feature.name == 'team_close'
 
     def change_time_to_night(self):
         logger.info('change time to night')
