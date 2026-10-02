@@ -19,7 +19,7 @@ from src.char.CustomCharLoader import (
 )
 
 
-BASE_CHAR_URL = "https://raw.githubusercontent.com/ok-oldking/ok-wuthering-waves/refs/heads/master/ok-wuthering-waves/src/char/BaseChar.py"
+BASE_CHAR_URL = "https://raw.githubusercontent.com/ok-oldking/ok-wuthering-waves/refs/heads/master/src/char/BaseChar.py"
 CONTRIBUTE_CHAR_URL = "https://github.com/ok-oldking/ok-wuthering-waves/edit/master/src/char/{class_name}.py"
 CHARACTER_DISPLAY_NAMES = {
     "Douling": "Buling",
