@@ -1833,3 +1833,6 @@ msgstr "收件邮箱"
 
 msgid "JingRan"
 msgstr "景燃"
+
+msgid "Hsin"
+msgstr "心"

@@ -12,9 +12,6 @@ class Globals:
     def __init__(self, exit_event):
         from pathlib import Path
         from src.utils.FaultRecorder import start_fault_recorder
-        from src.game_launcher import install_game_launcher
-
-        install_game_launcher()
         self.fault_recorder = start_fault_recorder(Path(get_path_relative_to_exe('')), exit_event)
         self._yolo_model = None
         self.mini_map_arrow = None
