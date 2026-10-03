@@ -1,3 +1,8 @@
+param(
+    [ValidateSet('MultiAccountDailyTask')]
+    [string]$Task
+)
+
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $workspaceRoot = Split-Path -Parent $projectRoot
 $pythonw = Join-Path $workspaceRoot '.venv\Scripts\pythonw.exe'
@@ -11,8 +16,14 @@ if (-not (Test-Path -LiteralPath $entryPoint -PathType Leaf)) {
     throw "找不到 OK-WW 启动文件：$entryPoint"
 }
 
+$launchArguments = @('"' + $entryPoint + '"')
+if ($Task) {
+    $launchArguments += @('-t', $Task)
+}
+
 Start-Process `
     -FilePath $pythonw `
-    -ArgumentList @($entryPoint) `
+    -ArgumentList $launchArguments `
     -WorkingDirectory $projectRoot `
-    -Verb RunAs
+    -Verb RunAs `
+    -WindowStyle Hidden
