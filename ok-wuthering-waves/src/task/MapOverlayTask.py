@@ -169,7 +169,14 @@ def collection_type_ids(selected_groups) -> tuple:
     selected_groups = list(selected_groups or [])
     result = []
     for group in selected_groups:
-        for type_id in COLLECTION_GROUP_TYPE_IDS.get(str(group), ()):
+        value = str(group)
+        type_ids = (
+            (value[5:],) if value.startswith('type:')
+            else COLLECTION_GROUP_TYPE_IDS.get(value, ())
+        )
+        for type_id in type_ids:
+            if not type_id:
+                raise ValueError('收集物类型编号不能为空')
             if type_id not in result:
                 result.append(type_id)
     # query_nearby treats an empty filter as "all types".  An explicit empty
@@ -971,8 +978,8 @@ class OverlayController:
         """Return the optional video-route validation status for the panel."""
         if not self._chest_search_enabled():
             return None
-        if 'Chests' not in self.task.config.get(
-                'Collection types', DEFAULT_COLLECTION_GROUPS):
+        if not set(COLLECTION_GROUP_TYPE_IDS['Chests']).intersection(
+                selected_collection_type_ids(self.task.config)):
             return None
         route = self._ensure_chest_route_loaded()
         if route is None:
@@ -2520,8 +2527,10 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
             'qzx_01', 'qzx_02', 'qzx_03', 'qzx_04',
         ]}
         self.config_type['Collection types'] = {
-            'type': 'multi_selection',
-            'options': list(COLLECTION_GROUP_TYPE_IDS),
+            'type': 'button',
+            'text': 'Collection types',
+            'icon': FluentIcon.SEARCH,
+            'callback': self.choose_collection_types,
         }
         self.config_type['Collection account'] = {
             'type': 'drop_down',
@@ -2666,6 +2675,28 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
             f"{self.config.get('Chest confirm hotkey')!r} distance="
             f"{self.config.get('_Chest confirm distance (world units)')}"
         )
+
+    def choose_collection_types(self, *args):
+        from src.utils.CollectionCatalog import load_collection_catalog, encode_collection_types
+        from src.utils.CollectionTypeDialog import CollectionTypeDialog
+
+        with self._assets_lock:
+            if self._assets_suspend.is_set() or (
+                    self._assets_thread is not None and self._assets_thread.is_alive()):
+                self.info_set(ASSETS_INFO_KEY, '正在更新资源，请在下载完成后选择收集物类型')
+                return
+            catalog = load_collection_catalog(os.path.join(MAP_DIR, 'map_items.db'))
+        dialog = CollectionTypeDialog(
+            catalog, selected_collection_type_ids(self.config),
+            self.tr, og.main_window,
+        )
+        if dialog.exec():
+            selected_ids = dialog.selected_type_ids()
+            self.config['Collection types'] = encode_collection_types(selected_ids)
+            names = {entry.type_id: entry.name for entry in catalog}
+            self.info_set('Collection types', ', '.join(
+                names.get(type_id, type_id) for type_id in selected_ids
+            ))
 
     def _refresh_collection_account_options(self, selected=None, ensure=False):
         """Reload the persisted profile list used by the account dropdown."""
