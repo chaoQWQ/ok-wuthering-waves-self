@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "resource_version": "C9D8F32B5FC7430A808FFCFCBE0ED9F8",
+  "source_url": "https://web-static.kurobbs.com/mcmap/country/C9D8F32B5FC7430A808FFCFCBE0ED9F8/country.json",
+  "regions": [
+    {
+      "country_id": 1,
+      "name": "瑝珑",
+      "maps": [
+        {
+          "state_id": 8,
+          "name": "今州 / 梦州"
+        },
+        {
+          "state_id": 912,
+          "name": "梦枢天罗"
+        }
+      ]
+    },
+    {
+      "country_id": 900,
+      "name": "黑海岸",
+      "maps": [
+        {
+          "state_id": 8,
+          "name": "黑海岸群岛"
+        },
+        {
+          "state_id": 900,
+          "name": "泰缇斯之底"
+        },
+        {
+          "state_id": 910,
+          "name": "时隙废都"
+        }
+      ]
+    },
+    {
+      "country_id": 3,
+      "name": "黎那汐塔",
+      "maps": [
+        {
+          "state_id": 8,
+          "name": "拉古那 / 七丘"
+        },
+        {
+          "state_id": 902,
+          "name": "下层金库"
+        },
+        {
+          "state_id": 903,
+          "name": "阿维纽林"
+        },
+        {
+          "state_id": 905,
+          "name": "隐海试验场"
+        }
+      ]
+    },
+    {
+      "country_id": 4,
+      "name": "罗伊冰原",
+      "maps": [
+        {
+          "state_id": 8,
+          "name": "冰原地表"
+        },
+        {
+          "state_id": 906,
+          "name": "拉海洛"
+        },
+        {
+          "state_id": 909,
+          "name": "黯原"
+        }
+      ]
+    }
+  ]
+}

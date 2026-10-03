@@ -153,9 +153,7 @@ class MapCollectionTypeDialog(CollectionTypeDialog):
         country_id = self.region_combo.currentData()
         for entry in self.maps.values():
             if entry.country_id == country_id:
-                # 大世界共用同一幅底图，地区名称由资源包提供。
-                name = entry.country_name if entry.state_id == 8 else entry.state_name
-                self.map_combo.addItem(name, userData=entry.key)
+                self.map_combo.addItem(entry.state_name, userData=entry.key)
         index = self.map_combo.findData(initial_key)
         self.map_combo.setCurrentIndex(max(0, index))
         self.map_combo.blockSignals(False)

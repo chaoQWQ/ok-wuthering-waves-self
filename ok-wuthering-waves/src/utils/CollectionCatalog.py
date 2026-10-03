@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from src.utils.CollectionCategories import load_category_lookup
+from src.utils.CollectionRegions import load_region_lookup
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,7 @@ def load_collection_catalog(db_path, state_id=None, country_id=None):
 
 def load_collection_maps(db_path):
     path = Path(db_path).resolve(strict=True)
+    regions = load_region_lookup(path)
     with closing(sqlite3.connect(path.as_uri() + '?mode=ro&immutable=1', uri=True)) as conn:
         rows = conn.execute(
             'SELECT DISTINCT s.id, c.id, s.name, c.name FROM location l '
@@ -70,10 +72,12 @@ def load_collection_maps(db_path):
             'JOIN country c ON c.id = l.country_id '
             'ORDER BY c.id, s.id'
         ).fetchall()
+    available = {(state_id, country_id) for state_id, country_id, *_ in rows}
     return tuple(
-        CollectionMap(state_id, country_id, state_name, country_name,
+        CollectionMap(state_id, country_id, map_name, country_name,
                       load_collection_catalog(path, state_id, country_id))
-        for state_id, country_id, state_name, country_name in rows
+        for (state_id, country_id), (country_name, map_name) in regions.items()
+        if (state_id, country_id) in available
     )
 
 

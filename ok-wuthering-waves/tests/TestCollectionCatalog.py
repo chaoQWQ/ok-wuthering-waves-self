@@ -164,6 +164,13 @@ class TestCollectionCatalog(unittest.TestCase):
     def test_maps_and_counts_match_database(self):
         maps = load_collection_maps(DATABASE)
         by_key = {entry.key: entry for entry in maps}
+        self.assertEqual(by_key['8:1'].state_name, '今州 / 梦州')
+        self.assertEqual(by_key['903:3'].state_name, '阿维纽林')
+        self.assertNotIn('903:1', by_key)
+        self.assertNotIn('902:1', by_key)
+        self.assertNotIn('900:1', by_key)
+        self.assertNotIn('906:1', by_key)
+        self.assertNotIn('910:1', by_key)
         self.assertEqual(by_key['912:1'].state_name, '梦枢天罗')
         self.assertEqual(by_key['912:1'].country_name, '瑝珑')
         self.assertNotIn('zscj', {entry.type_id for entry in by_key['912:1'].types})
@@ -195,6 +202,8 @@ class TestCollectionCatalog(unittest.TestCase):
         self.assertEqual(dialog.current_key, '8:4')
         self.assertEqual(dialog.selected_type_ids(), ['zscj'])
         dialog.region_combo.setCurrentIndex(dialog.region_combo.findData(1))
+        self.assertEqual({dialog.map_combo.itemData(index)
+                          for index in range(dialog.map_combo.count())}, {'8:1', '912:1'})
         dialog.map_combo.setCurrentIndex(dialog.map_combo.findData('912:1'))
         self.assertEqual(dialog.selected_type_ids(), ['qzx_01'])
         dialog.search_edit.setText('fls')
@@ -221,6 +230,28 @@ class TestCollectionCatalog(unittest.TestCase):
             restored = Config('collection', defaults, folder=directory)
             self.assertEqual(restored['_Collection map types']['912:1'], [])
             self.assertEqual(restored['_Collection map types']['8:1'], ['fls'])
+        parent.close()
+
+    def test_region_dialog_uses_official_map_ownership(self):
+        parent = QWidget()
+        dialog = MapCollectionTypeDialog(load_collection_maps(DATABASE), [],
+                                         {'903:1': ['qzx_01']}, '903:1', self.translate, parent)
+        self.assertEqual(dialog.region_combo.currentText(), '瑝珑')
+        self.assertEqual(dialog.map_combo.currentText(), '今州 / 梦州')
+        dialog.region_combo.setCurrentIndex(dialog.region_combo.findData(3))
+        self.assertEqual({dialog.map_combo.itemText(index)
+                          for index in range(dialog.map_combo.count())},
+                         {'拉古那 / 七丘', '下层金库', '阿维纽林', '隐海试验场'})
+        dialog.map_combo.setCurrentIndex(dialog.map_combo.findData('903:3'))
+        self.assertEqual(dialog.current_key, '903:3')
+        with closing(sqlite3.connect(DATABASE.as_uri() + '?immutable=1', uri=True)) as conn:
+            expected = dict(conn.execute(
+                'SELECT type_id,COUNT(*) FROM location WHERE state_id=903 AND country_id=3 '
+                'GROUP BY type_id').fetchall())
+        self.assertEqual({entry.type_id: entry.count for entry in dialog.maps['903:3'].types},
+                         expected)
+        self.assertEqual(dialog.selected_map_types()['903:1'], ['qzx_01'])
+        dialog.close()
         parent.close()
 
     def test_navigation_isolates_map_and_region_selection(self):
