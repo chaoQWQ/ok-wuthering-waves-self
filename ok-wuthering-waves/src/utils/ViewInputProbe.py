@@ -14,8 +14,8 @@
 
 设计约束
 --------
-- **只读、不干预**：用 ``pynput.mouse.Listener``（非侵入监听，不吞事件），不使用
-  ``SetWindowsHookEx``；不改渲染、不改匹配逻辑
+- 使用 ``pynput.mouse.Listener`` 观察鼠标事件；Windows 后端通过
+  ``SetWindowsHookExW`` 注册全局低级鼠标钩子，默认不拦截事件。
 - 交互覆盖层用 ``setMask`` 把窗口限制在命中框内，掩码外的拖动/滚轮不会进 Qt，
   所以只能走系统级监听
 - 监听回调在 pynput 线程，这里只做"写文件"这一件事，不碰 Qt（沿用

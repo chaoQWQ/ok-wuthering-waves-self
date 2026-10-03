@@ -1080,12 +1080,15 @@ class OverlayController:
             # Build status after guidance filtering so its distance agrees with
             # the visible arrow/banner instead of exposing the raw OCR jump.
             status_lines = self.compute_status_lines(player_pos, minimap=True)
+            direction_drawn = self._draw_minimap_direction_window(
+                edge_arrow, target_marker
+            )
             self.task._draw_overlay(
                 player_pos, state_id=state_id, completed_ids=self._completed_ids,
-                status_lines=status_lines, target_marker=target_marker,
-                edge_arrow=edge_arrow,
+                status_lines=status_lines,
+                target_marker=None if direction_drawn else target_marker,
+                edge_arrow=None if direction_drawn else edge_arrow,
             )
-            self._draw_minimap_direction_window(edge_arrow, target_marker)
 
     def on_bigmap(self, player_pos, game_scale) -> None:
         """Big-map state: render via the clickable InteractionOverlayWindow.
@@ -2344,6 +2347,7 @@ class OverlayController:
             hint_text=self._chest_hint_for_target(self._chest_target),
         )
         self._last_minimap_direction_at = time.monotonic()
+        return True
 
     @staticmethod
     def _manual_movement_active():

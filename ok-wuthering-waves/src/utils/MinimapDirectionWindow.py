@@ -65,6 +65,7 @@ class MinimapDirectionWindow(QWidget):
         self._nearby = False
         self._hint_text = ""
         self._no_activate_applied = False
+        self._last_frame = None
         self._frame_requested.connect(self._do_frame, Qt.QueuedConnection)
         self._hide_requested.connect(self._do_hide, Qt.QueuedConnection)
 
@@ -82,7 +83,17 @@ class MinimapDirectionWindow(QWidget):
 
     def _do_frame(self, geometry, bearing, minimap_box, distance, target_marker,
                   nearby, hint_text):
-        self.setGeometry(*[int(value) for value in geometry])
+        geometry = tuple(int(value) for value in geometry)
+        frame_key = (
+            geometry, float(bearing), minimap_box.x, minimap_box.y,
+            minimap_box.width, minimap_box.height, distance, target_marker,
+            bool(nearby), str(hint_text or ""),
+        )
+        if self.isVisible() and frame_key == self._last_frame:
+            return
+        self._last_frame = frame_key
+        if self.geometry().getRect() != geometry:
+            self.setGeometry(*geometry)
         self._bearing = float(bearing)
         self._minimap_box = minimap_box
         self._distance = distance
@@ -91,10 +102,11 @@ class MinimapDirectionWindow(QWidget):
         self._hint_text = str(hint_text or "")
         if not self.isVisible():
             self.show()
-        self.raise_()
+            self.raise_()
         self.update()
 
     def _do_hide(self):
+        self._last_frame = None
         self._bearing = None
         self._target_marker = None
         self._hint_text = ""

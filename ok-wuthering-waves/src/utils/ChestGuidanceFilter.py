@@ -34,6 +34,7 @@ class ChestGuidanceFilter:
     REBASE_CONFIRM_SAMPLES = 5
     NEAR_SMOOTH_DISTANCE = 3000.0
     NEARBY_DISTANCE = 800.0
+    NEARBY_EXIT_DISTANCE = 1100.0
     STATIONARY_DEADBAND = 300.0
     MOVEMENT_SETTLE_SECONDS = 1.2
 
@@ -44,6 +45,7 @@ class ChestGuidanceFilter:
         self._stable_bearing = None
         self._pending = deque(maxlen=self.REBASE_CONFIRM_SAMPLES)
         self._last_movement_at = None
+        self._nearby = False
 
     def reset(self):
         self._history.clear()
@@ -52,6 +54,7 @@ class ChestGuidanceFilter:
         self._stable_bearing = None
         self._pending.clear()
         self._last_movement_at = None
+        self._nearby = False
 
     @staticmethod
     def _bearing_degrees(player_x, player_y, target_x, target_y):
@@ -64,20 +67,23 @@ class ChestGuidanceFilter:
         delta = (float(current) - float(previous) + 180.0) % 360.0 - 180.0
         return (float(previous) + delta * float(amount)) % 360.0
 
-    def _sample(self, target_x, target_y, rejected=False):
+    def _sample(self, target_x, target_y, rejected=False, advance=True):
         px, py = self._stable
         distance = math.hypot(float(target_x) - px, float(target_y) - py)
         raw_bearing = self._bearing_degrees(px, py, target_x, target_y)
         bearing_alpha = 0.18 if distance < self.NEAR_SMOOTH_DISTANCE else 0.42
         if self._stable_bearing is None:
             self._stable_bearing = raw_bearing
-        else:
+        elif advance:
             self._stable_bearing = self._circular_lerp(
                 self._stable_bearing, raw_bearing, bearing_alpha
             )
+        # 使用不同的进入和退出距离，防止边界附近反复显示和隐藏箭头。
+        limit = self.NEARBY_EXIT_DISTANCE if self._nearby else self.NEARBY_DISTANCE
+        self._nearby = distance <= limit
         return GuidanceSample(
             px, py, self._stable_bearing, distance,
-            distance <= self.NEARBY_DISTANCE, rejected,
+            self._nearby, rejected,
         )
 
     def update(self, player_pos_ocr, target_key, target_x, target_y,
@@ -109,19 +115,19 @@ class ChestGuidanceFilter:
                 # player is stationary. The stable coordinate remains exactly
                 # fixed until movement input resumes.
                 self._pending.clear()
-                return self._sample(target_x, target_y)
+                return self._sample(target_x, target_y, advance=False)
             if jump <= self.MAX_STEP_GAME_UNITS:
                 # A moderate coordinate change without movement input is OCR
                 # drift, not traversal. Confirmed teleports are necessarily a
                 # larger jump and are handled by the cluster branch below.
                 self._pending.clear()
-                return self._sample(target_x, target_y, rejected=True)
+                return self._sample(target_x, target_y, rejected=True, advance=False)
             # Keep collecting a possible confirmed teleport cluster below, but
             # ordinary stationary OCR drift must not move the stable position.
             self._pending.append(raw)
             if not (map_confirmed and
                     len(self._pending) >= self.REBASE_CONFIRM_SAMPLES):
-                return self._sample(target_x, target_y, rejected=True)
+                return self._sample(target_x, target_y, rejected=True, advance=False)
 
         if jump > self.MAX_STEP_GAME_UNITS:
             if movement_recent:
@@ -142,7 +148,7 @@ class ChestGuidanceFilter:
                     self._pending.clear()
                     self._stable_bearing = None
                     return self._sample(target_x, target_y)
-            return self._sample(target_x, target_y, rejected=True)
+            return self._sample(target_x, target_y, rejected=True, advance=False)
 
         self._pending.clear()
         self._history.append(raw)
