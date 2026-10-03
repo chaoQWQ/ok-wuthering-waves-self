@@ -15,6 +15,7 @@ import math
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QWidget
+from src.utils.MapDistance import format_distance_meters
 
 
 def direction_triangle_geometry(bearing_deg, minimap_box):
@@ -176,8 +177,7 @@ class MinimapDirectionWindow(QWidget):
             else:
                 text = f"目标方向  {self._bearing:.0f}°"
                 if self._distance is not None:
-                    display_distance = int(round(self._distance / 50.0) * 50)
-                    text += f"    距离 {display_distance}"
+                    text += f"    距离 {format_distance_meters(self._distance)}"
             painter.drawText(banner.adjusted(10, 0, -8, 0),
                              Qt.AlignVCenter | Qt.AlignLeft, text)
 

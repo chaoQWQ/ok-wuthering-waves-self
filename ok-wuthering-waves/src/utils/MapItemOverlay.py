@@ -17,6 +17,7 @@ from PySide6.QtGui import (
 from ok.util.logger import Logger
 
 from src.utils.map_geometry import distance_game_units, edge_arrow_position
+from src.utils.MapDistance import format_distance_meters
 from src.utils.PathRoute import PATH_NODE_ICON_KEY
 
 logger = Logger.get_logger(__name__)
@@ -307,14 +308,13 @@ def format_target_info(mode_is_path, target, section_index, node_index,
     - in Path_Mode with a Target -> ``目标：段{section_index} 第{node_index}/{total}
       {name} 距离{dist}`` where ``section_index`` / ``node_index`` / ``total`` are
       rendered as integers (all ≥1, ``node_index`` ≤ ``total``) and ``dist`` is the
-      distance rounded half-up to whole game units (e.g.
-      ``目标：段2 第3/12 风鳞蜃甲 距离850``).
+      地图距离换算为米并按整数四舍五入。
     """
     if not mode_is_path:
         return TARGET_INFO_NO_PATH_MODE
     if target is None:
         return TARGET_INFO_NO_TARGET
-    dist = _round_half_up(distance)
+    dist = format_distance_meters(distance)
     return (
         f"目标：段{int(section_index)} 第{int(node_index)}/{int(total)} "
         f"{name} 距离{dist}"
@@ -477,7 +477,7 @@ def _paint_native_canvas(painter, draw_items, edge_arrow=None,
             bearing, minimap_box = float(edge_arrow[0]), edge_arrow[1]
             distance = None
             if len(edge_arrow) > 2 and edge_arrow[2] is not None:
-                distance = int(round(float(edge_arrow[2])))
+                distance = float(edge_arrow[2])
             markers, label = _native_edge_indicator_geometry(
                 bearing, minimap_box
             )
@@ -503,7 +503,7 @@ def _paint_native_canvas(painter, draw_items, edge_arrow=None,
                 )
                 label_text = f"CHEST {bearing:.0f} deg"
                 if distance is not None:
-                    label_text += f"  {distance}m"
+                    label_text += f"  {format_distance_meters(distance)}"
                 painter.text(
                     label[0] + 3, label[1] + 1, label_text,
                     color=(255, 255, 80),

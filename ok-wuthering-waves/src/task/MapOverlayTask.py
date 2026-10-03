@@ -27,6 +27,7 @@ from src.utils.NodeIconCache import NodeIconCache
 from src.utils.PathRoute import load_path_route, build_path_layers, PathParseError, PathLayer, PATH_NODE_ICON_KEY
 from src.utils.ChestRoute import load_chest_route, ChestRouteParseError
 from src.utils.ChestGuidanceFilter import ChestGuidanceFilter
+from src.utils.MapDistance import format_distance_meters
 from src.utils.TargetTracker import (
     THRESHOLD_MIN, THRESHOLD_MAX, validate_threshold, TargetTracker,
     TargetRef, right_click_dispatch,
@@ -936,7 +937,8 @@ class OverlayController:
         if distance > limit:
             self.task.info_set(
                 'Chest search',
-                f'请先靠近收集物（当前距离 {distance:.0f}，确认范围 {limit:.0f}）',
+                f'请先靠近收集物（当前距离 {format_distance_meters(distance)}，'
+                f'确认范围 {format_distance_meters(limit)}）',
             )
             return
 
@@ -962,7 +964,8 @@ class OverlayController:
         target = self._chest_target
         if target is None:
             return '收集物搜寻：当前地图无未确认目标'
-        return f'收集目标：{target.name} 距离{int(round(target.distance))} 待确认'
+        return (f'收集目标：{target.name} '
+                f'距离{format_distance_meters(target.distance)} 待确认')
 
     def _chest_route_status_info(self) -> Optional[str]:
         """Return the optional video-route validation status for the panel."""

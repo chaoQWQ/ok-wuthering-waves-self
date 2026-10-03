@@ -386,7 +386,7 @@ class TestMapOverlayCore(unittest.TestCase):
         # direction squares + two banner outlines, with a fixed label below the
         # minimap so the game's own minimap art cannot hide the cue.
         self.assertEqual(len(canvas.rectangles), 8)
-        target_labels = [args for args, _ in canvas.texts if "CHEST 90 deg  4520m" in str(args)]
+        target_labels = [args for args, _ in canvas.texts if "CHEST 90 deg  45 m" in str(args)]
         self.assertEqual(len(target_labels), 1)
         self.assertGreater(target_labels[0][0], MinimapBox.x)
         self.assertGreater(target_labels[0][1], MinimapBox.y + MinimapBox.height)
