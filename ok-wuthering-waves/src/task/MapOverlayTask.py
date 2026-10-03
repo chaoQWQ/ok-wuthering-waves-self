@@ -796,8 +796,12 @@ class OverlayController:
                     )
             return
         selected_type_ids = selected_collection_type_ids(self.task.config)
-        if selected_type_ids != self._collection_filter_signature:
-            self._collection_filter_signature = selected_type_ids
+        map_type_filters = self.task.config.get('_Collection map types', {})
+        signature = (selected_type_ids, tuple(
+            (key, tuple(value)) for key, value in sorted(map_type_filters.items())
+        ))
+        if signature != self._collection_filter_signature:
+            self._collection_filter_signature = signature
             self._clear_chest_target()
             self._chest_last_query_at = 0.0
             logger.info(
@@ -848,6 +852,7 @@ class OverlayController:
                 type_filter=selected_type_ids,
                 state_id=state_id,
                 with_location_id=True,
+                map_type_filters=map_type_filters,
             )
         except Exception as exc:
             logger.warning(f"[ChestSearch] query failed: {exc}")
@@ -1760,6 +1765,7 @@ class OverlayController:
         rows = overlay.query_nearby(
             player_x, player_y, radius, type_filter,
             state_id=task._locked_map_id, with_location_id=True,
+            map_type_filters=task.config.get('_Collection map types', {}),
         )
         candidates = []
         for location_id, name, type_id, ix, iy, dist in rows:
@@ -2510,6 +2516,8 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
             'Chest search': False,
             # 地图显示与最近目标搜寻共用这一组分类。
             'Collection types': list(DEFAULT_COLLECTION_GROUPS),
+            '_Collection map types': {},
+            '_Collection map': '',
             # 本地领取记录档案；从下拉框选择游戏 UID 或自定义账号别名。
             'Collection account': 'default',
             # 仅用于把“添加账号”按钮排列在账号下拉框之后；按钮不会修改此值。
@@ -2677,25 +2685,29 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         )
 
     def choose_collection_types(self, *args):
-        from src.utils.CollectionCatalog import load_collection_catalog, encode_collection_types
-        from src.utils.CollectionTypeDialog import CollectionTypeDialog
+        from src.utils.CollectionCatalog import load_collection_maps
+        from src.utils.CollectionTypeDialog import MapCollectionTypeDialog
 
         with self._assets_lock:
             if self._assets_suspend.is_set() or (
                     self._assets_thread is not None and self._assets_thread.is_alive()):
                 self.info_set(ASSETS_INFO_KEY, '正在更新资源，请在下载完成后选择收集物类型')
                 return
-            catalog = load_collection_catalog(os.path.join(MAP_DIR, 'map_items.db'))
-        dialog = CollectionTypeDialog(
-            catalog, selected_collection_type_ids(self.config),
-            self.tr, og.main_window,
+            maps = load_collection_maps(os.path.join(MAP_DIR, 'map_items.db'))
+        initial_key = self.config.get('_Collection map', '')
+        current_maps = [entry.key for entry in maps if str(entry.state_id) == str(self._locked_map_id)]
+        if current_maps and initial_key not in current_maps:
+            initial_key = current_maps[0]
+        dialog = MapCollectionTypeDialog(
+            maps, selected_collection_type_ids(self.config),
+            self.config.get('_Collection map types', {}), initial_key, self.tr, og.main_window,
         )
         if dialog.exec():
-            selected_ids = dialog.selected_type_ids()
-            self.config['Collection types'] = encode_collection_types(selected_ids)
-            names = {entry.type_id: entry.name for entry in catalog}
+            self.config['_Collection map types'] = dialog.selected_map_types()
+            self.config['_Collection map'] = dialog.current_key
+            names = {entry.type_id: entry.name for entry in dialog.maps[dialog.current_key].types}
             self.info_set('Collection types', ', '.join(
-                names.get(type_id, type_id) for type_id in selected_ids
+                names[type_id] for type_id in dialog.selected_type_ids()
             ))
 
     def _refresh_collection_account_options(self, selected=None, ensure=False):
@@ -3811,7 +3823,8 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
 
         draw_items = self._overlay.build_draw_items(
             player_x, player_y, minimap_box, radius, scale_per_1000, type_filter,
-            state_id=state_id, completed_ids=completed_ids
+            state_id=state_id, completed_ids=completed_ids,
+            map_type_filters=self.config.get('_Collection map types', {})
         )
 
         callback = MapItemOverlay.make_paint_callback(
@@ -3857,7 +3870,8 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         player_y = player_pos[1] * 100
 
         items = self._overlay.query_nearby(player_x, player_y, radius, type_filter,
-                                            state_id=self._locked_map_id)
+                                            state_id=self._locked_map_id,
+                                            map_type_filters=self.config.get('_Collection map types', {}))
 
         center_x = self.screen_width // 2
         center_y = self.screen_height // 2

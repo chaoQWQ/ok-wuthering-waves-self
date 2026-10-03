@@ -1914,3 +1914,9 @@ msgstr "景燃"
 
 msgid "Hsin"
 msgstr "心"
+
+msgid "Collection region"
+msgstr "收集地區"
+
+msgid "Collection map"
+msgstr "收集地圖"

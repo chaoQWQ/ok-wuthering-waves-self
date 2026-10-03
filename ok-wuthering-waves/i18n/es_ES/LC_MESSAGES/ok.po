@@ -1703,3 +1703,9 @@ msgstr "Correo del destinatario"
 
 msgid "JingRan"
 msgstr "Jingran"
+
+msgid "Collection region"
+msgstr "Región de recolección"
+
+msgid "Collection map"
+msgstr "Mapa de recolección"

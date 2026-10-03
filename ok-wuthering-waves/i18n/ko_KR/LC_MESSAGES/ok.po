@@ -1783,3 +1783,9 @@ msgstr "수신 이메일"
 
 msgid "JingRan"
 msgstr "경연"
+
+msgid "Collection region"
+msgstr "수집 지역"
+
+msgid "Collection map"
+msgstr "수집 지도"

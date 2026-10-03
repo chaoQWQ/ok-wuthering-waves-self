@@ -14,8 +14,8 @@ from PySide6.QtWidgets import QApplication, QWidget
 from ok import Config
 
 from src.task.MapOverlayTask import collection_type_ids, selected_collection_type_ids
-from src.utils.CollectionCatalog import load_collection_catalog, encode_collection_types
-from src.utils.CollectionTypeDialog import CollectionTypeDialog
+from src.utils.CollectionCatalog import load_collection_catalog, load_collection_maps, encode_collection_types
+from src.utils.CollectionTypeDialog import CollectionTypeDialog, MapCollectionTypeDialog
 from src.utils.MapItemOverlay import MapItemOverlay
 
 
@@ -160,6 +160,93 @@ class TestCollectionCatalog(unittest.TestCase):
             with self.assertRaises(FileNotFoundError):
                 load_collection_catalog(missing)
             self.assertFalse(missing.exists())
+
+    def test_maps_and_counts_match_database(self):
+        maps = load_collection_maps(DATABASE)
+        by_key = {entry.key: entry for entry in maps}
+        self.assertEqual(by_key['912:1'].state_name, '梦枢天罗')
+        self.assertEqual(by_key['912:1'].country_name, '瑝珑')
+        self.assertNotIn('zscj', {entry.type_id for entry in by_key['912:1'].types})
+        with closing(sqlite3.connect(DATABASE.as_uri() + '?immutable=1', uri=True)) as conn:
+            for entry in maps:
+                expected = dict(conn.execute(
+                    'SELECT type_id,COUNT(*) FROM location '
+                    'WHERE state_id=? AND country_id=? GROUP BY type_id',
+                    (entry.state_id, entry.country_id),
+                ).fetchall())
+                self.assertEqual({item.type_id: item.count for item in entry.types}, expected)
+
+    def test_map_dialog_switches_and_keeps_independent_selections(self):
+        parent = QWidget()
+        parent.resize(1000, 900)
+        parent.show()
+        maps = load_collection_maps(DATABASE)
+        original = {'8:1': ['fls'], '912:1': ['qzx_01'], '8:4': ['zscj']}
+        dialog = MapCollectionTypeDialog(maps, ['qzx_01'], original,
+                                         '912:1', self.translate, parent)
+        dialog.show()
+        QTest.qWait(250)
+        self.assertEqual(dialog.map_combo.currentText(), '梦枢天罗')
+        self.assertEqual(dialog.selected_type_ids(), ['qzx_01'])
+        self.assertEqual(len(dialog.entries), len(dialog.maps['912:1'].types))
+        dialog.map_combo.setCurrentIndex(dialog.map_combo.findData('8:1'))
+        self.assertEqual(dialog.selected_type_ids(), ['fls'])
+        dialog.region_combo.setCurrentIndex(dialog.region_combo.findData(4))
+        self.assertEqual(dialog.current_key, '8:4')
+        self.assertEqual(dialog.selected_type_ids(), ['zscj'])
+        dialog.region_combo.setCurrentIndex(dialog.region_combo.findData(1))
+        dialog.map_combo.setCurrentIndex(dialog.map_combo.findData('912:1'))
+        self.assertEqual(dialog.selected_type_ids(), ['qzx_01'])
+        dialog.search_edit.setText('fls')
+        self.assertFalse(any(not item.isHidden() for item in dialog.entries))
+        dialog.search_edit.clear()
+        screenshot = os.environ.get('COLLECTION_MAP_SCREENSHOT')
+        if screenshot:
+            self.app.processEvents()
+            self.assertTrue(dialog.grab().save(screenshot))
+        item = next(item for item in dialog.entries
+                    if item.data(Qt.ItemDataRole.UserRole) == 'qzx_01')
+        dialog.type_list.setCurrentItem(item)
+        QTest.keyClick(dialog.type_list, Qt.Key.Key_Space)
+        self.assertEqual(dialog.selected_map_types()['912:1'], [])
+        self.assertEqual(original['912:1'], ['qzx_01'])
+        QTest.mouseClick(dialog.yesButton, Qt.MouseButton.LeftButton)
+        QTest.qWait(150)
+        self.assertEqual(dialog.result(), 1)
+        with tempfile.TemporaryDirectory() as directory:
+            defaults = {'_Collection map types': {}, '_Collection map': ''}
+            config = Config('collection', defaults, folder=directory)
+            config['_Collection map types'] = dialog.selected_map_types()
+            config['_Collection map'] = dialog.current_key
+            restored = Config('collection', defaults, folder=directory)
+            self.assertEqual(restored['_Collection map types']['912:1'], [])
+            self.assertEqual(restored['_Collection map types']['8:1'], ['fls'])
+        parent.close()
+
+    def test_navigation_isolates_map_and_region_selection(self):
+        selections = {'8:1': ['fls'], '8:4': ['zscj'], '912:1': []}
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / 'map_items.db'
+            shutil.copyfile(DATABASE, target)
+            overlay = MapItemOverlay(str(target))
+            try:
+                for state_id in (None, 8, 906, 912):
+                    with closing(sqlite3.connect(str(target))) as conn:
+                        rows = conn.execute(
+                            'SELECT id,state_id,country_id,type_id FROM location'
+                        ).fetchall()
+                    expected = {
+                        location_id for location_id, map_id, country_id, type_id in rows
+                        if (state_id is None or map_id == state_id)
+                        and type_id in selections.get(f'{map_id}:{country_id}', ['qzx_01'])
+                    }
+                    results = overlay.query_nearby(
+                        0, 0, 1e12, type_filter=['qzx_01'], state_id=state_id,
+                        with_location_id=True, map_type_filters=selections,
+                    )
+                    self.assertEqual({row[0] for row in results}, expected)
+            finally:
+                overlay.close()
 
 
 if __name__ == '__main__':

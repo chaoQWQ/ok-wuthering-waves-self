@@ -18,6 +18,7 @@ from ok.util.logger import Logger
 
 from src.utils.map_geometry import distance_game_units, edge_arrow_position
 from src.utils.MapDistance import format_distance_meters
+from src.utils.CollectionCatalog import collection_filter_sql
 from src.utils.PathRoute import PATH_NODE_ICON_KEY
 
 logger = Logger.get_logger(__name__)
@@ -887,7 +888,7 @@ class MapItemOverlay:
         _load_item_pixmaps(assets_dir)
 
     def query_nearby(self, px, py, radius, type_filter=None, state_id=None,
-                     with_location_id=False):
+                     with_location_id=False, map_type_filters=None):
         """Query items within ``radius`` of ``(px, py)``.
 
         By default returns ``(name, type_id, x, y, dist)`` 5-tuples (unchanged,
@@ -897,45 +898,17 @@ class MapItemOverlay:
         """
         r2 = radius * radius
         id_col = 'l.id, ' if with_location_id else ''
-        if type_filter:
-            placeholders = ','.join('?' for _ in type_filter)
-            if state_id is not None:
-                sql = f"""
-                    SELECT {id_col}i.name, l.type_id, l.x, l.y
-                    FROM location l
-                    JOIN item i ON i.id = l.item_id
-                    WHERE l.type_id IN ({placeholders})
-                      AND l.state_id = ?
-                      AND (l.x - ?)*(l.x - ?) + (l.y - ?)*(l.y - ?) < ?
-                """
-                params = list(type_filter) + [int(state_id), px, px, py, py, r2]
-            else:
-                sql = f"""
-                    SELECT {id_col}i.name, l.type_id, l.x, l.y
-                    FROM location l
-                    JOIN item i ON i.id = l.item_id
-                    WHERE l.type_id IN ({placeholders})
-                      AND (l.x - ?)*(l.x - ?) + (l.y - ?)*(l.y - ?) < ?
-                """
-                params = list(type_filter) + [px, px, py, py, r2]
-        else:
-            if state_id is not None:
-                sql = f"""
-                    SELECT {id_col}i.name, l.type_id, l.x, l.y
-                    FROM location l
-                    JOIN item i ON i.id = l.item_id
-                    WHERE l.state_id = ?
-                      AND (l.x - ?)*(l.x - ?) + (l.y - ?)*(l.y - ?) < ?
-                """
-                params = [int(state_id), px, px, py, py, r2]
-            else:
-                sql = f"""
-                    SELECT {id_col}i.name, l.type_id, l.x, l.y
-                    FROM location l
-                    JOIN item i ON i.id = l.item_id
-                    WHERE (l.x - ?)*(l.x - ?) + (l.y - ?)*(l.y - ?) < ?
-                """
-                params = [px, px, py, py, r2]
+        type_clause, params = collection_filter_sql(type_filter, map_type_filters, state_id)
+        conditions = [type_clause]
+        if state_id is not None:
+            conditions.append('l.state_id = ?')
+            params.append(int(state_id))
+        conditions.append('(l.x - ?)*(l.x - ?) + (l.y - ?)*(l.y - ?) < ?')
+        params.extend((px, px, py, py, r2))
+        sql = (
+            f'SELECT {id_col}i.name, l.type_id, l.x, l.y FROM location l '
+            'JOIN item i ON i.id = l.item_id WHERE ' + ' AND '.join(conditions)
+        )
 
         rows = self._conn.execute(sql, params).fetchall()
         results = []
@@ -992,7 +965,8 @@ class MapItemOverlay:
         return int(px), int(py)
 
     def build_draw_items(self, player_x, player_y, minimap_box, radius, scale_per_1000,
-                         type_filter=None, state_id=None, completed_ids=None):
+                         type_filter=None, state_id=None, completed_ids=None,
+                         map_type_filters=None):
         """Build minimap draw items as extended 8-tuples.
 
         Returns ``(sx, sy, pixmap, name, color, opacity, location_id, z)`` tuples.
@@ -1004,7 +978,8 @@ class MapItemOverlay:
         """
         scale = scale_per_1000 / 1000.0
         items = self.query_nearby(player_x, player_y, radius, type_filter,
-                                  state_id=state_id, with_location_id=True)
+                                  state_id=state_id, with_location_id=True,
+                                  map_type_filters=map_type_filters)
 
         minimap_center_x = minimap_box.x + minimap_box.width/2
         minimap_center_y = minimap_box.y + minimap_box.height/2

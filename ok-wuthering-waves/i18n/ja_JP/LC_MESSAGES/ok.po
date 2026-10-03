@@ -1782,3 +1782,9 @@ msgstr "宛先メールアドレス"
 
 msgid "JingRan"
 msgstr "景燃"
+
+msgid "Collection region"
+msgstr "収集エリア"
+
+msgid "Collection map"
+msgstr "収集マップ"
