@@ -3,12 +3,18 @@ from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 
+from src.utils.CollectionCategories import load_category_lookup
+
 
 @dataclass(frozen=True)
 class CollectionType:
     type_id: str
     name: str
     count: int
+    category_id: str = 'unclassified'
+    category_name: str = 'Uncategorized'
+    category_order: int = 999
+    type_order: int = 999
 
 
 @dataclass(frozen=True)
@@ -26,6 +32,7 @@ class CollectionMap:
 
 def load_collection_catalog(db_path, state_id=None, country_id=None):
     path = Path(db_path).resolve(strict=True)
+    categories = load_category_lookup(path)
     conditions = ["l.type_id IS NOT NULL", "l.type_id != ''"]
     params = []
     for column, value in (('state_id', state_id), ('country_id', country_id)):
@@ -48,7 +55,8 @@ def load_collection_catalog(db_path, state_id=None, country_id=None):
         names.setdefault(type_id, []).append(name)
         counts[type_id] = counts.get(type_id, 0) + count
     return tuple(
-        CollectionType(type_id, ' / '.join(dict.fromkeys(labels)), counts[type_id])
+        CollectionType(type_id, ' / '.join(dict.fromkeys(labels)), counts[type_id],
+                       *categories.get(type_id, ('unclassified', 'Uncategorized', 999, 999)))
         for type_id, labels in names.items()
     )
 

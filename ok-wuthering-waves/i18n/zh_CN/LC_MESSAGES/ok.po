@@ -1842,3 +1842,6 @@ msgstr "收集地区"
 
 msgid "Collection map"
 msgstr "收集地图"
+
+msgid "Uncategorized"
+msgstr "未分类"

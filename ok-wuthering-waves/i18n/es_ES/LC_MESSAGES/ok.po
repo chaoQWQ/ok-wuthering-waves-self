@@ -1709,3 +1709,6 @@ msgstr "Región de recolección"
 
 msgid "Collection map"
 msgstr "Mapa de recolección"
+
+msgid "Uncategorized"
+msgstr "Sin categoría"

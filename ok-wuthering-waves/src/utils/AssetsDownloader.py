@@ -22,6 +22,8 @@ import shutil
 import time
 import zipfile
 
+from src.utils.CollectionCategories import CATEGORY_FILE, download_collection_categories
+
 # 资源包下载地址（GitHub Release 的 latest 直链）。
 ASSETS_URL = 'https://github.com/9268/wuwa-map/releases/latest/download/assets.zip'
 
@@ -259,6 +261,8 @@ def download_and_extract(assets_dir, url=ASSETS_URL, progress=None) -> str | Non
         size = _download_to_file(url, tmp_zip, progress=progress)
         _notify(progress, 'extract', f'下载完成 {format_size(size)}，开始解压', 0.0)
         count = extract_zip_over(tmp_zip, assets_dir, progress=progress)
+        _notify(progress, 'extract', '正在更新库街区地图分类目录', 100.0)
+        download_collection_categories(os.path.join(assets_dir, 'stitched', CATEGORY_FILE))
     finally:
         if os.path.exists(tmp_zip):
             try:

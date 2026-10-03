@@ -93,7 +93,7 @@ class TestCollectionCatalog(unittest.TestCase):
         self.assertEqual(set(dialog.selected_type_ids()), {'fls', 'zscj'})
         dialog.search_edit.clear()
         self.assertEqual(len([item for item in dialog.entries if not item.isHidden()]),
-                         len(self.catalog))
+                         len([entry for entry in self.catalog if entry.category_id == '3']))
         screenshot = os.environ.get('COLLECTION_DIALOG_SCREENSHOT')
         if screenshot:
             self.app.processEvents()
@@ -247,6 +247,54 @@ class TestCollectionCatalog(unittest.TestCase):
                     self.assertEqual({row[0] for row in results}, expected)
             finally:
                 overlay.close()
+
+    def test_official_categories_match_dream_map(self):
+        types = load_collection_catalog(DATABASE, 912, 1)
+        grouped = {}
+        for entry in types:
+            grouped.setdefault(entry.category_name, {})[entry.type_id] = entry.count
+        self.assertEqual(grouped['收集物'], {
+            'qzx_01': 22, 'qzx_02': 13, 'qzx_03': 26, 'qzx_04': 2, 'cx_03': 19,
+        })
+        self.assertEqual(len(grouped['探索']), 11)
+        self.assertEqual(len(grouped['采集物']), 2)
+        self.assertEqual(len(grouped['强敌']), 3)
+        self.assertEqual(len(grouped['挑战']), 2)
+        self.assertEqual(len(grouped['BOSS']), 1)
+        self.assertTrue(all(entry.category_id != 'unclassified' for entry in self.catalog))
+
+    def test_category_switch_keeps_hidden_choices(self):
+        parent = QWidget()
+        parent.resize(1100, 900)
+        parent.show()
+        dialog = MapCollectionTypeDialog(load_collection_maps(DATABASE), [], {},
+                                         '912:1', self.translate, parent)
+        dialog.show()
+        QTest.qWait(250)
+        visible = [item for item in dialog.entries if not item.isHidden()]
+        self.assertEqual(len(visible), 5)
+        self.assertEqual(dialog.category_list.currentItem().data(Qt.ItemDataRole.UserRole), '3')
+        dialog.type_list.setCurrentItem(visible[0])
+        QTest.keyClick(dialog.type_list, Qt.Key.Key_Space)
+        selected_id = visible[0].data(Qt.ItemDataRole.UserRole)
+        category = dialog.category_entries['ts']
+        QTest.mouseClick(dialog.category_list.viewport(), Qt.MouseButton.LeftButton,
+                         pos=dialog.category_list.visualItemRect(category).center())
+        self.assertEqual(len([item for item in dialog.entries if not item.isHidden()]), 11)
+        self.assertIn(selected_id, dialog.selected_type_ids())
+        dialog.search_edit.setText('信标')
+        self.assertEqual(len([item for item in dialog.entries if not item.isHidden()]), 2)
+        dialog.search_edit.clear()
+        dialog.category_list.setCurrentItem(dialog.category_entries['3'])
+        self.assertIn(selected_id, dialog.selected_map_types()['912:1'])
+        screenshot = os.environ.get('COLLECTION_CATEGORY_SCREENSHOT')
+        if screenshot:
+            self.app.processEvents()
+            self.assertTrue(dialog.grab().save(screenshot))
+        QTest.mouseClick(dialog.cancelButton, Qt.MouseButton.LeftButton)
+        QTest.qWait(150)
+        self.assertEqual(dialog.result(), 0)
+        parent.close()
 
 
 if __name__ == '__main__':

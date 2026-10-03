@@ -1,5 +1,5 @@
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QListWidgetItem
+from PySide6.QtWidgets import QHBoxLayout, QListWidgetItem
 from qfluentwidgets import BodyLabel, ComboBox, ListWidget, MessageBoxBase, SearchLineEdit, SubtitleLabel
 
 from src.utils.CollectionCatalog import CollectionType
@@ -8,26 +8,44 @@ from src.utils.CollectionCatalog import CollectionType
 class CollectionTypeDialog(MessageBoxBase):
     def __init__(self, catalog, selected_ids, translate, parent):
         super().__init__(parent)
+        self.translate = translate
         self.title_label = SubtitleLabel(translate('Collection types'), self)
         self.search_edit = SearchLineEdit(self)
         self.search_edit.setPlaceholderText(translate('Collection types'))
         self.type_list = ListWidget(self)
-        self.type_list.setMinimumSize(480, 360)
+        self.type_list.setMinimumSize(350, 360)
+        self.category_list = ListWidget(self)
+        self.category_list.setFixedWidth(170)
+        self.category_entries = {}
+        self.category_names = {}
         self.count_label = BodyLabel(self)
         self.entries = []
         self.populate_catalog(catalog, selected_ids)
 
         self.viewLayout.setSpacing(12)
-        for widget in (self.title_label, self.search_edit, self.type_list, self.count_label):
-            self.viewLayout.addWidget(widget)
+        self.viewLayout.addWidget(self.title_label)
+        self.viewLayout.addWidget(self.search_edit)
+        category_layout = QHBoxLayout()
+        category_layout.addWidget(self.category_list)
+        category_layout.addWidget(self.type_list, 1)
+        self.viewLayout.addLayout(category_layout)
+        self.viewLayout.addWidget(self.count_label)
         self.yesButton.setText(translate('Save'))
         self.cancelButton.setText(translate('Cancel'))
-        self.widget.setMinimumWidth(540)
+        self.widget.setMinimumWidth(620)
         self.search_edit.textChanged.connect(self.filter_items)
+        self.category_list.currentRowChanged.connect(
+            lambda *_: self.filter_items(self.search_edit.text()))
         self.type_list.itemChanged.connect(self.update_count)
         self.update_count()
 
     def populate_catalog(self, catalog, selected_ids, show_unavailable=True):
+        current_category = self.category_list.currentItem()
+        current_id = current_category.data(Qt.ItemDataRole.UserRole) if current_category else '3'
+        self.category_list.blockSignals(True)
+        self.category_list.clear()
+        self.category_entries = {}
+        self.category_names = {}
         self.type_list.blockSignals(True)
         self.type_list.clear()
         self.entries = []
@@ -39,10 +57,11 @@ class CollectionTypeDialog(MessageBoxBase):
             for type_id in sorted(selected - available)
             if type_id != '__no_collection_type__' and show_unavailable
         ]
-        entries.sort(key=lambda entry: (entry.type_id not in selected, entry.name))
+        entries.sort(key=lambda entry: (entry.category_order, entry.type_order, entry.name))
         for entry in entries:
             item = QListWidgetItem(f'{entry.name} ({entry.count})')
             item.setData(Qt.ItemDataRole.UserRole, entry.type_id)
+            item.setData(Qt.ItemDataRole.UserRole + 1, entry.category_id)
             item.setToolTip(entry.type_id)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(
@@ -51,16 +70,33 @@ class CollectionTypeDialog(MessageBoxBase):
             )
             self.type_list.addItem(item)
             self.entries.append(item)
+            if entry.category_id not in self.category_entries:
+                category_item = QListWidgetItem()
+                category_item.setData(Qt.ItemDataRole.UserRole, entry.category_id)
+                self.category_list.addItem(category_item)
+                self.category_entries[entry.category_id] = category_item
+                self.category_names[entry.category_id] = self.translate(entry.category_name)
 
         self.type_list.blockSignals(False)
+        selected_category = self.category_entries.get(current_id)
+        if selected_category is None:
+            selected_category = self.category_entries.get('3')
+        if selected_category is not None:
+            self.category_list.setCurrentItem(selected_category)
+        else:
+            self.category_list.setCurrentRow(0)
+        self.category_list.blockSignals(False)
         self.filter_items(self.search_edit.text())
         self.update_count()
 
     def filter_items(self, text):
         query = text.strip().casefold()
+        category_item = self.category_list.currentItem()
+        category_id = category_item.data(Qt.ItemDataRole.UserRole) if category_item else None
         for item in self.entries:
             searchable = item.text() + ' ' + item.data(Qt.ItemDataRole.UserRole)
-            item.setHidden(query not in searchable.casefold())
+            item.setHidden(item.data(Qt.ItemDataRole.UserRole + 1) != category_id
+                           or query not in searchable.casefold())
 
     def selected_type_ids(self):
         return [
@@ -70,6 +106,11 @@ class CollectionTypeDialog(MessageBoxBase):
 
     def update_count(self, *_args):
         self.count_label.setText(f'{len(self.selected_type_ids())} / {len(self.entries)}')
+        for category_id, category_item in self.category_entries.items():
+            items = [item for item in self.entries
+                     if item.data(Qt.ItemDataRole.UserRole + 1) == category_id]
+            checked = sum(item.checkState() == Qt.CheckState.Checked for item in items)
+            category_item.setText(f'{self.category_names[category_id]}  {checked}/{len(items)}')
 
 
 class MapCollectionTypeDialog(CollectionTypeDialog):

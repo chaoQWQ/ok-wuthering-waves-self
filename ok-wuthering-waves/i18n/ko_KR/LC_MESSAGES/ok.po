@@ -1789,3 +1789,6 @@ msgstr "수집 지역"
 
 msgid "Collection map"
 msgstr "수집 지도"
+
+msgid "Uncategorized"
+msgstr "미분류"

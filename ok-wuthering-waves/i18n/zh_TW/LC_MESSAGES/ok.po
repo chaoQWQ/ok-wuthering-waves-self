@@ -1920,3 +1920,6 @@ msgstr "收集地區"
 
 msgid "Collection map"
 msgstr "收集地圖"
+
+msgid "Uncategorized"
+msgstr "未分類"
