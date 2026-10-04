@@ -26,11 +26,29 @@ def minimap_box(frame: np.ndarray) -> tuple[int, int, int, int]:
     return 0, 0, int(width * .16), int(height * .24)
 
 
+def minimap_content_circle(roi: np.ndarray):
+    height, width = roi.shape[:2]
+    scale = min(height, width)
+    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    circles = cv2.HoughCircles(gray, cv2.HOUGH_GRADIENT, 1, scale * .4, param1=100,
+                              param2=35, minRadius=int(scale * .30), maxRadius=int(scale * .50))
+    if circles is None:
+        return None
+    expected = (width * .425, height * .48)
+    candidates = [tuple(float(value) for value in circle) for circle in circles[0]
+                  if math.hypot(circle[0] - expected[0], circle[1] - expected[1]) < scale * .15]
+    return min(candidates, key=lambda circle: math.hypot(circle[0] - expected[0], circle[1] - expected[1])) if candidates else None
+
+
 def detect_quest_area(frame: np.ndarray, search_box=None, expected_circle=None) -> Optional[QuestAreaObservation]:
     if frame is None or frame.size == 0:
         raise ValueError("黄色圈识别画面不能为空")
     mx, my, mw, mh = minimap_box(frame) if search_box is None else search_box
     roi = frame[my:my + mh, mx:mx + mw]
+    map_circle = minimap_content_circle(roi)
+    if map_circle is None:
+        return None
+    map_x, map_y, map_radius = map_circle
     hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
     scale = min(mw, mh)
 
@@ -86,7 +104,7 @@ def detect_quest_area(frame: np.ndarray, search_box=None, expected_circle=None) 
         if area < .55 * math.pi * radius * radius:
             continue
         cx, cy = x + (w - 1) / 2, y + (h - 1) / 2
-        if math.hypot(cx - mw * .425, cy - mh * .48) + radius > scale * .46:
+        if math.hypot(cx - map_x, cy - map_y) + radius > map_radius - 2:
             continue
         candidates.append((cx, cy, radius))
     circles = cv2.HoughCircles(mask, cv2.HOUGH_GRADIENT, 1, max(5, scale * .025),
@@ -99,7 +117,7 @@ def detect_quest_area(frame: np.ndarray, search_box=None, expected_circle=None) 
     yy, xx = np.ogrid[:mh, :mw]
     angles = np.linspace(0, 2 * np.pi, 64, endpoint=False)
     for cx, cy, radius in candidates:
-        if math.hypot(cx - mw * .425, cy - mh * .48) + radius > scale * .46:
+        if math.hypot(cx - map_x, cy - map_y) + radius > map_radius - 2:
             continue
         interior = ((xx - cx) ** 2 + (yy - cy) ** 2 <= (radius * .8) ** 2) & (player_region == 0)
         if np.count_nonzero(interior) < math.pi * radius * radius * .12:
@@ -188,6 +206,11 @@ class QuestAreaSearch:
         self.pending_transform = None
         self.movement_speed = None
         self.pending_duration = None
+        self.motion_keys = None
+        self.motion_displacement = np.zeros(2)
+        self.motion_duration = 0.0
+        self.last_displacement = 0.0
+        self.stationary_seconds = 0.0
 
     def find_observation(self, frame: np.ndarray) -> Optional[QuestAreaObservation]:
         mx, my, mw, mh = minimap_box(frame)
@@ -211,15 +234,31 @@ class QuestAreaSearch:
             if self.pending_keys is not None:
                 expected_reference = transform @ self.map_reference
                 displacement = self.map_reference[:2] - expected_reference
-                if np.linalg.norm(displacement) >= .6:
+                self.last_displacement = float(np.linalg.norm(displacement))
+                if self.motion_keys != self.pending_keys:
+                    self.motion_keys = self.pending_keys
+                    self.motion_displacement = np.zeros(2)
+                    self.motion_duration = 0.0
+                self.motion_displacement = transform[:, :2] @ self.motion_displacement + displacement
+                self.motion_duration += self.pending_duration
+                if self.last_displacement < .2:
+                    self.stationary_seconds += self.pending_duration
+                else:
+                    self.stationary_seconds = 0.0
+                if np.linalg.norm(self.motion_displacement) >= 1.2:
                     forward = int("w" in self.pending_keys) - int("s" in self.pending_keys)
                     right = int("d" in self.pending_keys) - int("a" in self.pending_keys)
                     key_bearing = math.degrees(math.atan2(right, forward))
-                    motion_bearing = math.degrees(math.atan2(displacement[0], -displacement[1]))
-                    self.camera_heading = motion_bearing - key_bearing
-                    speed = float(np.linalg.norm(displacement)) / self.pending_duration
-                    self.movement_speed = speed if self.movement_speed is None else self.movement_speed * .7 + speed * .3
+                    motion_bearing = math.degrees(math.atan2(self.motion_displacement[0], -self.motion_displacement[1]))
+                    observed_heading = motion_bearing - key_bearing
+                    difference = 0 if self.camera_heading is None else (observed_heading - self.camera_heading + 180) % 360 - 180
+                    if self.camera_heading is None or abs(difference) <= 35:
+                        self.camera_heading = observed_heading if self.camera_heading is None else self.camera_heading + difference * .3
+                        speed = float(np.linalg.norm(self.motion_displacement)) / self.motion_duration
+                        self.movement_speed = speed if self.movement_speed is None else self.movement_speed * .7 + speed * .3
                     self.calibration_attempts = 0
+                    self.motion_displacement = np.zeros(2)
+                    self.motion_duration = 0.0
                 self.pending_keys = None
                 self.pending_duration = None
         else:
@@ -265,9 +304,10 @@ class QuestAreaSearch:
         bearing = math.degrees(math.atan2(tx - area.player_x, area.player_y - ty))
         if self.camera_heading is None:
             self.calibration_attempts += 1
-            if self.calibration_attempts >= 28:
+            if self.calibration_attempts > 8:
                 raise RuntimeError("短步移动仍无法确认行进方向，停止区域搜索")
-            self.movement_keys = ["w"]
+            probe_keys = ("w", "s", "a", "d")
+            self.movement_keys = [probe_keys[(self.calibration_attempts - 1) // 2]]
             return "calibrate", 0.0, distance
         relative = (bearing - self.camera_heading + 180) % 360 - 180
         directions = (["w"], ["w", "d"], ["d"], ["s", "d"], ["s"], ["s", "a"], ["a"], ["w", "a"])
@@ -286,6 +326,10 @@ class QuestAreaSearch:
             raise RuntimeError("前一次区域移动尚未取得新的小地图画面")
         self.pending_keys = tuple(keys)
         self.pending_duration = duration
+
+    @property
+    def blocked(self) -> bool:
+        return self.camera_heading is not None and self.stationary_seconds >= 1.5
 
     def movement_duration(self, distance: float) -> float:
         if self.movement_speed is None:
@@ -313,4 +357,6 @@ class QuestAreaSearch:
             "search_fraction": round(self.search_fraction, 2),
             "waypoint_index": self.index,
             "camera_heading_observed": self.camera_heading is not None,
+            "last_movement_pixels": round(self.last_displacement, 2),
+            "stationary_movement_seconds": round(self.stationary_seconds, 2),
         }

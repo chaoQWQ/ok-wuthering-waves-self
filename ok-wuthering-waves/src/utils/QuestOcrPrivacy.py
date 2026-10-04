@@ -28,3 +28,8 @@ def sanitize_quest_text(text: str) -> str:
         if line and not _NUMBER_ONLY.fullmatch(line):
             clean_lines.append(line)
     return "\n".join(clean_lines)
+
+
+def quest_goal_from_lines(lines: list[str]) -> str:
+    distance = re.compile(r"\s*\d+(?:\.\d+)?\s*(?:米|m|M)\s*[▲△▼▽↑↓]*\s*")
+    return sanitize_quest_text(" ".join(line for line in lines if line and not distance.fullmatch(line))).strip()

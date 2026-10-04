@@ -92,6 +92,33 @@ class TestQuestProgressTracker(unittest.TestCase):
                     tracker.begin_recovery()
         self.fail("持续受阻没有终止")
 
+    def test_recorded_obstruction_limits_jump_attempts(self):
+        tracker = QuestProgressTracker()
+        stationary = [distance for _, distance in self.movements if distance == 5]
+        for attempt in range(2):
+            for distance in stationary[:12]:
+                tracker.observe(distance)
+                tracker.record_movement(["w"], .25, moving=self.stationary)
+            self.assertTrue(tracker.blocked)
+            tracker.begin_jump()
+            self.assertEqual(tracker.jump_attempts, attempt + 1)
+            self.assertFalse(tracker.blocked)
+        with self.assertRaisesRegex(RuntimeError, "两次跳跃"):
+            tracker.begin_jump()
+
+    def test_recorded_distance_progress_allows_jumping_at_new_obstacle(self):
+        tracker = QuestProgressTracker()
+        previous_distance = None
+        for _, distance in self.movements:
+            tracker.observe(distance)
+            if previous_distance is not None and distance < previous_distance - .5:
+                self.assertEqual(tracker.jump_attempts, 0)
+                return
+            if tracker.jump_attempts == 0:
+                tracker.begin_jump()
+            previous_distance = distance
+        self.fail("导航记录缺少距离缩减结果")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -7,7 +7,7 @@ import numpy as np
 from onnxocr.onnx_paddleocr import ONNXPaddleOcr
 
 from src.utils.QuestDecisionEngine import build_jev_payload
-from src.utils.QuestOcrPrivacy import prepare_quest_ocr_frame, sanitize_quest_text
+from src.utils.QuestOcrPrivacy import prepare_quest_ocr_frame, quest_goal_from_lines, sanitize_quest_text
 
 
 class TestQuestOcrPrivacy(unittest.TestCase):
@@ -40,6 +40,18 @@ class TestQuestOcrPrivacy(unittest.TestCase):
         for text in (identity, fullwidth_identity, " ".join(identity), "-".join(identity)):
             with self.subTest(text_length=len(text)):
                 self.assertEqual(sanitize_quest_text(text), "")
+
+    def test_actual_rock_objective_excludes_navigation_distance(self):
+        frame = cv2.imread(str(Path(__file__).parent / "images" / "quest_rock_obstruction.png"))
+        self.assertIsNotNone(frame)
+        height, width = frame.shape[:2]
+        panel = frame[int(height * .20):int(height * .43), int(width * .01):int(width * .28)]
+        engine = ONNXPaddleOcr(use_angle_cls=False, use_openvino=True, use_npu=True)
+        lines = [entry[1][0] for entry in engine.ocr(panel, cls=False)[0]]
+        self.assertTrue(any("70" in line for line in lines))
+        goal = quest_goal_from_lines(lines)
+        self.assertIn("跟随花朵的指引", goal)
+        self.assertNotIn("70", goal)
 
 
 if __name__ == "__main__":

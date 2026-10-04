@@ -10,6 +10,8 @@ class QuestProgressTracker:
     recovery_step: Optional[int] = None
     require_distance: bool = True
     stationary_observed: bool = False
+    jump_attempts: int = 0
+    recovery_decision_waits: int = 0
 
     def observe(self, distance: Optional[float]):
         if distance is None or self.recovery_step is not None:
@@ -20,6 +22,8 @@ class QuestProgressTracker:
             self.best_distance = distance
             self.movement_seconds = 0.0
             self.recovery_count = 0
+            self.jump_attempts = 0
+            self.recovery_decision_waits = 0
 
     def record_movement(self, keys: list[str], duration: float, moving: Optional[bool] = None):
         if self.recovery_step is None and "w" in keys:
@@ -44,6 +48,14 @@ class QuestProgressTracker:
         self.recovery_count += 1
         self.recovery_step = 0
         self.movement_seconds = 0.0
+        self.recovery_decision_waits = 0
+
+    def begin_jump(self):
+        if self.jump_attempts >= 2:
+            raise RuntimeError("同一处受阻已经尝试两次跳跃，需要检查其他通行方式")
+        self.jump_attempts += 1
+        self.movement_seconds = 0.0
+        self.stationary_observed = False
 
     def next_recovery_movement(self) -> tuple[list[str], float]:
         if self.recovery_step is None:

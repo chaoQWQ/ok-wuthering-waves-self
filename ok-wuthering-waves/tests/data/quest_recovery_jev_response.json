@@ -3,34 +3,35 @@
   "answers": {
     "action": {
       "type": "choice",
-      "choice": "search",
-      "confidence": 0.97,
+      "choice": "jump",
+      "confidence": 0.99,
       "probabilities": {
-        "search": 0.98,
-        "wait": 0.02
+        "jump": 1.0,
+        "recover": 0.0,
+        "wait": 0.0
       }
     },
     "task_kind": {
       "type": "choice",
       "choice": "follow",
-      "confidence": 0.95,
+      "confidence": 1.0,
       "probabilities": {
-        "unknown": 0.0,
-        "attack": 0.0,
-        "search": 0.04,
-        "skill": 0.0,
+        "search": 0.0,
+        "follow": 1.0,
         "wait": 0.0,
-        "follow": 0.96,
-        "interact": 0.0
+        "attack": 0.0,
+        "interact": 0.0,
+        "skill": 0.0,
+        "unknown": 0.0
       }
     },
     "interaction_relevant": {
       "type": "noul",
-      "noul": 0.06
+      "noul": 0.05
     }
   },
   "usage": {
-    "input_tokens": 827,
-    "output_tokens": 116
+    "input_tokens": 961,
+    "output_tokens": 123
   }
 }

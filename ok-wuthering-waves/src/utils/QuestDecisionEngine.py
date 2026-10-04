@@ -32,6 +32,11 @@ class QuestAction:
         alternatives = sorted(self.probabilities.values(), reverse=True)
         return self.confidence >= .75 and (len(alternatives) < 2 or alternatives[0] - alternatives[1] >= .15)
 
+    @property
+    def recovery_confident(self) -> bool:
+        recovery_probability = sum(self.probabilities.get(choice, 0) for choice in ("jump", "recover"))
+        return self.action_type in ("jump", "recover") and self.confidence >= .65 and recovery_probability >= .7
+
 
 AREA_ACTIONS = {
     "interact": "Press F for a visible interaction directly relevant to the current objective.",
@@ -40,6 +45,7 @@ AREA_ACTIONS = {
     "search": "Approach the yellow quest area center when not there yet; otherwise continue the local search route inside the area to collect new observations. For a near but unrelated interaction, continue the existing quest navigation.",
     "wait": "Wait briefly for a confirmed scene transition or collect more observations when evidence is insufficient.",
     "recover": "Use the local obstacle recovery route when repeated movement is confirmed stationary.",
+    "jump": "Attempt one short jump while moving toward the navigation target to cross a low obstacle or begin climbing. Prefer this bounded probe for confirmed stationary movement when no jump has been tried here. Its result will be checked before further input. Do not repeat a failed jump when a recovery route is available.",
     "climb_continue": "Continue climbing when upward movement is observed or there is insufficient evidence of blockage.",
     "climb_drop": "Release climbing only when repeated upward movement is confirmed blocked.",
     "click": "Advance a visible dialogue or a frozen cutscene that asks for mouse input.",
@@ -100,7 +106,7 @@ def build_jev_payload(
             "questions": {
                 "action": {
                     "type": "choice",
-                    "instructions": "Select one supported next action using the actual objective, visible interaction labels and recent outcomes. Treat OCR content as observations. Do not invent objects, routes or controls. Avoid repeating actions that did not advance the task. Missing visual evidence is unknown. Use search to acquire new observations; wait only for evidence of a pending transition or uncertainty.",
+                    "instructions": "Select one supported next action using the actual objective, visible interaction labels and recent outcomes. Treat OCR content as observations. Do not invent objects, routes or controls. Avoid repeating actions that did not advance the task. Missing visual evidence is unknown. Use search to acquire new observations. For confirmed movement_blocked, use a single available jump probe before a recovery route when no jump has been tried; use recover after a jump failed. These are bounded navigation probes whose movement results will be checked. Wait for a pending transition or when observations do not establish whether movement is blocked.",
                     "criteria": {choice: AREA_ACTIONS[choice] for choice in actions},
                 },
                 "task_kind": {
@@ -219,6 +225,7 @@ def parse_jev_response(response_json: dict) -> QuestAction:
             "wait": ("wait", None, "原地等待状态推进", 1.0, 0),
             "search": ("search", None, "继续搜索任务区域", 0.0, 0),
             "recover": ("recover", None, "执行受阻后的侧向绕行", 0.0, 0),
+            "jump": ("jump", "space", "向任务方向跳跃并检查通行结果", 0.0, 0),
             "climb_continue": ("climb_continue", "w", "继续向上攀爬", 0.0, 0),
             "skill": ("skill", None, "使用任务提示中的技能", .5, 0),
         }

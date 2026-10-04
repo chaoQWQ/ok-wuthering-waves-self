@@ -34,6 +34,15 @@ class TestQuestDecisionEngine(unittest.TestCase):
         self.assertGreater(self.action.total_tokens, 0)
         self.assertAlmostEqual(sum(self.action.probabilities.values()), 1, delta=.01)
 
+    def test_actual_rock_recovery_response_selects_jump(self):
+        response = json.loads((Path(__file__).parent / "data/quest_recovery_jev_response.json").read_text(encoding="utf-8"))
+        action = parse_jev_response(response)
+        self.assertEqual(action.action_type, "jump")
+        self.assertEqual(action.key, "space")
+        self.assertTrue(action.recovery_confident)
+        self.assertEqual(action.task_kind, "follow")
+        self.assertGreater(action.total_tokens, 0)
+
     def test_structured_request_contains_real_observations(self):
         context = {"area": self.search.context(), "available_actions": ["search", "wait"], "has_f_button": False}
         payload = build_jev_payload(self.frame, self.text, ocr_text=self.text, context=context)

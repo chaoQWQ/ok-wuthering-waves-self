@@ -12,7 +12,7 @@ from src.utils.QuestDecisionEngine import QuestAction, decide_quest_action
 from src.utils.QuestAreaSearch import QuestAreaSearch, detect_quest_area, minimap_box
 from src.utils.QuestDecisionSession import QuestDecisionSession
 from src.utils.QuestNavigator import calculate_camera_turn, compute_movement_action
-from src.utils.QuestOcrPrivacy import prepare_quest_ocr_frame, sanitize_quest_text
+from src.utils.QuestOcrPrivacy import prepare_quest_ocr_frame, quest_goal_from_lines, sanitize_quest_text
 from src.utils.QuestProgressTracker import QuestProgressTracker
 from src.utils.QuestBackgroundMotion import detect_background_motion
 from src.utils.QuestTargetSearch import QuestTargetSearch
@@ -117,6 +117,11 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             WWOneTimeTask.run(self)
         except Exception as e:
             logger.warning(f"初始化任务执行环境异常: {e}")
+
+        self.ensure_in_front()
+        self.sleep(.2)
+        if not self.is_game_window_active():
+            raise RuntimeError("游戏窗口没有进入前台，无法开始剧情导航")
 
         self.log_info("剧情模式已启动，已激活游戏窗口并重置鼠标位置")
         self.current_state = self.STATE_IDLE
@@ -266,6 +271,12 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         # 0. 优先检测是否处于攀爬状态
         climb_result = detect_climbing_state(frame)
         if climb_result.is_climbing:
+            if self.area_search is not None:
+                area = self.area_search.find_observation(frame)
+                if area is not None:
+                    mx, my, mw, mh = minimap_box(frame)
+                    if not self.area_search.observe(area, frame[my:my + mh, mx:mx + mw]):
+                        self.area_search = None
             now = time.time()
             if self.climbing_start_time == 0.0:
                 self.climbing_start_time = now
@@ -311,7 +322,11 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 self.navigation_progress.require_distance = False
             else:
                 self.navigation_progress.require_distance = True
+        previous_distance = self.navigation_progress.best_distance
         self.navigation_progress.observe(current_distance)
+        if current_distance is not None and previous_distance is not None and current_distance <= previous_distance - .5:
+            if self.decision_session.pending is not None and self.decision_session.pending["action"] in ("jump", "recover"):
+                self.decision_session.mark_transition("movement_observed")
         if current_distance is None or current_distance > 2:
             self.point_arrival_time = None
 
@@ -377,7 +392,6 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
         # 8. 视野中存在任务信标
         if beacon_result.found:
-            self.target_search.reset()
             beacon_cx = beacon_result.x + beacon_result.width // 2
             diff_x = beacon_cx - width / 2.0
             angle_error_deg = (diff_x / (width / 2.0)) * 45.0
@@ -389,9 +403,12 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 max_delta_x=100
             )
             if turn_cmd.need_turn:
+                self.target_search.next_turn()
                 self._apply_camera_turn(turn_cmd.delta_x_pixels)
                 self.sleep(0.1)
                 return
+
+            self.target_search.reset()
 
             effective_distance = current_distance if current_distance is not None else 10.0
             move_cmd = compute_movement_action(
@@ -418,7 +435,6 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         # 9. 视野无信标，依据小地图指示箭头旋转镜头并移动
         arrow_result = detect_minimap_quest_arrow(frame)
         if arrow_result.found:
-            self.target_search.reset()
             norm_deg = arrow_result.bearing_deg % 360.0
             angle_diff = norm_deg - 360.0 if norm_deg > 180.0 else norm_deg
 
@@ -429,8 +445,11 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 max_delta_x=120
             )
             if turn_cmd.need_turn:
+                self.target_search.next_turn()
                 self._apply_camera_turn(turn_cmd.delta_x_pixels)
                 self.sleep(0.1)
+                # 短步让角色采用当前镜头方向，再读取角色箭头的实际朝向。
+                self._apply_movement(["w"], .15)
                 return
 
             # 若角度误差超过 20 度，原地旋转镜头，严禁边转向边移动以避免环绕画圈
@@ -440,6 +459,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 return
 
             self.log_info("已朝向小地图任务目标，向前慢步推进")
+            self.target_search.reset()
             self._apply_movement(["w"], 0.25)
             return
 
@@ -455,8 +475,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         if not force and time.time() - self.guidance_last_read < 2:
             return
         boxes = self.ocr(.01, .20, .28, .43, frame=frame)
-        lines = [box.name for box in boxes if box.name and not re.fullmatch(r"\s*\d+(?:\.\d+)?\s*(?:米|m|M)\s*", box.name)]
-        text = sanitize_quest_text(" ".join(lines)).strip()
+        text = quest_goal_from_lines([box.name for box in boxes])
         if text:
             self.guidance_text = text
         self.guidance_last_read = time.time()
@@ -485,6 +504,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.target_search.reset()
             self.log_info("识别到黄色任务区域，开始向圈中心移动")
         mx, my, mw, mh = minimap_box(frame)
+        pending_keys = self.area_search.pending_keys
+        pending_duration = self.area_search.pending_duration
         if not self.area_search.observe(area, frame[my:my + mh, mx:mx + mw]):
             self.decision_session.mark_transition("quest_area_changed")
             self.decision_session.seen_states.clear()
@@ -493,6 +514,11 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.navigation_progress = QuestProgressTracker(require_distance=False)
             entering = True
             self.log_info("任务区域已经改变，开始接近新的圈中心")
+        elif pending_keys is not None:
+            moving = self.area_search.last_displacement >= .2
+            self.navigation_progress.record_movement(list(pending_keys), pending_duration, moving=moving)
+            if moving and self.decision_session.pending is not None and self.decision_session.pending["action"] in ("jump", "recover"):
+                self.decision_session.mark_transition("movement_observed")
         if self.config.get("Switch to First Character for Movement", True) and self._ensure_first_character():
             return
         if entering or (has_f and area.center_distance <= area.radius):
@@ -505,13 +531,18 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         if self.navigation_progress.recovery_step is not None:
             self._continue_navigation_recovery()
             return
-        if self.navigation_progress.blocked:
+        if self.navigation_progress.blocked or self.area_search.blocked:
             self._handle_stuck_recovery(frame)
             return
         previous_ring = self.area_search.completed_rings
         mode, bearing, distance = self.area_search.navigate(time.time())
+        if self.area_search.phase == "center":
+            self.navigation_progress.observe(distance)
+        elif mode in ("waypoint", "center"):
+            self.navigation_progress.jump_attempts = 0
+            self.navigation_progress.recovery_decision_waits = 0
         phase_label = {"center": "接近圈中心", "wait": "等待任务触发", "search": "搜索任务区域"}[self.area_search.phase]
-        self.info_set("区域搜索", f"{phase_label}，搜索路线进度 {self.area_search.search_fraction:.0%}")
+        self.info_set("区域搜索", f"{phase_label}，中心距离 {area.center_distance:.1f} 像素，搜索路线进度 {self.area_search.search_fraction:.0%}")
         if mode == "center":
             self._stop_all_movement()
             waiting = time.time() - self.area_search.arrived_at
@@ -541,9 +572,11 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 self._trigger_ai_decision(frame, has_f_button=has_f, action_text=action_text, event="area_ring")
             return
         if mode == "calibrate":
-            self._apply_movement(["w"], .12)
+            self.log_info(f"确认移动方向：按键 {self.area_search.movement_keys}，中心距离 {area.center_distance:.1f} 像素")
+            self._apply_movement(self.area_search.movement_keys, .3)
             return
         if mode == "walk":
+            self.log_info(f"向区域搜索点移动：按键 {self.area_search.movement_keys}，目标距离 {distance:.1f} 像素，观察移动 {self.area_search.last_displacement:.2f} 像素")
             self._apply_movement(self.area_search.movement_keys, self.area_search.movement_duration(distance))
             return
         self.sleep(.2)
@@ -636,12 +669,49 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
     def _handle_stuck_recovery(self, frame: np.ndarray):
         self._stop_all_movement()
-        result = self._trigger_ai_decision(frame, event="movement_blocked")
+        if self.navigation_progress.jump_attempts == 0:
+            self._perform_jump_recovery()
+            return
+        calls_before = self.jev_call_count
+        current_distance = self.navigation_progress.best_distance if self.area_search is None else None
+        result = self._trigger_ai_decision(frame, event="movement_blocked", current_distance=current_distance)
+        if result in ("jump", "stale"):
+            return
+        if result in ("wait", "observe"):
+            if self.jev_call_count > calls_before:
+                self.navigation_progress.recovery_decision_waits += 1
+            if self.navigation_progress.recovery_decision_waits >= 3:
+                raise RuntimeError("跳跃后仍然受阻，三次任务判断没有确认可继续的移动操作")
+            self.sleep(.2)
+            return
         if result != "recover":
-            raise RuntimeError("角色移动持续受阻，任务决策未确认绕行操作")
+            raise RuntimeError(f"受阻状态返回了无法执行的移动动作：{result}")
         self.navigation_progress.begin_recovery()
+        location = str(self.area_search.completed_rings) if self.area_search is not None else "movement_blocked"
+        self.decision_session.record("recover", self.last_interaction_text, location, time.time())
         self.log_info(f"检测到角色前进受阻，第 {self.navigation_progress.recovery_count} 次绕行，执行后退、侧向移动与前进")
         self._continue_navigation_recovery()
+
+    def _perform_jump_recovery(self):
+        if not self.is_game_window_active():
+            return
+        if self.decision_session.pending is not None:
+            self.sleep(.2)
+            return
+        if detect_climbing_state(self.frame).is_climbing:
+            return
+        self.navigation_progress.begin_jump()
+        keys = self.area_search.movement_keys if self.area_search is not None and self.area_search.camera_heading is not None else ["w"]
+        self.log_info(f"移动受阻，第 {self.navigation_progress.jump_attempts} 次尝试向任务方向跳跃，按键 {keys}")
+        location = str(self.area_search.completed_rings) if self.area_search is not None else "movement_blocked"
+        self.decision_session.record("jump", self.last_interaction_text, location, time.time())
+        if self.area_search is not None:
+            self.area_search.stationary_seconds = 0.0
+        self._apply_movement(keys, .45, jump=True)
+        self.sleep(.4)
+        self.next_frame()
+        if detect_climbing_state(self.frame).is_climbing:
+            self.decision_session.mark_transition("climbing_started")
 
     def _continue_navigation_recovery(self):
         keys, duration = self.navigation_progress.next_recovery_movement()
@@ -709,7 +779,9 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             controller = mouse.Controller()
             controller.move(delta_x, 0)
 
-    def _apply_movement(self, keys: list, duration: float, progress_tracker=None):
+    def _apply_movement(self, keys: list, duration: float, progress_tracker=None, jump=False):
+        if jump and duration < .08:
+            raise ValueError("跳跃移动时间必须覆盖跳跃按键持续时间")
         if not self.is_game_window_active():
             self._stop_all_movement()
             return
@@ -721,16 +793,27 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         try:
             for key in keys:
                 self.send_key_down(key)
-            self.sleep(duration)
+            if jump:
+                self.send_key_down("space")
+                self.sleep(.08)
+                self.send_key_up("space")
+                self.sleep(duration - .08)
+            else:
+                self.sleep(duration)
         finally:
-            for key in keys:
-                self.send_key_up(key)
+            try:
+                if jump:
+                    self.send_key_up("space")
+            finally:
+                for key in keys:
+                    self.send_key_up(key)
         if before is not None:
             self.next_frame()
             motion = detect_background_motion(before, self.frame)
             self.last_motion = motion
             tracker = self.navigation_progress if progress_tracker is None else progress_tracker
-            tracker.record_movement(keys, duration, moving=motion.moving)
+            if self.area_search is None or progress_tracker is not None:
+                tracker.record_movement(keys, duration, moving=motion.moving)
             self.log_debug(f"移动背景判断: moving={motion.moving}, displacement={motion.displacement_pixels:.2f}, vertical={motion.vertical_pixels:.2f}, points={motion.tracked_points}")
 
     def _ensure_first_character(self) -> bool:
@@ -770,6 +853,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         progress = location
         if area_context is not None:
             progress += ":" + area_context["phase"]
+        if event == "movement_blocked":
+            progress += f":{self.navigation_progress.jump_attempts}:{self.navigation_progress.recovery_decision_waits}"
         history = self.decision_session.context()
         if history and history[-1]["goal"] == self.decision_session.goal and history[-1]["location"] == location:
             progress += f":{len(history)}:{history[-1]['outcome']}"
@@ -792,6 +877,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             actions.extend(["climb_continue", "climb_drop"])
         elif event == "movement_blocked":
             actions.append("recover")
+            if self.navigation_progress.jump_attempts < 2:
+                actions.append("jump")
         elif self.area_search is not None or event == "near_interaction":
             actions.append("search")
         if has_f_button:
@@ -809,18 +896,30 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         actions = [choice for choice in actions if choice not in failures]
         if not actions:
             raise RuntimeError("任务动作持续未产生进展，当前没有可继续的操作")
+        stationary_seconds = self.climbing_progress.movement_seconds if event == "climbing_blocked" else self.navigation_progress.movement_seconds
+        movement_context = None if self.last_motion is None else {
+            "source": "world_background",
+            "moving": self.last_motion.moving,
+            "displacement_pixels": round(self.last_motion.displacement_pixels, 2),
+            "vertical_pixels": round(self.last_motion.vertical_pixels, 2),
+        }
+        if self.area_search is not None and event == "movement_blocked":
+            stationary_seconds = max(stationary_seconds, self.area_search.stationary_seconds)
+            if self.area_search.blocked:
+                movement_context = {
+                    "source": "minimap_terrain",
+                    "moving": False,
+                    "displacement_pixels": round(self.area_search.last_displacement, 2),
+                }
         context = {
             "event": event,
             "has_f_button": has_f_button,
             "interaction_text": action_text,
             "distance_meters": current_distance,
             "area": area_context,
-            "movement": None if self.last_motion is None else {
-                "moving": self.last_motion.moving,
-                "displacement_pixels": round(self.last_motion.displacement_pixels, 2),
-                "vertical_pixels": round(self.last_motion.vertical_pixels, 2),
-            },
-            "stationary_movement_seconds": round(self.climbing_progress.movement_seconds if event == "climbing_blocked" else self.navigation_progress.movement_seconds, 1),
+            "movement": movement_context,
+            "stationary_movement_seconds": round(stationary_seconds, 1),
+            "jump_attempts": self.navigation_progress.jump_attempts,
             "skill_key": skill_key,
             "recent_actions": self.decision_session.context(),
             "available_actions": actions,
@@ -839,8 +938,11 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             context=context,
         )
         self._record_jev_usage(action)
+        if action.action_type not in actions:
+            raise ValueError(f"任务决策返回了当前无法执行的动作：{action.action_type}")
         self.log_info(f"JEV 判断: action={action.action_type}, confidence={action.confidence:.2f}, task={action.task_kind}, event={event}")
-        if not action.confident:
+        navigation_choice = event == "movement_blocked" and action.recovery_confident
+        if not action.confident and not navigation_choice:
             self.log_info("任务判断置信度不足，继续取得新的画面信息")
             return "observe"
         if not self.is_game_window_active():
@@ -875,7 +977,9 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             if not detect_climbing_state(self.frame).is_climbing:
                 return "stale"
             self.send_key("x", down_time=.1)
-        if action.action_type not in ("search", "recover", "climb_continue"):
+        elif action.action_type == "jump":
+            self._perform_jump_recovery()
+        if action.action_type not in ("search", "recover", "climb_continue", "jump"):
             self.decision_session.record(action.action_type, action_text, location, time.time())
 
         if action.wait_seconds > 0:

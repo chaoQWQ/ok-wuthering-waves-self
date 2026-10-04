@@ -41,11 +41,16 @@ class TestQuestAreaSearch(unittest.TestCase):
                 self.assertAlmostEqual(area.center_y, 146 * scale, delta=4)
 
     def test_quest_point_icons_are_not_search_areas(self):
-        for name in ("quest_navigation_start.png", "quest_navigation_wrong_direction.png", "quest_climbing.png"):
+        for name in ("quest_navigation_start.png", "quest_navigation_wrong_direction.png", "quest_climbing.png", "quest_rock_obstruction.png"):
             with self.subTest(name=name):
                 frame = cv2.imread(str(Path(__file__).parent / "images" / name))
                 self.assertIsNotNone(frame)
                 self.assertIsNone(detect_quest_area(frame))
+
+    def test_actual_minimap_edge_and_pulsing_point_are_excluded(self):
+        frame = cv2.imread(str(Path(__file__).parent / "images/quest_minimap_point_pulse.png"))
+        self.assertIsNotNone(frame)
+        self.assertIsNone(detect_quest_area(frame, (0, 0, frame.shape[1], frame.shape[0])))
 
     def test_runtime_screenshot_with_arrow_occlusion(self):
         frame = cv2.imread(str(Path(__file__).parent / "images" / "quest_area_runtime.png"))
@@ -92,11 +97,15 @@ class TestQuestAreaSearch(unittest.TestCase):
         area = detect_quest_area(self.frame)
         x, y, w, h = minimap_box(self.frame)
         minimap = self.frame[y:y + h, x:x + w]
-        for now in range(27):
+        keys = ("w", "w", "s", "s", "a", "a", "d", "d")
+        for now, key in enumerate(keys):
             search.observe(area, minimap)
             self.assertEqual(search.navigate(now)[0], "calibrate")
+            self.assertEqual(search.movement_keys, [key])
+            search.record_movement([key], .3)
+        search.observe(area, minimap)
         with self.assertRaisesRegex(RuntimeError, "无法确认行进方向"):
-            search.navigate(28)
+            search.navigate(8)
 
 
 if __name__ == "__main__":
