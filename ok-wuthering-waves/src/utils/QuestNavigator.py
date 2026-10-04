@@ -67,12 +67,7 @@ def calculate_camera_turn(
         # 估算每个角度对应的像素移动量
         pixels_per_deg = (screen_width / 180.0) * camera_sensitivity
         raw_delta_x = int(angle_diff * pixels_per_deg)
-        # 大角度误差（大于 30 度）时允许大幅度单次旋转，加速对准
-        if abs(angle_diff) > 30.0:
-            map_max_delta = max(max_delta_x, 500)
-        else:
-            map_max_delta = max(max_delta_x, 150)
-        delta_x = max(-map_max_delta, min(map_max_delta, raw_delta_x))
+        delta_x = max(-max_delta_x, min(max_delta_x, raw_delta_x))
         direction = "right" if delta_x > 0 else "left"
         return CameraTurnCommand(
             delta_x_pixels=delta_x,

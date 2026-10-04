@@ -55,6 +55,13 @@ class TestQuestNavigator(unittest.TestCase):
         with self.assertRaises(ValueError):
             calculate_camera_turn(0, beacon_center_x=100)
 
+    def test_camera_turn_respects_minimap_limit(self):
+        for bearing in (30.0, 90.0, 180.0, 270.0):
+            with self.subTest(bearing=bearing):
+                cmd = calculate_camera_turn(1920, minimap_bearing_deg=bearing, max_delta_x=120)
+                self.assertTrue(cmd.need_turn)
+                self.assertLessEqual(abs(cmd.delta_x_pixels), 120)
+
     def test_movement_action_sprint(self):
         cmd = compute_movement_action(distance_meters=50.0, angle_error_deg=5.0)
         self.assertEqual(cmd.mode, "sprint")

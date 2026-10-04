@@ -123,7 +123,7 @@ def detect_quest_beacon(
     # 排除左上角小地图区域
     spatial_mask[:int(frame_height * 0.25), :int(frame_width * 0.16)] = 0
     # 排除左侧固定任务描述栏
-    spatial_mask[int(frame_height * 0.20):int(frame_height * 0.45), :int(frame_width * 0.25)] = 0
+    spatial_mask[int(frame_height * 0.20):int(frame_height * 0.45), :int(frame_width * 0.16)] = 0
     # 排除右侧队伍状态栏
     spatial_mask[:int(frame_height * 0.50), int(frame_width * 0.88):] = 0
 
@@ -138,9 +138,36 @@ def detect_quest_beacon(
     gold_mask = (
         (roi_r > 175)
         & (roi_g > 155)
-        & (roi_b < 155)
-        & ((roi_r.astype(int) - roi_b.astype(int)) > 45)
+        & (roi_b < 230)
+        & ((roi_r.astype(int) - roi_b.astype(int)) > 25)
     ).astype(np.uint8)
+
+    # 使用黄色圆环的几何形状识别任务图标。
+    scale = frame_width / 1920.0
+    circles = cv2.HoughCircles(
+        gold_mask * 255, cv2.HOUGH_GRADIENT, 1, max(12, int(25 * scale)),
+        param1=100, param2=max(7, int(16 * scale)),
+        minRadius=max(4, int(10 * scale)), maxRadius=max(6, int(19 * scale)),
+    )
+    if circles is not None:
+        candidates = []
+        angles = np.linspace(0, 2 * np.pi, 64, endpoint=False)
+        for cx, cy, radius in circles[0]:
+            ix, iy = int(round(cx)), int(round(cy))
+            if spatial_mask[iy, ix] == 0:
+                continue
+            coverage = np.zeros(64, dtype=bool)
+            for radius_delta in (-3 * scale, -1.5 * scale, 0, 1.5 * scale, 3 * scale):
+                xs = np.clip(np.rint(cx + (radius + radius_delta) * np.cos(angles)).astype(int), 0, frame_width - 1)
+                ys = np.clip(np.rint(cy + (radius + radius_delta) * np.sin(angles)).astype(int), 0, frame_height - 1)
+                coverage |= gold_mask[ys, xs] != 0
+            confidence = float(np.mean(coverage))
+            center = frame[max(0, iy - 2):iy + 3, max(0, ix - 2):ix + 3]
+            if confidence >= max(threshold, 0.80) and float(np.mean(center[:, :, 1])) > 180:
+                candidates.append((confidence, ix, iy, int(round(radius))))
+        if candidates:
+            confidence, cx, cy, radius = max(candidates)
+            return BeaconResult(True, cx - radius, cy - radius, radius * 2, radius * 2, confidence)
 
     # 优先执行高精度模板匹配
     if os.path.exists(template_path):
@@ -150,6 +177,7 @@ def detect_quest_beacon(
             th, tw = template.shape[:2]
             best_score = -1.0
             best_rect: Optional[Tuple[int, int, int, int]] = None
+            gold_integral = cv2.integral(gold_mask)
 
             scale_base = frame_width / 1024.0
             for scale_factor in [0.7, 0.85, 1.0, 1.2]:
@@ -161,6 +189,13 @@ def detect_quest_beacon(
                 res_h, res_w = res.shape[:2]
                 res_valid_mask = spatial_mask[:res_h, :res_w]
                 res[res_valid_mask == 0] = -1.0
+                gold_counts = (
+                    gold_integral[scaled_h:, scaled_w:]
+                    - gold_integral[:-scaled_h, scaled_w:]
+                    - gold_integral[scaled_h:, :-scaled_w]
+                    + gold_integral[:-scaled_h, :-scaled_w]
+                )
+                res[gold_counts <= scaled_h * scaled_w * 0.03] = -1.0
 
                 min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
                 if max_val > best_score:
@@ -259,17 +294,44 @@ def detect_minimap_quest_arrow(
 
     # 金黄色判定条件：红高、绿高、蓝低，色彩差值显著
     gold_mask = (
-        (roi_r > 185)
-        & (roi_g > 165)
-        & (roi_b < 140)
-        & ((roi_r.astype(int) - roi_b.astype(int)) > 55)
+        (roi_r > 175)
+        & (roi_g > 155)
+        & (roi_b < 230)
+        & ((roi_r.astype(int) - roi_b.astype(int)) > 25)
     ).astype(np.uint8)
 
-    center_map_x = mw * 0.48
-    center_map_y = mh * 0.44
+    center_map_x = width * 0.068 - mx if minimap_roi_box is None else mw * 0.5
+    center_map_y = height * 0.115 - my if minimap_roi_box is None else mh * 0.5
+
+    # 从玩家箭头计算当前朝向，目标方位必须转换为相对转向角度。
+    player_contours, _ = cv2.findContours(gold_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    heading = None
+    for contour in player_contours:
+        moments = cv2.moments(contour)
+        if moments["m00"] < 20:
+            continue
+        cx = moments["m10"] / moments["m00"]
+        cy = moments["m01"] / moments["m00"]
+        if np.hypot(cx - center_map_x, cy - center_map_y) > min(mw, mh) * 0.08:
+            continue
+        hull = cv2.convexHull(contour)
+        points = cv2.approxPolyDP(hull, cv2.arcLength(hull, True) * 0.06, True)[:, 0, :].astype(float)
+        if len(points) != 3:
+            continue
+        center = np.array([cx, cy])
+        tip_angles = []
+        for index, point in enumerate(points):
+            before = points[index - 1] - point
+            after = points[(index + 1) % len(points)] - point
+            tip_angles.append(np.arccos(np.clip(np.dot(before, after) / (np.linalg.norm(before) * np.linalg.norm(after)), -1, 1)))
+        tip = points[np.argmin(tip_angles)]
+        heading = float(np.degrees(np.arctan2(tip[0] - cx, cy - tip[1])))
+        break
+    if heading is None:
+        return MinimapArrowResult(False, 0.0, 0, 0)
 
     # 遮蔽小地图中心玩家自身黄色箭头，仅检测贴在小地图边缘的真实指引标记
-    player_radius = int(min(mw, mh) * 0.24)
+    player_radius = int(min(mw, mh) * 0.11)
     cv2.circle(gold_mask, (int(center_map_x), int(center_map_y)), player_radius, 0, -1)
 
     contours, _ = cv2.findContours(gold_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -291,11 +353,11 @@ def detect_minimap_quest_arrow(
         dy = arrow_cy - center_map_y
         dist = float(np.hypot(dx, dy))
 
-        if dist < player_radius:
+        if dist < player_radius or dist > min(mw, mh) * 0.42:
             continue
 
         angle_rad = np.arctan2(dx, -dy)
-        angle_deg = float(np.degrees(angle_rad)) % 360.0
+        angle_deg = (float(np.degrees(angle_rad)) - heading) % 360.0
 
         if area > max_area:
             max_area = area
@@ -633,4 +695,3 @@ def detect_climbing_state(
         width=0,
         height=0
     )
-

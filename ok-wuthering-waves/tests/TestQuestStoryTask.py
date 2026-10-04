@@ -363,17 +363,9 @@ class TestQuestStoryTask(unittest.TestCase):
         dist = self.task._extract_quest_distance(dummy_frame, BeaconResult(found=False, x=0, y=0, width=0, height=0, confidence=0.0))
         self.assertEqual(dist, 62.0)
 
-    def test_camera_turn_large_minimap_angle_increases_pulse(self):
-        from src.utils.QuestNavigator import calculate_camera_turn
-        # 验证方位角 180 度（正后方）时单次旋转脉冲扩大到 500
-        cmd = calculate_camera_turn(screen_width=1280, minimap_bearing_deg=180.0, camera_sensitivity=1.0)
-        self.assertTrue(cmd.need_turn)
-        self.assertEqual(cmd.delta_x_pixels, 500)
-
 
 if __name__ == "__main__":
     unittest.main()
-
 
 
 

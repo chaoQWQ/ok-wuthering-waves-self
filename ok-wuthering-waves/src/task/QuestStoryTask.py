@@ -68,6 +68,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.last_char_switch_time: float = 0.0
         self.climbing_start_time: float = 0.0
         self.last_nav_frame: Optional[np.ndarray] = None
+        self.navigation_movement_pending = False
         self.stuck_start_time: float = 0.0
         self.last_observed_distance: Optional[float] = None
         self.stuck_count: int = 0
@@ -113,6 +114,10 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.letterbox_freeze_start_time = 0.0
         self.last_search_log_time = 0.0
         self.climbing_start_time = 0.0
+        self.navigation_movement_pending = False
+        self.last_nav_frame = None
+        self.stuck_start_time = 0.0
+        self.last_observed_distance = None
         self.tracked_quest_distance = None
         self.distance_last_changed_time = time.time()
         self.jev_call_count = 0
@@ -316,7 +321,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         if current_distance is not None:
             tracked_dist = getattr(self, "tracked_quest_distance", None)
             last_changed = getattr(self, "distance_last_changed_time", 0.0)
-            if tracked_dist is None:
+            if tracked_dist is None or not self.navigation_movement_pending:
                 self.tracked_quest_distance = current_distance
                 self.distance_last_changed_time = now
             elif current_distance < tracked_dist - 0.5:
@@ -350,6 +355,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             )
             if turn_cmd.need_turn:
                 self._apply_camera_turn(turn_cmd.delta_x_pixels)
+                self.sleep(0.1)
+                return
 
             effective_distance = current_distance if current_distance is not None else 10.0
             move_cmd = compute_movement_action(
@@ -387,6 +394,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             )
             if turn_cmd.need_turn:
                 self._apply_camera_turn(turn_cmd.delta_x_pixels)
+                self.sleep(0.1)
+                return
 
             # 若角度误差超过 20 度，原地旋转镜头，严禁边转向边移动以避免环绕画圈
             if abs(angle_diff) > 20.0:
@@ -394,7 +403,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 self.sleep(0.1)
                 return
 
-            self.log_info("朝向小地图指引方向对齐完成，向前慢步推进")
+            self.log_info("已朝向小地图任务目标，向前慢步推进")
             self._apply_movement(["w"], 0.25)
             return
 
@@ -453,7 +462,6 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 turn_pix = action.turn_pixels if action.turn_pixels != 0 else default_turn_pixels
                 self._apply_camera_turn(turn_pix)
                 self.sleep(0.1)
-                self._apply_movement(["w"], 0.4)
             elif action.action_type in ("walk", "sprint"):
                 keys = ["w"]
                 if action.action_type == "sprint":
@@ -464,7 +472,6 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         else:
             self._apply_camera_turn(default_turn_pixels)
             self.sleep(0.1)
-            self._apply_movement(["w"], 0.4)
 
     def _try_teleport_to_nearest_waypoint(self, current_distance: float) -> bool:
         now = time.time()
@@ -540,6 +547,11 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         return True
 
     def _check_and_handle_stuck(self, frame: np.ndarray, current_distance: Optional[float]) -> bool:
+        if not self.navigation_movement_pending:
+            self.last_nav_frame = frame.copy()
+            self.last_observed_distance = current_distance
+            self.stuck_start_time = 0.0
+            return False
         now = time.time()
         is_stuck = False
         last_nav = getattr(self, "last_nav_frame", None)
@@ -654,6 +666,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             return
         if delta_x == 0:
             return
+        self.navigation_movement_pending = False
+        self.stuck_start_time = 0.0
         try:
             import win32api
             import win32con
@@ -669,6 +683,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             return
         if not keys:
             return
+        self.navigation_movement_pending = True
         for key in keys:
             self.send_key_down(key)
         self.sleep(duration)
