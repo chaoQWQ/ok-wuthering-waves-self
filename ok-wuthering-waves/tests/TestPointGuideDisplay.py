@@ -217,6 +217,57 @@ class TestPointGuideDisplay(unittest.TestCase):
             gdi32.DeleteObject(bitmap)
             gdi32.DeleteDC(dc)
 
+    def test_minimap_target_guide_image(self):
+        from ok import Box
+        from src.utils.MinimapDirectionWindow import MinimapDirectionWindow
+        window = MinimapDirectionWindow()
+        window._guide_cache = GuideImageCache(str(Path(self.directory.name) / 'minimap'))
+        try:
+            window.render_direction((0, 0, 800, 600), 175, Box(20, 20, 150, 150),
+                                    distance=1564, hint_text='该地点暂无描述', guide_target=(8, POINT_ID))
+            self.wait_until(lambda: window._guide_status in ('ready', 'failed', 'no_image'))
+            self.assertEqual(window._guide_status, 'ready')
+            self.assertFalse(window._guide_pixmap.isNull())
+            self.assertIn('完成能量矩阵解密获得', window._guide_description)
+            self.app.processEvents()
+            image = window.grab().toImage()
+            self.assertGreater(image.pixelColor(100, 340).alpha(), 0)
+            screenshot = os.environ.get('MINIMAP_GUIDE_SCREENSHOT')
+            if screenshot:
+                self.assertTrue(image.save(screenshot))
+            window.hide_overlay()
+            self.app.processEvents()
+            self.assertIsNone(window._guide_target)
+            self.assertIsNone(window._guide_pixmap)
+        finally:
+            window.close_overlay()
+            self.app.processEvents()
+
+    def test_bigmap_qt_visible_route_window(self):
+        import ctypes
+        from src.utils.KuroRoutes import KuroRoute
+        from src.utils.PathRoute import build_path_layers
+        from src.utils.MinimapDirectionWindow import BigmapLineWindow
+        route = KuroRoute.from_data(KuroRoutesClient(8).detail('1452042731439439872')).path
+        layers = build_path_layers(route, 8, -95000, 30000, 0.008, 400, 300)
+        window = self.controller._create_minimap_direction_window(BigmapLineWindow)
+        self.controller._bigmap_line_window = window
+        window.render_routes((0, 0, 800, 600), (layers[0],))
+        self.app.processEvents()
+        self.assertTrue(window.isVisible())
+        style = ctypes.windll.user32.GetWindowLongW(int(window.winId()), -20)
+        self.assertTrue(style & 0x00000008)
+        self.assertTrue(style & 0x00000020)
+        image = window.grab().toImage()
+        self.assertTrue(any(image.pixelColor(x, y).alpha() > 0
+                            for x in range(800) for y in range(600)))
+        screenshot = os.environ.get('BIGMAP_LINES_SCREENSHOT')
+        if screenshot:
+            self.assertTrue(image.save(screenshot))
+        self.controller._hide_interaction_window()
+        self.app.processEvents()
+        self.assertFalse(window.isVisible())
+
 
 if __name__ == '__main__':
     unittest.main()

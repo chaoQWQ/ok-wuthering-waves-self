@@ -368,6 +368,7 @@ class OverlayController:
         # bypasses the native GDI overlay's unreliable z-order on some Windows
         # DPI configurations while keeping all input handling unchanged.
         self._minimap_direction_window = None
+        self._bigmap_line_window = None
         self._minimap_direction_unavailable = False
         self._last_minimap_direction_at = 0.0
         # Global Advance_Hotkey listener (pynput GlobalHotKeys) on a background
@@ -1264,11 +1265,10 @@ class OverlayController:
         window_draw_items, line_layers, hitboxes = self._build_bigmap_content(
             player_pos, game_scale
         )
-        # 连线分流到穿透式 ok OverlayWindow 绘制（路线模式画线、普通模式清线）；交互
-        # 窗口不再画线，因此其 setMask 掩码只剩节点命中区(+气泡)，轻量、跟手、不挡拖动。
+        # Qt 置顶窗口绘制路线连线，鼠标事件穿透到游戏。
         self._draw_bigmap_lines(line_layers)
         # Cache the rendered content so a click can re-render without rebuilding.
-        # 交互窗口不再画线，故缓存的 path_layers 恒为空，_rerender_bigmap 也不带线。
+        # 交互窗口保存节点、气泡和命中区域。
         self._last_draw_items = list(window_draw_items)
         self._last_path_layers = ()
         self._last_hitboxes = list(hitboxes)
@@ -1290,10 +1290,7 @@ class OverlayController:
             player_pos, minimap=False, game_scale=game_scale
         )
         self._last_status_lines = tuple(status_lines) if status_lines else ()
-        # 合并为单次渲染帧：内容 + 气泡 + 命中区 + 状态面板在同一个 GUI 事件里原子更新，
-        # 避免 render_items / update_mask 两次排队信号产生的半更新中间帧。连线已分流到
-        # ok 覆盖层，故 path_layers 传空 () —— 交互窗口 _compose_mask_region 里路线
-        # stroker 部分为空，掩码只剩节点命中区(+气泡+状态面板)。
+        # 内容、气泡、命中区和状态面板在同一个 GUI 事件中更新。
         window.render_frame(
             window_draw_items, bubble=self._bubble, path_layers=(),
             hitboxes=hitboxes, target_marker=self._last_target_marker,
@@ -1870,30 +1867,15 @@ class OverlayController:
     # Content builders
     # ------------------------------------------------------------------
     def _draw_bigmap_lines(self, line_layers) -> None:
-        """把大地图路线连线分流到穿透式 ok OverlayWindow 绘制。
-
-        ok 的 ``OverlayWindow``（``task.get_overlay_view()``）是穿透式
-        （``WindowTransparentForInput``）、可自由绘制、无需 mask，因此细连线不会挡拖动，
-        与宝箱/小地图共用同一覆盖层机制。
-
-        - ``line_layers`` 非空（路线模式）：用 :meth:`MapItemOverlay.make_paint_callback`
-          以 ``draw_path_nodes=False`` 只画连线 + 箭头、跳过节点图标（节点图标由交互
-          窗口绘制），注册到 ok 覆盖层。``overlay_view`` 为 None 时跳过。
-        - ``line_layers`` 为空（普通模式）：清掉 ok 覆盖层的线（``_clear_overlay``）。
-        """
+        """在置顶、鼠标穿透的 Qt 窗口中显示大地图线路。"""
         if line_layers:
-            overlay_view = self.task.get_overlay_view()
-            if overlay_view is None:
-                return
-            callback = MapItemOverlay.make_paint_callback(
-                [], path_layers=line_layers, draw_path_nodes=False, clip_box=None, target_marker=self._last_target_marker,
-            )
-            overlay_view.draw(
-                OVERLAY_DRAW_KEY, callback, duration=OVERLAY_DRAW_DURATION
-            )
-            self.task._overlay_registered = True
-        else:
-            self.task._clear_overlay()
+            if self._bigmap_line_window is None:
+                from src.utils.MinimapDirectionWindow import BigmapLineWindow
+                self._bigmap_line_window = self._create_minimap_direction_window(BigmapLineWindow)
+            self._bigmap_line_window.render_routes(self._client_geometry(), line_layers)
+        elif self._bigmap_line_window is not None:
+            self._bigmap_line_window.hide_overlay()
+        self.task._clear_overlay()
 
     def _build_bigmap_content(self, player_pos, game_scale):
         """Build ``(window_draw_items, line_layers, hitboxes)`` for the big map.
@@ -1984,12 +1966,11 @@ class OverlayController:
 
     def _build_visible_path(self, player_x, player_y, scale,
                             center_x, center_y, view_bounds):
-        """按大地图宝箱套路把路线裁剪到可见区（问题3）。
+        """生成路线连线以及可见节点的绘制内容和命中区域。
 
         返回 ``(clipped_layers, node_draw_items, node_hitboxes, node_click_targets)``：
 
-        - ``clipped_layers``：只含可见附近短折线的 :class:`PathLayer` 序列，供在穿透式
-          ok 覆盖层绘制连线（掩码开销小、无远处乱线、随缩放抖动的远段被丢弃）；
+        - ``clipped_layers``：完整的 :class:`PathLayer` 序列，供 Qt 置顶窗口绘制连线；
         - ``node_draw_items``：每个可见节点的扩展 8-tuple
           ``(sx, sy, pixmap, name, color, opacity, location_id, z)``，供**交互窗口**绘制
           节点图标（qzx_04）；顺序与 ``node_hitboxes`` / ``node_click_targets`` 完全对应
@@ -1999,7 +1980,7 @@ class OverlayController:
           矩形，圆判定会漏掉左右两侧）；与 db 项共用同一矩形，投影用
           ``overlay.project_to_minimap`` 以相同的 player/scale/center 上下文，与 db 项
           投影完全一致，因此稳定、不随远处抖动。
-        - 每个 section 按原始节点顺序生成完整的 :class:`PathLayer`，原生覆盖层
+        - 每个 section 按原始节点顺序生成完整的 :class:`PathLayer`，Qt 窗口
           在窗口边界裁剪连线，保留跨越可见区域边界的线段。节点图标和命中区按
           ``view_bounds`` 筛选。
         - 命中区与 ClickTarget 只为**可见节点**生成，且使用节点在 section 内的**原始
@@ -2516,6 +2497,8 @@ class OverlayController:
         return creator.window
 
     def _hide_interaction_window(self) -> None:
+        if self._bigmap_line_window is not None:
+            self._bigmap_line_window.hide_overlay()
         # Leaving the big map clears any interactive content + bubble state
         # (Requirements 1.8, 2.6: no bubbles outside Bigmap_Mode).
         self._bubble = None
@@ -2543,6 +2526,8 @@ class OverlayController:
             self._client_geometry(), bearing, minimap_box,
             distance=distance, target_marker=target_marker, nearby=nearby,
             hint_text=self._chest_hint_for_target(self._chest_target),
+            guide_target=(self._context_state_id(), str(self._chest_target.location_id))
+            if self._chest_target is not None and self._context_state_id() is not None else None,
         )
         self._last_minimap_direction_at = time.monotonic()
         return True
@@ -2582,7 +2567,7 @@ class OverlayController:
         logger.info("[MinimapDirectionQt] window created")
         return window
 
-    def _create_minimap_direction_window(self):
+    def _create_minimap_direction_window(self, window_type=None):
         from PySide6.QtCore import QMetaObject, QObject, Qt, Slot
         from PySide6.QtWidgets import QApplication
 
@@ -2602,7 +2587,7 @@ class OverlayController:
                     from src.utils.MinimapDirectionWindow import (
                         MinimapDirectionWindow,
                     )
-                    self.window = MinimapDirectionWindow()
+                    self.window = (window_type or MinimapDirectionWindow)()
                 except Exception as exc:  # pragma: no cover - Qt runtime
                     self.error = exc
 
@@ -2650,10 +2635,13 @@ class OverlayController:
             self._interaction_window = None
         if self._minimap_direction_window is not None:
             try:
-                self._minimap_direction_window.hide_overlay()
+                self._minimap_direction_window.close_overlay()
             except Exception:  # pragma: no cover - Qt runtime
                 pass
             self._minimap_direction_window = None
+        if self._bigmap_line_window is not None:
+            self._bigmap_line_window.close_overlay()
+            self._bigmap_line_window = None
         if self._marks_db is not None:
             try:
                 self._marks_db.close()

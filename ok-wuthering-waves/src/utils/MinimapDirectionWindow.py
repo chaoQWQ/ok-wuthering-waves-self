@@ -1,12 +1,3 @@
-"""Click-through Qt overlay for the selected chest's minimap direction.
-
-The native ok GDI overlay can be created without an owner window and, on some
-Windows/DPI combinations, remains behind the game even though its render
-callback succeeds. This small Qt window uses the same proven transparent,
-always-on-top approach as the interactive big-map overlay, but is completely
-input-transparent. It performs no capture or input of its own.
-"""
-
 from __future__ import annotations
 
 import ctypes
@@ -44,9 +35,10 @@ class MinimapDirectionWindow(QWidget):
     """Transparent, non-activating and fully click-through direction window."""
 
     _frame_requested = Signal(
-        object, object, object, object, object, object, object
+        object, object, object, object, object, object, object, object
     )
     _hide_requested = Signal()
+    _close_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -65,30 +57,47 @@ class MinimapDirectionWindow(QWidget):
         self._target_marker = None
         self._nearby = False
         self._hint_text = ""
+        self._guide_target = None
+        self._guide_pixmap = None
+        self._guide_description = None
+        self._guide_status = ""
+        self._guide_cache = None
         self._no_activate_applied = False
         self._last_frame = None
         self._frame_requested.connect(self._do_frame, Qt.QueuedConnection)
         self._hide_requested.connect(self._do_hide, Qt.QueuedConnection)
+        self._close_requested.connect(self._do_close, Qt.QueuedConnection)
 
     def render_direction(self, geometry, bearing, minimap_box, distance=None,
-                         target_marker=None, nearby=False, hint_text=""):
+                         target_marker=None, nearby=False, hint_text="", guide_target=None):
         self._frame_requested.emit(
             tuple(geometry), float(bearing), minimap_box,
             None if distance is None else float(distance),
             None if target_marker is None else tuple(target_marker), bool(nearby),
             str(hint_text or ""),
+            guide_target,
         )
+
+    def close_overlay(self):
+        self._close_requested.emit()
+
+    def _do_close(self):
+        self._guide_target = None
+        if self._guide_cache is not None:
+            self._guide_cache.stop()
+        self.close()
 
     def hide_overlay(self):
         self._hide_requested.emit()
 
     def _do_frame(self, geometry, bearing, minimap_box, distance, target_marker,
-                  nearby, hint_text):
+                  nearby, hint_text, guide_target=None):
         geometry = tuple(int(value) for value in geometry)
         frame_key = (
             geometry, float(bearing), minimap_box.x, minimap_box.y,
             minimap_box.width, minimap_box.height, distance, target_marker,
             bool(nearby), str(hint_text or ""),
+            guide_target,
         )
         if self.isVisible() and frame_key == self._last_frame:
             return
@@ -101,16 +110,56 @@ class MinimapDirectionWindow(QWidget):
         self._target_marker = target_marker
         self._nearby = bool(nearby)
         self._hint_text = str(hint_text or "")
+        if guide_target != self._guide_target:
+            self._guide_target = guide_target
+            self._guide_pixmap = None
+            self._guide_description = None
+            self._guide_status = ""
+            if guide_target is not None:
+                self._load_guide(guide_target)
         if not self.isVisible():
             self.show()
             self.raise_()
         self.update()
+
+    def _load_guide(self, target):
+        from src.utils.GuideImageCache import GuideImageCache
+        if self._guide_cache is None:
+            self._guide_cache = GuideImageCache()
+        self._guide_status = "loading"
+
+        def details_ready(details, status):
+            if self._guide_target != target:
+                return
+            self._guide_status = status
+            if status == "ready":
+                content = details['content']
+                self._guide_description = str(content.get('description') or '')
+                urls = content.get('picturesUrl') or []
+                if urls:
+                    self._guide_status = "loading"
+
+                    def image_ready(_image, image_status):
+                        if self._guide_target == target:
+                            self._guide_status = image_status
+                            self._guide_pixmap = self._guide_cache.get_pixmap(target[1], urls[0]) if image_status == "ready" else None
+                            self.update()
+
+                    self._guide_cache.request_image(target[1], urls[0], image_ready)
+                else:
+                    self._guide_status = "no_image"
+            self.update()
+
+        self._guide_cache.request_details(target[0], target[1], details_ready)
 
     def _do_hide(self):
         self._last_frame = None
         self._bearing = None
         self._target_marker = None
         self._hint_text = ""
+        self._guide_target = None
+        self._guide_pixmap = None
+        self._guide_description = None
         if self.isVisible():
             self.hide()
 
@@ -181,12 +230,9 @@ class MinimapDirectionWindow(QWidget):
             painter.drawText(banner.adjusted(10, 0, -8, 0),
                              Qt.AlignVCenter | Qt.AlignLeft, text)
 
-            # This is the same location.description shown when the user clicks
-            # the selected marker on the big map.  Keep it close to the stable
-            # direction/distance banner so manual navigation and the opening
-            # method can be read together.  The window remains fully
-            # click-through; this panel adds no interaction or input handling.
-            if self._hint_text:
+            # 当前目标的说明和参考图片显示在方向提示下面。
+            hint_text = self._guide_description if self._guide_description else self._hint_text
+            if hint_text or self._guide_status:
                 hint_width = 455.0
                 hint_x = float(box.x)
                 hint_y = banner.bottom() + 7.0
@@ -197,11 +243,13 @@ class MinimapDirectionWindow(QWidget):
                 measured = metrics.boundingRect(
                     body_probe.toRect(),
                     Qt.TextWordWrap | Qt.AlignLeft | Qt.AlignTop,
-                    self._hint_text,
+                    hint_text,
                 )
                 body_height = min(126.0, max(22.0, float(measured.height())))
                 hint_box = QRectF(
                     hint_x, hint_y, hint_width, body_height + 40.0
+                    + (self._guide_pixmap.height() + 12 if self._guide_pixmap is not None else 0)
+                    + (24 if self._guide_status in ('loading', 'failed') else 0)
                 )
                 painter.setBrush(QColor(0, 0, 0, 218))
                 painter.setPen(QPen(QColor(255, 215, 30), 2))
@@ -221,7 +269,46 @@ class MinimapDirectionWindow(QWidget):
                         hint_box.width() - 20.0, body_height + 4.0,
                     ),
                     Qt.TextWordWrap | Qt.AlignLeft | Qt.AlignTop,
-                    self._hint_text,
+                    hint_text,
                 )
+                image_y = hint_box.y() + body_height + 36
+                if self._guide_pixmap is not None:
+                    painter.drawPixmap(int(hint_box.x() + 10), int(image_y), self._guide_pixmap)
+                elif self._guide_status in ('loading', 'failed'):
+                    painter.drawText(QRectF(hint_box.x() + 10, image_y, hint_width - 20, 24),
+                                     Qt.AlignLeft, '参考图片加载中…' if self._guide_status == 'loading' else '参考图片加载失败')
+        finally:
+            painter.end()
+
+
+class BigmapLineWindow(MinimapDirectionWindow):
+    _routes_requested = Signal(object, object)
+
+    def __init__(self):
+        super().__init__()
+        self._path_layers = ()
+        self._routes_requested.connect(self._do_routes, Qt.QueuedConnection)
+
+    def render_routes(self, geometry, layers):
+        self._routes_requested.emit(tuple(geometry), tuple(layers))
+
+    def _do_routes(self, geometry, layers):
+        if self.geometry().getRect() != tuple(geometry):
+            self.setGeometry(*geometry)
+        self._path_layers = layers
+        if layers:
+            if not self.isVisible():
+                self.show()
+                self.raise_()
+            self.update()
+        else:
+            self.hide()
+
+    def paintEvent(self, event):
+        from src.utils.MapItemOverlay import paint_path_layers
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        try:
+            paint_path_layers(painter, self._path_layers, draw_nodes=False)
         finally:
             painter.end()
