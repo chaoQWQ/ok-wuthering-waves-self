@@ -157,9 +157,6 @@ class MinimapDirectionWindow(QWidget):
         self._bearing = None
         self._target_marker = None
         self._hint_text = ""
-        self._guide_target = None
-        self._guide_pixmap = None
-        self._guide_description = None
         if self.isVisible():
             self.hide()
 

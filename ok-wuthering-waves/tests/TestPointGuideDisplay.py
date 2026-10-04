@@ -177,6 +177,12 @@ class TestPointGuideDisplay(unittest.TestCase):
         section = self.controller._route.sections[0]
         self.assertEqual(section.section_id, second_id)
         self.assertEqual(self.controller._chest_target.location_id, section.nodes[0].position_id)
+        guide_target = (8, str(section.nodes[0].position_id))
+        self.assertEqual(self.controller._chest_guide_target(), guide_target)
+        self.task._locked_map_id = None
+        self.controller._update_kuro_route(None, None)
+        self.assertEqual(self.controller._chest_guide_target(), guide_target)
+        self.task._locked_map_id = 8
         layers, items, boxes, targets = self.controller._build_visible_path(
             section.nodes[0].x, section.nodes[0].y, 0.01, 400, 300, (0, 0, 800, 600))
         self.assertEqual(len(layers), 1)
@@ -184,6 +190,8 @@ class TestPointGuideDisplay(unittest.TestCase):
         self.assertTrue(all(t.section_id == second_id for t in targets))
         restored = Config('guide-test', self.task.default_config, folder=self.directory.name)
         self.assertEqual(restored['_Kuro route section'], second_id)
+        self.controller._clear_chest_target()
+        self.assertIsNone(self.controller._chest_guide_target())
 
     def test_native_direction_arrow_pixels(self):
         import ctypes
@@ -229,6 +237,13 @@ class TestPointGuideDisplay(unittest.TestCase):
             self.assertEqual(window._guide_status, 'ready')
             self.assertFalse(window._guide_pixmap.isNull())
             self.assertIn('完成能量矩阵解密获得', window._guide_description)
+            pixmap = window._guide_pixmap
+            for index in range(20):
+                window.render_direction((0, 0, 800, 600), 175 + index, Box(20, 20, 150, 150),
+                                        distance=1564 - index, hint_text='该地点暂无描述', guide_target=(8, POINT_ID))
+                self.app.processEvents()
+                self.assertIs(window._guide_pixmap, pixmap)
+                self.assertEqual(window._guide_status, 'ready')
             self.app.processEvents()
             image = window.grab().toImage()
             self.assertGreater(image.pixelColor(100, 340).alpha(), 0)
@@ -237,7 +252,14 @@ class TestPointGuideDisplay(unittest.TestCase):
                 self.assertTrue(image.save(screenshot))
             window.hide_overlay()
             self.app.processEvents()
-            self.assertIsNone(window._guide_target)
+            self.assertFalse(window.isVisible())
+            self.assertIs(window._guide_pixmap, pixmap)
+            window.render_direction((0, 0, 800, 600), 175, Box(20, 20, 150, 150),
+                                    distance=1564, hint_text='该地点暂无描述', guide_target=(8, POINT_ID))
+            self.app.processEvents()
+            self.assertIs(window._guide_pixmap, pixmap)
+            window.render_direction((0, 0, 800, 600), 175, Box(20, 20, 150, 150), guide_target=None)
+            self.app.processEvents()
             self.assertIsNone(window._guide_pixmap)
         finally:
             window.close_overlay()

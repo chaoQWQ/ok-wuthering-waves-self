@@ -2526,11 +2526,15 @@ class OverlayController:
             self._client_geometry(), bearing, minimap_box,
             distance=distance, target_marker=target_marker, nearby=nearby,
             hint_text=self._chest_hint_for_target(self._chest_target),
-            guide_target=(self._context_state_id(), str(self._chest_target.location_id))
-            if self._chest_target is not None and self._context_state_id() is not None else None,
+            guide_target=self._chest_guide_target(),
         )
         self._last_minimap_direction_at = time.monotonic()
         return True
+
+    def _chest_guide_target(self):
+        if self._chest_target is None or self._chest_target_map_id is None:
+            return None
+        return int(self._chest_target_map_id), str(self._chest_target.location_id)
 
     @staticmethod
     def _manual_movement_active():
