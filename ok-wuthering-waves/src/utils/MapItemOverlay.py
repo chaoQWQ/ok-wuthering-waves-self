@@ -433,7 +433,96 @@ def _native_edge_indicator_geometry(bearing_deg, minimap_box):
     return tuple(markers), (label_x, label_y)
 
 
-def _paint_native_canvas(painter, draw_items, edge_arrow=None,
+def _native_draw_path_layers(painter, path_layers, highlight_color=None):
+    """在 GDI 原生画布上绘制路线连线与方向箭头。
+
+    GdiCanvas 仅暴露 rectangle 和 text，但其 hdc 属性可直接调用底层 GDI
+    MoveToEx/LineTo/CreatePen/DeleteObject 画线。若 hdc 不可用（非 Windows
+    环境或单元测试 mock），则回退到用小正方形采样折线近似。
+
+    每段连线宽度 4px（含 2px 黑色描边，避免在浅色地图上消失）。
+    方向箭头在线段中点用填充小矩形表示。当前目标段（highlight_color 非 None）
+    用更高亮的颜色绘制，线宽加粗为 6px。
+    """
+    if not path_layers:
+        return
+    try:
+        import ctypes
+        import os as _os
+        if _os.name == 'nt':
+            import ctypes.wintypes as wintypes
+            gdi32 = ctypes.windll.gdi32
+            PS_SOLID = 0
+            NULL_BRUSH = 5
+
+            def _rgb_gdi(r, g, b):
+                return r | (g << 8) | (b << 16)
+
+            def _draw_gdi_line(hdc, x1, y1, x2, y2, color_rgb, width):
+                pen = gdi32.CreatePen(PS_SOLID, max(1, width), color_rgb)
+                old_pen = gdi32.SelectObject(hdc, pen)
+                old_brush = gdi32.SelectObject(hdc, gdi32.GetStockObject(NULL_BRUSH))
+                gdi32.MoveToEx(hdc, x1, y1, None)
+                gdi32.LineTo(hdc, x2, y2)
+                gdi32.SelectObject(hdc, old_pen)
+                gdi32.SelectObject(hdc, old_brush)
+                gdi32.DeleteObject(pen)
+
+            hdc = getattr(painter, 'hdc', None)
+            ratio = float(getattr(painter, 'ratio', 1.0))
+            if hdc:
+                for layer in path_layers:
+                    rgb = _native_color_tuple(getattr(layer, 'color', None))
+                    points = list(getattr(layer, 'points', ()) or ())
+                    if len(points) < 2:
+                        continue
+                    gdi_color = _rgb_gdi(*rgb)
+                    # 黑色描边 +2px，先画背景色增强对比度
+                    outline_color = _rgb_gdi(0, 0, 0)
+                    for i in range(len(points) - 1):
+                        x1, y1 = int(points[i][0] * ratio), int(points[i][1] * ratio)
+                        x2, y2 = int(points[i+1][0] * ratio), int(points[i+1][1] * ratio)
+                        _draw_gdi_line(hdc, x1, y1, x2, y2, outline_color, 6)
+                        _draw_gdi_line(hdc, x1, y1, x2, y2, gdi_color, 4)
+                        # 线段中点画方向小方块（近似箭头）
+                        mx = (x1 + x2) // 2
+                        my = (y1 + y2) // 2
+                        painter.rectangle(
+                            int(mx / ratio) - 4, int(my / ratio) - 4, 8, 8,
+                            color=rgb, line_width=2,
+                        )
+                return
+    except Exception:
+        pass
+    # 回退路径：用小矩形采样折线（无底层 GDI hdc）
+    SAMPLE_STEP = 12
+    for layer in path_layers:
+        rgb = _native_color_tuple(getattr(layer, 'color', None))
+        points = list(getattr(layer, 'points', ()) or ())
+        if len(points) < 2:
+            continue
+        for i in range(len(points) - 1):
+            try:
+                x1, y1 = float(points[i][0]), float(points[i][1])
+                x2, y2 = float(points[i + 1][0]), float(points[i + 1][1])
+            except (TypeError, ValueError, IndexError):
+                continue
+            dx, dy = x2 - x1, y2 - y1
+            seg_len = math.hypot(dx, dy)
+            if seg_len < 1e-6:
+                continue
+            steps = max(1, int(seg_len / SAMPLE_STEP))
+            for step in range(steps + 1):
+                t = step / steps
+                px = int(x1 + t * dx)
+                py = int(y1 + t * dy)
+                painter.rectangle(px - 2, py - 2, 4, 4, color=rgb, line_width=1)
+            # 中点方向标记
+            mx = int((x1 + x2) / 2)
+            my = int((y1 + y2) / 2)
+            painter.rectangle(mx - 4, my - 4, 8, 8, color=rgb, line_width=2)
+
+def _paint_native_canvas(painter, draw_items, path_layers=(), edge_arrow=None,
                          target_marker=None, status_lines=None):
     """Render a minimal, visible marker set on ``ok``'s GDI canvas.
 
@@ -446,6 +535,9 @@ def _paint_native_canvas(painter, draw_items, edge_arrow=None,
     overlay and capture/input risk remain unchanged.  The Qt branch below
     remains the full-fidelity path used by the interactive big-map window.
     """
+    # 路线连线：在 draw_items 图标之前绘制，图标在上层覆盖连线末端。
+    if path_layers:
+        _native_draw_path_layers(painter, path_layers)
     half = ICON_SIZE // 2
     for item in draw_items:
         sx, sy, _pixmap, name, color = item[0], item[1], item[2], item[3], item[4]
@@ -1066,7 +1158,8 @@ class MapItemOverlay:
             if not (hasattr(painter, "setOpacity") and
                     hasattr(painter, "drawPixmap")):
                 _paint_native_canvas(
-                    painter, draw_items, edge_arrow=edge_arrow,
+                    painter, draw_items, path_layers=path_layers,
+                    edge_arrow=edge_arrow,
                     target_marker=target_marker, status_lines=status_lines,
                 )
                 return

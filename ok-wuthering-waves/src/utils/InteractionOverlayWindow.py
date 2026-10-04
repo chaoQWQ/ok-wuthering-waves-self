@@ -84,14 +84,18 @@ class BubbleSpec(NamedTuple):
     """A single Description_Bubble to render (Requirements 2.1, 2.2).
 
     ``x`` / ``y`` are the window-local anchor pixel (typically next to the
-    clicked icon) and ``text`` is the already-resolved bubble text (the empty
-    description placeholder is applied by the pure-logic ``bubble_text`` helper
-    before it reaches this window).
+    clicked icon) and ``text`` is the already-resolved bubble text.
+    ``title`` is an optional header (such as position name).
+    ``pixmap`` is an optional loaded preview QPixmap or QImage.
+    ``image_status`` communicates loading state: 'loading', 'failed', 'no_image', 'ready'.
     """
 
     x: int
     y: int
     text: str
+    title: str = ""
+    pixmap: Optional[Any] = None
+    image_status: str = ""
 
 
 # A Hit_Box entry accepted by ``update_mask``: either a bare ``Rect`` (z order
@@ -105,9 +109,19 @@ def _normalize_bubble(bubble) -> Optional[BubbleSpec]:
         return None
     if isinstance(bubble, BubbleSpec):
         return bubble
-    # Accept a plain (x, y, text) tuple for convenience.
-    if isinstance(bubble, (tuple, list)) and len(bubble) >= 3:
-        return BubbleSpec(int(bubble[0]), int(bubble[1]), str(bubble[2]))
+    # Accept a plain (x, y, text) tuple or extended tuple for convenience.
+    if isinstance(bubble, (tuple, list)):
+        if len(bubble) == 3:
+            return BubbleSpec(int(bubble[0]), int(bubble[1]), str(bubble[2]))
+        if len(bubble) >= 4:
+            return BubbleSpec(
+                int(bubble[0]),
+                int(bubble[1]),
+                str(bubble[2]),
+                str(bubble[3]),
+                bubble[4] if len(bubble) > 4 else None,
+                str(bubble[5]) if len(bubble) > 5 else "",
+            )
     return None
 
 
@@ -636,27 +650,43 @@ class InteractionOverlayWindow(QWidget):
     def _bubble_box_rect(self) -> Optional[QRect]:
         """Compute the current Description_Bubble box rectangle, or ``None``.
 
-        Shared by :meth:`_paint_bubble` (drawing) and
-        :meth:`_compose_mask_region` (masking) so the drawn box and the masked
-        region stay identical. The box is anchored at ``bubble.x/y``, sized to
-        the text via ``QFontMetrics`` of the same ``QFont("Arial", 10)`` used
-        when painting, then clamped to stay fully inside the window
-        (Requirement 2.1).
-
-        多行支持（问题2）：气泡文本可能包含 '\\n'（由 ``wrap_text`` 每 25 字换行）。
-        宽度取各行 ``horizontalAdvance`` 的最大值，高度取 ``行数 * metrics.height()``，
-        再各自加两侧 padding。
+        Supports optional title, multi-line description text, image preview
+        and status notices, clamped within client window boundaries.
         """
         bubble = self._bubble
         if bubble is None:
             return None
-        metrics = QFontMetrics(QFont("Arial", 10))
         pad = 6
-        lines = bubble.text.split("\n")
+        title_font = QFont("Arial", 11)
+        title_font.setBold(True)
+        title_metrics = QFontMetrics(title_font)
+        title_w = title_metrics.horizontalAdvance(bubble.title) if bubble.title else 0
+        title_h = (title_metrics.height() + 4) if bubble.title else 0
+
+        font = QFont("Arial", 10)
+        metrics = QFontMetrics(font)
+        lines = bubble.text.split("\n") if bubble.text else []
         text_w = max((metrics.horizontalAdvance(line) for line in lines), default=0)
         text_h = len(lines) * metrics.height()
-        box_w = text_w + pad * 2
-        box_h = text_h + pad * 2
+
+        img_w = 0
+        img_box_h = 0
+        pixmap = bubble.pixmap
+        if pixmap is not None and not getattr(pixmap, "isNull", lambda: True)():
+            img_w = min(280, pixmap.width())
+            img_h = min(180, pixmap.height())
+            img_box_h = img_h + 6
+
+        status_w = 0
+        status_box_h = 0
+        status_text = self._bubble_status_text(bubble.image_status)
+        if status_text:
+            status_w = metrics.horizontalAdvance(status_text)
+            status_box_h = metrics.height() + 4
+
+        content_w = max(title_w, text_w, img_w, status_w, 140)
+        box_w = content_w + pad * 2
+        box_h = title_h + text_h + img_box_h + status_box_h + pad * 2
 
         bx = bubble.x
         by = bubble.y
@@ -666,26 +696,72 @@ class InteractionOverlayWindow(QWidget):
             by = max(0, self.height() - box_h)
         return QRect(int(bx), int(by), int(box_w), int(box_h))
 
+    @staticmethod
+    def _bubble_status_text(status: str) -> str:
+        if status == "loading":
+            return "（参考图片加载中...）"
+        if status == "failed":
+            return "（参考图片加载失败）"
+        if status == "no_image":
+            return "（暂无参考图片）"
+        return ""
+
     def _paint_bubble(self, painter) -> None:
         rect = self._bubble_box_rect()
         if rect is None:
             return
         bubble = self._bubble
         painter.setOpacity(1.0)
+        pad = 6
+
+        # Draw translucent background bubble
+        painter.setPen(QPen(QColor(0, 0, 0, 200), 1))
+        painter.setBrush(QBrush(QColor(30, 30, 30, 230)))
+        painter.drawRoundedRect(rect, 6, 6)
+
+        curr_y = rect.y() + pad
+
+        # 1. Title (if present)
+        if bubble.title:
+            title_font = QFont("Arial", 11)
+            title_font.setBold(True)
+            painter.setFont(title_font)
+            title_metrics = painter.fontMetrics()
+            painter.setPen(QPen(QColor(255, 215, 0), 1))  # Gold title
+            painter.drawText(rect.x() + pad, curr_y + title_metrics.ascent(), bubble.title)
+            curr_y += title_metrics.height() + 4
+
+        # 2. Text description
         font = QFont("Arial", 10)
         painter.setFont(font)
         metrics = painter.fontMetrics()
-        pad = 6
-
-        painter.setPen(QPen(QColor(0, 0, 0, 200), 1))
-        painter.setBrush(QBrush(QColor(30, 30, 30, 220)))
-        painter.drawRoundedRect(rect, 6, 6)
         painter.setPen(QPen(QColor(255, 255, 255), 1))
-        # 多行逐行绘制（问题2）：首行基线为 rect.y()+pad+ascent，之后每行递增 height()。
-        line_h = metrics.height()
-        base_y = rect.y() + pad + metrics.ascent()
-        for i, line in enumerate(bubble.text.split("\n")):
-            painter.drawText(rect.x() + pad, base_y + i * line_h, line)
+        if bubble.text:
+            base_y = curr_y + metrics.ascent()
+            for i, line in enumerate(bubble.text.split("\n")):
+                painter.drawText(rect.x() + pad, base_y + i * metrics.height(), line)
+            curr_y += len(bubble.text.split("\n")) * metrics.height()
+
+        # 3. Image preview (if present)
+        pixmap = bubble.pixmap
+        if pixmap is not None and not getattr(pixmap, "isNull", lambda: True)():
+            curr_y += 4
+            target_w = min(280, pixmap.width())
+            target_h = min(180, pixmap.height())
+            if pixmap.width() != target_w or pixmap.height() != target_h:
+                from PySide6.QtCore import Qt
+                scaled_pm = pixmap.scaled(target_w, target_h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            else:
+                scaled_pm = pixmap
+            painter.drawPixmap(rect.x() + pad, curr_y, scaled_pm)
+            curr_y += scaled_pm.height() + 4
+
+        # 4. Status note (if present)
+        status_text = self._bubble_status_text(bubble.image_status)
+        if status_text:
+            curr_y += 2
+            painter.setPen(QPen(QColor(180, 180, 180), 1))
+            painter.drawText(rect.x() + pad, curr_y + metrics.ascent(), status_text)
 
 
 __all__ = [

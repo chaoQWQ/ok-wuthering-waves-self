@@ -66,6 +66,7 @@ class PathNode:
     x: float
     y: float
     position_img: str = ""
+    guide_img: str = ""
 
 
 @dataclass(frozen=True)
@@ -153,6 +154,7 @@ def _parse_node(raw: Any) -> Optional[PathNode]:
         x=x,
         y=y,
         position_img=str(raw.get("positionImg") or ""),
+        guide_img=str(raw.get("guideImg") or raw.get("guide_img") or raw.get("detailImg") or ""),
     )
 
 
@@ -297,6 +299,8 @@ def build_path_layers(
     center_x: float,
     center_y: float,
     node_pixmap_getter: Optional[Callable[[str], Any]] = None,
+    target_node_id: Optional[str] = None,
+    highlight_color: ColorTuple = (255, 60, 60),
 ) -> Tuple[PathLayer, ...]:
     """Build one :class:`PathLayer` per Section from a parsed route.
 
@@ -325,6 +329,7 @@ def build_path_layers(
     if route.state_id != context_state_id:
         return ()
 
+    target_id_str = str(target_node_id) if target_node_id is not None else None
     layers = []
     for section in route.sections:
         points = tuple(
@@ -340,9 +345,14 @@ def build_path_layers(
             node_pixmaps = tuple(
                 node_pixmap_getter(node.position_img) for node in section.nodes
             )
+        color = (
+            highlight_color
+            if target_id_str is not None and target_id_str in node_ids
+            else section.color
+        )
         layers.append(
             PathLayer(
-                color=section.color,
+                color=color,
                 points=points,
                 node_ids=node_ids,
                 node_pixmaps=node_pixmaps,

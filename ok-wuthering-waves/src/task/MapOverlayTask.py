@@ -378,6 +378,8 @@ class OverlayController:
         # At most one Description_Bubble at a time (Requirement 2.2). Stored as a
         # plain ``(x, y, text)`` tuple consumed by InteractionOverlayWindow.
         self._bubble = None
+        self._bubble_ref_id = None
+        self._guide_image_cache = None
         # Player position captured when the bubble was opened, so a subsequent
         # big-map pan/move can close it (Requirement 2.5).
         self._bubble_player_pos = None
@@ -568,6 +570,29 @@ class OverlayController:
             return None
         return self._icon_cache
 
+    def _ensure_guide_image_cache(self):
+        """Lazily initialize the guide image downloader and cache."""
+        if self._guide_image_cache is not None:
+            return self._guide_image_cache
+        try:
+            from src.utils.GuideImageCache import GuideImageCache
+            guide_dir = os.path.join(MAP_DIR, 'guide_image_cache')
+            self._guide_image_cache = GuideImageCache(cache_dir=guide_dir)
+            return self._guide_image_cache
+        except Exception as exc:
+            logger.warning("[Overlay] guide image cache create failed: %s", exc)
+            return None
+
+    def _find_route_node(self, section_id: int, index: int):
+        """Find the corresponding PathNode from the active route by section and index."""
+        if self._route is None:
+            return None
+        for section in self._route.sections:
+            if section.section_id == section_id:
+                if 0 <= index < len(section.nodes):
+                    return section.nodes[index]
+        return None
+
     def _prefetch_node_icons(self) -> None:
         """Enqueue a prefetch for every route node's ``positionImg`` (Req 11.7).
 
@@ -674,7 +699,9 @@ class OverlayController:
                 or self._kuro_enabled()) and not self._path_mode
 
     def _kuro_enabled(self):
-        return bool(self.task.config.get('Kuro route navigation', False))
+        task = getattr(self, 'task', None)
+        config = getattr(task, 'config', None) if task is not None else None
+        return bool(config.get('Kuro route navigation', False)) if config is not None else False
 
     def _update_kuro_route(self, player_pos, state_id):
         data = self.task.config.get('_Kuro route', {})
@@ -763,7 +790,7 @@ class OverlayController:
         if overlay is not None:
             description = overlay.get_location_description(target.location_id)
         text = bubble_text(description)
-        if self._kuro_enabled() and self._kuro_navigation is not None:
+        if self._kuro_enabled() and getattr(self, '_kuro_navigation', None) is not None:
             author_notes = self._kuro_navigation.route.description.strip()
             if author_notes:
                 text = f'{text}\n路线说明：{author_notes}'
@@ -834,7 +861,7 @@ class OverlayController:
         stable while the player moves between frames.
         """
         enabled = self._kuro_enabled()
-        if enabled != self._kuro_was_enabled:
+        if enabled != getattr(self, '_kuro_was_enabled', False):
             self._kuro_was_enabled = enabled
             self._clear_chest_target()
         if not self._chest_search_enabled():
@@ -1307,10 +1334,63 @@ class OverlayController:
             if overlay is not None and target.ref_id is not None:
                 description = overlay.get_location_description(target.ref_id)
             text = bubble_text(description)
+            title = target.name or "资源点详情"
+            self._set_bubble(target.sx, target.sy, text, title=title, pixmap=None, image_status="no_image", ref_id=target.ref_id)
+            self._rerender_bigmap()
+            return
+
+        node = self._find_route_node(target.section_id, target.index)
+        title = target.name or (node.position_name if node else "路线节点")
+        text = bubble_text(node.position_name if node else target.name)
+        img_rel = ""
+        if node:
+            img_rel = getattr(node, 'guide_img', '') or getattr(node, 'position_img', '')
+
+        if not img_rel:
+            logger.info("[GuideImage] 路线节点 %s 未包含攻略图片", target.ref_id)
+            self._set_bubble(target.sx, target.sy, text, title=title, pixmap=None, image_status="no_image", ref_id=target.ref_id)
+            self._rerender_bigmap()
+            return
+
+        from src.utils.GuideImageCache import build_kuro_image_url
+        url = build_kuro_image_url(img_rel)
+        if not url:
+            logger.warning("[GuideImage] 路线节点 %s 的图片 URL 不在可信域名内: %s", target.ref_id, img_rel)
+            self._set_bubble(target.sx, target.sy, text, title=title, pixmap=None, image_status="failed", ref_id=target.ref_id)
+            self._rerender_bigmap()
+            return
+
+        cache = self._ensure_guide_image_cache()
+        if cache is None:
+            self._set_bubble(target.sx, target.sy, text, title=title, pixmap=None, image_status="failed", ref_id=target.ref_id)
+            self._rerender_bigmap()
+            return
+
+        pixmap = cache.get_pixmap(target.ref_id, url)
+        if pixmap is not None:
+            self._set_bubble(target.sx, target.sy, text, title=title, pixmap=pixmap, image_status="ready", ref_id=target.ref_id)
+            self._rerender_bigmap()
         else:
-            text = bubble_text(target.name)
-        self._set_bubble(target.sx, target.sy, text)
-        self._rerender_bigmap()
+            self._set_bubble(target.sx, target.sy, text, title=title, pixmap=None, image_status="loading", ref_id=target.ref_id)
+            self._rerender_bigmap()
+
+            def on_guide_loaded(_img, status):
+                if self._bubble is not None and self._bubble_ref_id == target.ref_id:
+                    pm = cache.get_pixmap(target.ref_id, url)
+                    self._set_bubble(target.sx, target.sy, text, title=title, pixmap=pm, image_status=status, ref_id=target.ref_id)
+                    self._rerender_bigmap()
+
+            cache.request_image(target.ref_id, url, on_ready=on_guide_loaded)
+
+
+
+
+
+
+
+
+
+
 
     def on_double_click(self, idx) -> None:
         """Left double click: set/replace the Target on a route node.
@@ -1393,6 +1473,7 @@ class OverlayController:
             return
         self._bubble = None
         self._bubble_player_pos = None
+        self._bubble_ref_id = None
         self._rerender_bigmap()
 
     # ------------------------------------------------------------------
@@ -1637,12 +1718,19 @@ class OverlayController:
         except Exception as e:  # pragma: no cover - Qt/win32 runtime specific
             logger.warning(f"[Overlay] restore game focus failed: {e}")
 
-    def _set_bubble(self, sx, sy, text) -> None:
+    def _set_bubble(self, sx, sy, text, title="", pixmap=None, image_status="", ref_id=None) -> None:
         """Store the single allowed bubble anchored next to the clicked icon."""
         # 问题2：描述每 25 字硬换行为多行气泡后再存储，交由交互窗口按行绘制。
         text = wrap_text(text, 25)
         half = ICON_SIZE // 2
-        self._bubble = (int(sx) + half, int(sy) - half, text)
+        from src.utils.InteractionOverlayWindow import BubbleSpec
+        self._bubble = BubbleSpec(
+            int(sx) + half, int(sy) - half, text,
+            title=str(title or ""),
+            pixmap=pixmap,
+            image_status=str(image_status or ""),
+        )
+        self._bubble_ref_id = ref_id
         self._bubble_player_pos = self._current_player_pos
 
     def _close_bubble_if_panned(self, player_pos) -> None:
@@ -1656,6 +1744,7 @@ class OverlayController:
         if int(prev[0]) != int(player_pos[0]) or int(prev[1]) != int(player_pos[1]):
             self._bubble = None
             self._bubble_player_pos = None
+            self._bubble_ref_id = None
 
     def _rerender_bigmap(self) -> None:
         """Repaint the big-map window with the cached content + current bubble.
@@ -1785,7 +1874,7 @@ class OverlayController:
             if overlay_view is None:
                 return
             callback = MapItemOverlay.make_paint_callback(
-                [], path_layers=line_layers, draw_path_nodes=False, clip_box=None,
+                [], path_layers=line_layers, draw_path_nodes=False, clip_box=None, target_marker=self._last_target_marker,
             )
             overlay_view.draw(
                 OVERLAY_DRAW_KEY, callback, duration=OVERLAY_DRAW_DURATION
@@ -1925,6 +2014,8 @@ class OverlayController:
         # 节点图标：优先使用该节点从网络下载的专属图标（NodeIconCache），未就绪 / 无
         # positionImg / 下载失败时回退统一的 qzx_04（Requirements 5.2, 11.8, 11.9）。
         # 颜色从 MapItemOverlay 常量取，opacity 依完成集合决定（完成路线节点变暗 0.4）。
+        target_curr_node = self._target_node()
+        target_id_str = str(target_curr_node.position_id) if target_curr_node is not None else None
         fallback_pixmap = ITEM_PIXMAPS.get(PATH_NODE_ICON_KEY)
         node_color = ITEM_COLORS.get(PATH_NODE_ICON_KEY)
         for section in self._route.sections:
@@ -1955,7 +2046,7 @@ class OverlayController:
                 run_node_ids = tuple(nodes[k].position_id for k in range(i, j + 1))
                 clipped_layers.append(
                     PathLayer(
-                        color=section.color,
+                        color=(255, 60, 60) if (target_id_str is not None and target_id_str in run_node_ids) else section.color,
                         points=run_points,
                         node_ids=run_node_ids,
                     )
@@ -2073,6 +2164,7 @@ class OverlayController:
                 self._route, self._route.state_id,
                 player_x, player_y, scale, center_x, center_y,
                 node_pixmap_getter=self._node_pixmap,
+                target_node_id=str(self._target_node().position_id) if self._target_node() is not None else None,
             )
         edge_arrow = self._edge_arrow(player_pos, minimap_box)
         # 目标红圈（问题1b）：tracker 有目标时取目标节点，投影到小地图坐标作为
@@ -2538,6 +2630,12 @@ class OverlayController:
             except Exception:  # pragma: no cover - thread/runtime specific
                 pass
             self._icon_cache = None
+        if self._guide_image_cache is not None:
+            try:
+                self._guide_image_cache.stop()
+            except Exception:
+                pass
+            self._guide_image_cache = None
         if self._interaction_window is not None:
             try:
                 self._interaction_window.hide_overlay()
