@@ -41,7 +41,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             "Auto Combat in Quest": True,
             "Auto Skip Dialog": True,
             "Letterbox Freeze Wait Seconds": 30.0,
-            "API URL": "",
+            "API URL": "https://api.typesafe.ai/v1/systemone",
             "API Key": "",
             "Camera Sensitivity": 1.0,
         }

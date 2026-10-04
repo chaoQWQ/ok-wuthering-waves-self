@@ -103,12 +103,14 @@ class TestQuestDecisionEngine(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_jev_response({"choices": [{"message": {"content": '{"action": "unknown_action"}'}}]})
 
-    def test_decide_via_jev_fast_fail_empty_url(self):
+    def test_decide_via_jev_fast_fail_invalid_url_or_key(self):
         frame = np.zeros((100, 100, 3), dtype=np.uint8)
+        # 验证非 http 开头的非法端点就地抛出 ValueError
         with self.assertRaises(ValueError):
-            decide_via_jev(frame, "任务目标", api_url="", api_key="secret")
+            decide_via_jev(frame, "任务目标", api_url="ftp://invalid", api_key="secret")
+        # 验证密钥为空时就地抛出 ValueError
         with self.assertRaises(ValueError):
-            decide_via_jev(frame, "任务目标", api_url="http://example.com", api_key="")
+            decide_via_jev(frame, "任务目标", api_url="", api_key="")
 
     def test_decide_quest_action_priority_local(self):
         frame = np.zeros((100, 100, 3), dtype=np.uint8)

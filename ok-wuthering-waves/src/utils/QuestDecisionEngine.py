@@ -134,6 +134,9 @@ def parse_jev_response(response_json: dict) -> QuestAction:
     )
 
 
+DEFAULT_JEV_API_URL = "https://api.typesafe.ai/v1/systemone"
+
+
 def decide_via_jev(
     frame: np.ndarray,
     quest_goal_text: str,
@@ -142,8 +145,9 @@ def decide_via_jev(
     is_frozen_letterbox: bool = False,
     timeout_seconds: float = 12.0
 ) -> QuestAction:
-    if not api_url or not api_url.startswith("http"):
-        raise ValueError("API 端点地址无效或为空")
+    endpoint = api_url.strip() if api_url and api_url.strip() else DEFAULT_JEV_API_URL
+    if not endpoint.startswith("http"):
+        raise ValueError("API 端点地址无效")
     if not api_key:
         raise ValueError("API Key 密钥不能为空")
 
@@ -155,7 +159,7 @@ def decide_via_jev(
         "Authorization": f"Bearer {api_key}"
     }
 
-    req = urllib.request.Request(api_url, data=req_body, headers=headers, method="POST")
+    req = urllib.request.Request(endpoint, data=req_body, headers=headers, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=timeout_seconds) as response:
             if response.status != 200:
