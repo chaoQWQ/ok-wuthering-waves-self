@@ -1992,3 +1992,24 @@ msgstr "載入路線"
 
 msgid "All sections"
 msgstr "全部分段"
+
+msgid "📜 Enhanced Quest Story Mode"
+msgstr "📜 劇情模式"
+
+msgid "Auto Combat in Quest"
+msgstr "劇情中自動戰鬥"
+
+msgid "Auto Skip Dialog"
+msgstr "自動跳過劇情對話"
+
+msgid "Letterbox Freeze Wait Seconds"
+msgstr "黑邊動畫靜止等待秒數"
+
+msgid "API URL"
+msgstr "API 介面位址"
+
+msgid "API Key"
+msgstr "API 存取金鑰"
+
+msgid "Camera Sensitivity"
+msgstr "鏡頭旋轉靈敏度"
