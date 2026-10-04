@@ -27,6 +27,7 @@ from src.utils.NodeIconCache import NodeIconCache
 from src.utils.PathRoute import load_path_route, build_path_layers, PathParseError, PathLayer, PATH_NODE_ICON_KEY
 from src.utils.ChestRoute import load_chest_route, ChestRouteParseError
 from src.utils.ChestGuidanceFilter import ChestGuidanceFilter
+from src.utils.KuroRoutes import KuroRoute, RouteNavigator
 from src.utils.MapDistance import format_distance_meters
 from src.utils.TargetTracker import (
     THRESHOLD_MIN, THRESHOLD_MAX, validate_threshold, TargetTracker,
@@ -339,7 +340,11 @@ class OverlayController:
     def __init__(self, task):
         self.task = task
         # Display mode mirrors the 'Path mode' config switch (Requirement 4.1).
-        self._path_mode = bool(task.config.get('Path mode', False))
+        self._path_mode = False
+        self._kuro_navigation = None
+        self._kuro_signature = None
+        self._kuro_skip_requested = False
+        self._kuro_was_enabled = False
         # Parsed route + target tracker, populated lazily on entering Path_Mode.
         self._route = None
         self._tracker = None
@@ -508,7 +513,7 @@ class OverlayController:
 
     def _sync_mode_from_config(self) -> None:
         """Pick up a 'Path mode' change made through the settings UI."""
-        cfg = bool(self.task.config.get('Path mode', False))
+        cfg = False
         if cfg != self._path_mode:
             self.set_path_mode(cfg)
 
@@ -664,7 +669,54 @@ class OverlayController:
     # ------------------------------------------------------------------
     def _chest_search_enabled(self) -> bool:
         """Whether Normal_Mode should keep a nearest chest target."""
-        return bool(self.task.config.get('Chest search', False)) and not self._path_mode
+        return (bool(self.task.config.get('Chest search', False))
+                or self._kuro_enabled()) and not self._path_mode
+
+    def _kuro_enabled(self):
+        return bool(self.task.config.get('Kuro route navigation', False))
+
+    def _update_kuro_route(self, player_pos, state_id):
+        data = self.task.config.get('_Kuro route', {})
+        section_id = int(self.task.config.get('_Kuro route section', 0))
+        self._ensure_marks()
+        signature = (json.dumps(data, sort_keys=True, ensure_ascii=False),
+                     section_id, self.task.config.get('Collection account', 'default'),
+                     self.task.config.get('_Kuro route revision', 0))
+        if signature != self._kuro_signature:
+            self._kuro_signature = signature
+            self._kuro_navigation = RouteNavigator(KuroRoute.from_data(data), section_id) if data else None
+            self._route = self._kuro_navigation.path if self._kuro_navigation else None
+            if self._route is not None:
+                self._prefetch_node_icons()
+            self._kuro_skip_requested = False
+            self._clear_chest_target()
+        navigation = self._kuro_navigation
+        if navigation is None:
+            self._clear_chest_target()
+            return
+        if state_id is not None and str(state_id) != str(navigation.path.state_id):
+            self._kuro_skip_requested = False
+            self._clear_chest_target()
+            return
+        # 未识别地图时保留已有目标，首次选择需要有效地图识别。
+        if state_id is None and self._chest_target is None:
+            return
+        if self._kuro_skip_requested:
+            navigation.skip()
+            self._kuro_skip_requested = False
+            self._clear_chest_target()
+        node = navigation.target(self._completed_ids)
+        if node is None:
+            self._clear_chest_target()
+            return
+        if self._chest_target is None or not self._same_id(self._chest_target.location_id, node.position_id):
+            self._clear_chest_target()
+            self._chest_target = ChestTarget(node.position_id, node.position_name,
+                                            node.position_type, node.x, node.y, 0.0)
+            self._chest_target_map_id = str(navigation.path.state_id)
+        distance = self._chest_distance(player_pos, self._chest_target)
+        if distance is not None:
+            self._chest_target = self._chest_target._replace(distance=distance)
 
     @staticmethod
     def _same_id(left, right) -> bool:
@@ -710,6 +762,10 @@ class OverlayController:
         if overlay is not None:
             description = overlay.get_location_description(target.location_id)
         text = bubble_text(description)
+        if self._kuro_enabled() and self._kuro_navigation is not None:
+            author_notes = self._kuro_navigation.route.description.strip()
+            if author_notes:
+                text = f'{text}\n路线说明：{author_notes}'
         self._chest_hint_target_id = target.location_id
         self._chest_hint_text = str(text)
         logger.info(
@@ -776,10 +832,16 @@ class OverlayController:
         after a confirmation or when the map changes.  This keeps the overlay
         stable while the player moves between frames.
         """
+        enabled = self._kuro_enabled()
+        if enabled != self._kuro_was_enabled:
+            self._kuro_was_enabled = enabled
+            self._clear_chest_target()
         if not self._chest_search_enabled():
             self._clear_chest_target()
             return
-        self._ensure_chest_route_loaded()
+        if self._kuro_enabled():
+            self._update_kuro_route(player_pos, state_id)
+            return
         if state_id is None:
             # Minimap feature matching can briefly lose the map lock while the
             # player turns, fights, or crosses detailed terrain.  The target
@@ -975,33 +1037,28 @@ class OverlayController:
             return '收集物搜寻：未启用'
         target = self._chest_target
         if target is None:
+            if self._kuro_enabled():
+                navigation = self._kuro_navigation
+                if navigation is not None and navigation.cursor >= len(navigation.nodes):
+                    return '库街区路线：本轮导航已结束'
+                return '库街区路线：等待地图和人物位置识别'
             return '收集物搜寻：当前地图无未确认目标'
         return (f'收集目标：{target.name} '
                 f'距离{format_distance_meters(target.distance)} 待确认')
 
     def _chest_route_status_info(self) -> Optional[str]:
         """Return the optional video-route validation status for the panel."""
-        if not self._chest_search_enabled():
+        if not self._kuro_enabled():
             return None
-        if not set(COLLECTION_GROUP_TYPE_IDS['Chests']).intersection(
-                selected_collection_type_ids(self.task.config)):
-            return None
-        route = self._ensure_chest_route_loaded()
-        if route is None:
-            if self._chest_route_load_failed:
-                return '宝箱路线：加载失败（已回退地图数据）'
-            return '宝箱路线：未配置'
-        if route.calibrated:
-            state = f'已校准{sum(bool(node.location_id) for node in route.nodes)}点'
-        else:
-            state = '点位待校准'
-        current_map = self.task._locked_map_id
-        try:
-            if current_map is not None and int(current_map) != route.state_id:
-                state += f'，当前地图{current_map}不匹配'
-        except (TypeError, ValueError):
-            pass
-        return f'宝箱路线：{route.route_label}（{state}）'
+        navigation = self._kuro_navigation
+        if navigation is None:
+            return '库街区路线：请在路线广场选择路线'
+        if self.task._locked_map_id is not None and str(self.task._locked_map_id) != str(navigation.path.state_id):
+            return f'库街区路线：{navigation.route.name}，请前往地图 {navigation.path.state_id}'
+        remaining = navigation.remaining(self._completed_ids)
+        return (f'库街区路线：{navigation.route.name} '
+                f'{min(navigation.cursor + 1, len(navigation.nodes))}/{len(navigation.nodes)} '
+                f'剩余 {remaining} 点')
 
     def _chest_minimap_visual(self, player_pos, state_id=None):
         """Build the minimap marker and edge arrow for the selected chest."""
@@ -1087,6 +1144,8 @@ class OverlayController:
             # 普通模式：先加载完成集合再绘制，使小地图排除已完成物品（问题1a）。
             # build_draw_items(minimap=True) 会剔除 completed_ids 中的项。
             self._ensure_marks()
+            if self._kuro_enabled():
+                self._update_chest_search(player_pos, state_id)
             self._process_chest_confirm(player_pos, state_id)
             self._update_chest_search(player_pos, state_id)
             target_marker, edge_arrow = self._chest_minimap_visual(
@@ -1141,7 +1200,12 @@ class OverlayController:
                 return
         self._sync_mode_from_config()
         if not self._path_mode:
-            self._process_chest_confirm(player_pos, self.task._locked_map_id)
+            if self._kuro_enabled():
+                if self._chest_confirm_requested:
+                    self._chest_confirm_requested = False
+                    self.task.info_set('Chest search', '请关闭大地图后确认当前路线目标')
+            else:
+                self._process_chest_confirm(player_pos, self.task._locked_map_id)
             self._update_chest_search(player_pos, self.task._locked_map_id)
         window = self._ensure_interaction_window()
         if window is None:
@@ -1342,6 +1406,10 @@ class OverlayController:
         With no target set, :meth:`TargetTracker.advance` is a no-op so the
         keypress changes nothing (Requirements 9.3, 9.4).
         """
+        if self._kuro_enabled():
+            if self._chest_target is not None:
+                self._kuro_skip_requested = True
+            return
         tracker = self._tracker
         if tracker is None:
             return
@@ -1787,7 +1855,7 @@ class OverlayController:
         # 两模式互斥（显式 if/else，不再经 select_overlay_content）：
         # - 路线模式：交互窗口画可见节点图标 + 命中区，连线走 ok 覆盖层；
         # - 普通模式：交互窗口画 db 宝箱项 + 命中区，无连线。
-        if self._path_mode and self._route is not None:
+        if (self._path_mode or self._kuro_enabled()) and self._route is not None:
             clipped_layers, node_draw_items, node_hitboxes, node_click_targets = \
                 self._build_visible_path(
                     player_x, player_y, scale, center_x, center_y, view_bounds
@@ -1896,7 +1964,7 @@ class OverlayController:
                     )
                     node_click_targets.append(
                         ClickTarget(
-                            kind='node', ref_id=node.position_id,
+                            kind='item' if self._kuro_enabled() else 'node', ref_id=node.position_id,
                             sx=int(px), sy=int(py),
                             section_id=section.section_id, index=k,
                             name=node.position_name,
@@ -1909,7 +1977,8 @@ class OverlayController:
                     if node_pixmap is None:
                         node_pixmap = fallback_pixmap
                     node_draw_items.append(
-                        (int(px), int(py), node_pixmap, node.position_name,
+                        (int(px), int(py), node_pixmap,
+                         f'{section.section_id}.{k + 1} {node.position_name}' if self._kuro_enabled() else node.position_name,
                          node_color,
                          opacity_for(node.position_id, self._completed_ids),
                          node.position_id, 0)
@@ -2107,7 +2176,7 @@ class OverlayController:
             return ()
 
         map_mode = '小地图' if minimap else '大地图'
-        path_desc = '路线模式' if self._path_mode else '普通模式'
+        path_desc = '库街区路线' if self._kuro_enabled() else ('路线模式' if self._path_mode else '普通模式')
         mode_desc = f'{map_mode} / {path_desc}'
 
         map_id = self.task._locked_map_id
@@ -2127,7 +2196,7 @@ class OverlayController:
             lines = format_status_lines(
                 player_pos, map_id, scale_per_1000, mode_desc, target_info
             )
-            if not self._path_mode and self.task.config.get('Chest search', False):
+            if self._chest_search_enabled():
                 lines.append(self._chest_status_info())
                 route_line = self._chest_route_status_info()
                 if route_line:
@@ -2146,7 +2215,7 @@ class OverlayController:
             None, self._status_last_map_id, self._status_last_scale,
             last_mode, last_target,
         )
-        if not self._path_mode and self.task.config.get('Chest search', False):
+        if self._chest_search_enabled():
             lines.append(self._chest_status_info())
             route_line = self._chest_route_status_info()
             if route_line:
@@ -2495,7 +2564,12 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
             '_Item type filter': ['qzx_01', 'qzx_02', 'qzx_03', 'qzx_04'],
             '_Feature algorithm': 'SIFTGZ',
             # Path Mode 开关：Normal_Mode(False) <-> Path_Mode(True)（需求 4.1）
-            'Path mode': False,
+            '_Path mode': False,
+            'Kuro route square': False,
+            'Kuro route navigation': False,
+            '_Kuro route': {},
+            '_Kuro route section': 0,
+            '_Kuro route revision': 0,
             # 到达阈值（游戏单位），默认 1000，有效范围 1..100000（需求 9.7、9.8）
             # 下划线前缀 = 不在面板显示
             '_Arrival threshold (game units)': 1000,
@@ -2529,7 +2603,7 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
             '_Chest confirm distance (world units)': CHEST_CONFIRM_DISTANCE_DEFAULT,
             CHEST_CONFIRM_POLL_MIGRATION_KEY: False,
             # 可选的视频路线清单；首个清单只验证来源/区域/数量，点位待校准。
-            'Chest route file': CHEST_ROUTE_FILE_DEFAULT,
+            '_Chest route file': '',
         })
         self.config_type['_Item type filter'] = {'type': 'multi_selection', 'options': [
             'qzx_01', 'qzx_02', 'qzx_03', 'qzx_04',
@@ -2539,6 +2613,10 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
             'text': 'Collection types',
             'icon': FluentIcon.SEARCH,
             'callback': self.choose_collection_types,
+        }
+        self.config_type['Kuro route square'] = {
+            'type': 'button', 'text': 'Kuro route square',
+            'icon': FluentIcon.SEARCH, 'callback': self.choose_kuro_route,
         }
         self.config_type['Collection account'] = {
             'type': 'drop_down',
@@ -2568,7 +2646,8 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         }
         # 面板可见文案统一用英文源串，由 i18n/<locale>/LC_MESSAGES/ok.po 提供翻译。
         self.config_description = {
-            'Path mode': 'Show only the route from assets/path.json, hide high-value items',
+            'Kuro route square': 'Search and load public Kuro routes',
+            'Kuro route navigation': 'Follow the selected route in order using the current completion profile',
             'Advance hotkey': 'Hotkey to advance the target manually (pynput format, e.g. <ctrl>+<f9>)',
             'Show status panel': 'Show the info panel at the bottom-left corner of the game window',
             'Download map assets': 'Download the latest map assets and extract them into the assets folder',
@@ -2579,7 +2658,6 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
             'Map display toggle hotkey': 'Hotkey to show or hide all map high-value-item overlays (pynput format, e.g. <ctrl>+<f8>)',
             'Chest confirm hotkey': 'Press after manually collecting the selected target to mark it as completed',
             '_Chest confirm distance (world units)': 'Only allow confirmation when the player is close to the selected chest',
-            'Chest route file': 'Optional video-route manifest; metadata-only routes do not change movement or chest selection',
         }
         self.config_type['_Chest confirm distance (world units)'] = {
             'min': 1, 'max': 100000,
@@ -2650,8 +2728,8 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
             ensure=True,
         )
         # 程序启动后模式总是重置回普通模式，避免上次退出时残留在路线模式。
-        if self.config.get('Path mode', False):
-            self.config['Path mode'] = False
+        if self.config.get('_Path mode', False):
+            self.config['_Path mode'] = False
         # 用户点“停止”只会让执行器暂停（不会走 disable/on_destroy），run() 随之停摆，
         # 交互窗口若不主动隐藏就会残留在游戏画面上，因此在这里挂一次暂停回调。
         try:
@@ -2683,6 +2761,21 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
             f"{self.config.get('Chest confirm hotkey')!r} distance="
             f"{self.config.get('_Chest confirm distance (world units)')}"
         )
+
+    def choose_kuro_route(self, *args):
+        from src.utils.KuroRouteDialog import KuroRouteDialog
+
+        dialog = KuroRouteDialog(self._locked_map_id or 8, self.tr, og.main_window)
+        if dialog.exec():
+            self.config['_Kuro route'] = dialog.route_data
+            self.config['_Kuro route section'] = dialog.section_id
+            self.config['_Kuro route revision'] = self.config.get('_Kuro route revision', 0) + 1
+            self.config['Kuro route navigation'] = True
+            self.info_set('Kuro route navigation', dialog.route_data['name'])
+            from PySide6.QtCore import QTimer
+            from ok.core.events import communicate
+
+            QTimer.singleShot(0, communicate.task_list_updated.emit)
 
     def choose_collection_types(self, *args):
         from src.utils.CollectionCatalog import load_collection_maps
@@ -3821,11 +3914,15 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         player_x = player_pos[0] * 100
         player_y = player_pos[1] * 100
 
-        draw_items = self._overlay.build_draw_items(
-            player_x, player_y, minimap_box, radius, scale_per_1000, type_filter,
-            state_id=state_id, completed_ids=completed_ids,
-            map_type_filters=self.config.get('_Collection map types', {})
-        )
+        if self.config.get('Kuro route navigation', False):
+            draw_items = self._build_kuro_minimap_items(
+                player_x, player_y, minimap_box, scale, completed_ids)
+        else:
+            draw_items = self._overlay.build_draw_items(
+                player_x, player_y, minimap_box, radius, scale_per_1000, type_filter,
+                state_id=state_id, completed_ids=completed_ids,
+                map_type_filters=self.config.get('_Collection map types', {})
+            )
 
         callback = MapItemOverlay.make_paint_callback(
             draw_items, edge_arrow=edge_arrow, target_marker=target_marker,
@@ -3842,6 +3939,27 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
                 f"overlay_hwnd={getattr(overlay_view, '_hwnd', None)} "
                 f"overlay_visible={getattr(overlay_view, '_visible', None)}"
             )
+
+    def _build_kuro_minimap_items(self, player_x, player_y, minimap_box, scale, completed_ids):
+        controller = self._overlay_controller
+        navigation = controller._kuro_navigation if controller is not None else None
+        if navigation is None or str(self._locked_map_id) != str(navigation.path.state_id):
+            return []
+        completed = {str(value) for value in (completed_ids or ())}
+        center_x = minimap_box.x + minimap_box.width / 2
+        center_y = minimap_box.y + minimap_box.height / 2
+        radius = min(minimap_box.width, minimap_box.height) / 2
+        candidates = []
+        for _, _, node in navigation.nodes:
+            if node.position_id in completed:
+                continue
+            sx, sy = self._overlay.project_to_minimap(
+                node.x, node.y, player_x, player_y, scale, center_x, center_y)
+            if math.hypot(sx - center_x, sy - center_y) <= radius:
+                candidates.append(DrawCandidate(
+                    sx, sy, controller._node_pixmap(node.position_img), node.position_name,
+                    ITEM_COLORS.get(node.position_type, (255, 210, 80)), node.position_id, 0))
+        return build_overlay_draw_items(candidates, minimap=True, completed_ids=completed)
 
     def _compute_game_scale(self, result):
         if result.map_scale <= 0 or not result.game_center:

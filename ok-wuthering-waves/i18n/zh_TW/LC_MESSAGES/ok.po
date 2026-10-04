@@ -1923,3 +1923,36 @@ msgstr "收集地圖"
 
 msgid "Uncategorized"
 msgstr "未分類"
+
+msgid "Kuro route square"
+msgstr "庫街區路線廣場"
+
+msgid "Kuro route navigation"
+msgstr "庫街區路線導航"
+
+msgid "Search and load public Kuro routes"
+msgstr "搜尋、排序查看庫街區公開路線，選擇路線及分段後載入"
+
+msgid "Follow the selected route in order using the current completion profile"
+msgstr "按照路線順序導航，跳過目前帳號已完成點；確認收集後推進，移動和探索由人工完成"
+
+msgid "Search routes"
+msgstr "搜尋路線，按 Enter 查詢"
+
+msgid "Most popular"
+msgstr "最熱排序"
+
+msgid "Most recent"
+msgstr "最新排序"
+
+msgid "All maps"
+msgstr "全部地圖"
+
+msgid "Current map"
+msgstr "目前地圖"
+
+msgid "Load route"
+msgstr "載入路線"
+
+msgid "All sections"
+msgstr "全部分段"

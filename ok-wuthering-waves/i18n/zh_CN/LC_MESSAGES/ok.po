@@ -1845,3 +1845,36 @@ msgstr "收集地图"
 
 msgid "Uncategorized"
 msgstr "未分类"
+
+msgid "Kuro route square"
+msgstr "库街区路线广场"
+
+msgid "Kuro route navigation"
+msgstr "库街区路线导航"
+
+msgid "Search and load public Kuro routes"
+msgstr "搜索、排序查看库街区公开路线，选择路线及分段后加载"
+
+msgid "Follow the selected route in order using the current completion profile"
+msgstr "按照路线顺序导航，跳过当前账号已完成点；确认收集后推进，移动和探索由人工完成"
+
+msgid "Search routes"
+msgstr "搜索路线，按 Enter 查询"
+
+msgid "Most popular"
+msgstr "最热排序"
+
+msgid "Most recent"
+msgstr "最新排序"
+
+msgid "All maps"
+msgstr "全部地图"
+
+msgid "Current map"
+msgstr "当前地图"
+
+msgid "Load route"
+msgstr "加载路线"
+
+msgid "All sections"
+msgstr "全部分段"

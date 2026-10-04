@@ -1791,3 +1791,36 @@ msgstr "収集マップ"
 
 msgid "Uncategorized"
 msgstr "未分類"
+
+msgid "Kuro route square"
+msgstr "Kuroルート広場"
+
+msgid "Kuro route navigation"
+msgstr "Kuroルートナビ"
+
+msgid "Search and load public Kuro routes"
+msgstr "Kuro公開ルートを検索・並べ替えて読み込む"
+
+msgid "Follow the selected route in order using the current completion profile"
+msgstr "現在のアカウントの完了地点を除外して順番に案内。収集確認後に次へ進みます"
+
+msgid "Search routes"
+msgstr "ルート検索：Enterで実行"
+
+msgid "Most popular"
+msgstr "人気順"
+
+msgid "Most recent"
+msgstr "新着順"
+
+msgid "All maps"
+msgstr "全マップ"
+
+msgid "Current map"
+msgstr "現在のマップ"
+
+msgid "Load route"
+msgstr "ルートを読み込む"
+
+msgid "All sections"
+msgstr "全区間"

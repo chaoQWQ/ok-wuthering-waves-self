@@ -1792,3 +1792,36 @@ msgstr "수집 지도"
 
 msgid "Uncategorized"
 msgstr "미분류"
+
+msgid "Kuro route square"
+msgstr "Kuro 경로 광장"
+
+msgid "Kuro route navigation"
+msgstr "Kuro 경로 안내"
+
+msgid "Search and load public Kuro routes"
+msgstr "Kuro 공개 경로를 검색하고 정렬하여 불러오기"
+
+msgid "Follow the selected route in order using the current completion profile"
+msgstr "현재 계정의 완료 지점을 제외하고 순서대로 안내하며 수집 확인 후 다음 지점으로 이동"
+
+msgid "Search routes"
+msgstr "경로 검색: Enter로 실행"
+
+msgid "Most popular"
+msgstr "인기순"
+
+msgid "Most recent"
+msgstr "최신순"
+
+msgid "All maps"
+msgstr "모든 지도"
+
+msgid "Current map"
+msgstr "현재 지도"
+
+msgid "Load route"
+msgstr "경로 불러오기"
+
+msgid "All sections"
+msgstr "모든 구간"

@@ -1712,3 +1712,36 @@ msgstr "Mapa de recolección"
 
 msgid "Uncategorized"
 msgstr "Sin categoría"
+
+msgid "Kuro route square"
+msgstr "Rutas de Kuro"
+
+msgid "Kuro route navigation"
+msgstr "Navegación de rutas de Kuro"
+
+msgid "Search and load public Kuro routes"
+msgstr "Buscar, ordenar y cargar rutas públicas de Kuro"
+
+msgid "Follow the selected route in order using the current completion profile"
+msgstr "Seguir la ruta en orden, omitiendo puntos completados del perfil actual; confirmar para avanzar"
+
+msgid "Search routes"
+msgstr "Buscar rutas con Enter"
+
+msgid "Most popular"
+msgstr "Más populares"
+
+msgid "Most recent"
+msgstr "Más recientes"
+
+msgid "All maps"
+msgstr "Todos los mapas"
+
+msgid "Current map"
+msgstr "Mapa actual"
+
+msgid "Load route"
+msgstr "Cargar ruta"
+
+msgid "All sections"
+msgstr "Todas las secciones"
