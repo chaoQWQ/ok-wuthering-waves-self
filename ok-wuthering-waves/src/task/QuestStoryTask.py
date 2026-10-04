@@ -9,6 +9,8 @@ from src.task.BaseCombatTask import BaseCombatTask
 from src.task.SkipBaseTask import SkipBaseTask
 from src.task.WWOneTimeTask import WWOneTimeTask
 from src.utils.QuestDecisionEngine import QuestAction, decide_quest_action
+from src.utils.QuestAreaSearch import QuestAreaSearch, detect_quest_area, minimap_box
+from src.utils.QuestDecisionSession import QuestDecisionSession
 from src.utils.QuestNavigator import calculate_camera_turn, compute_movement_action
 from src.utils.QuestOcrPrivacy import prepare_quest_ocr_frame, sanitize_quest_text
 from src.utils.QuestProgressTracker import QuestProgressTracker
@@ -77,6 +79,11 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.target_search = QuestTargetSearch()
         self.guidance_text = ""
         self.guidance_last_read = 0.0
+        self.area_search = None
+        self.decision_session = QuestDecisionSession()
+        self.last_motion = None
+        self.last_interaction_text = ""
+        self.point_arrival_time = None
         self.last_teleport_attempt_time: float = 0.0
         self.jev_call_count: int = 0
         self.jev_total_tokens: int = 0
@@ -122,6 +129,11 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.target_search = QuestTargetSearch()
         self.guidance_text = ""
         self.guidance_last_read = 0.0
+        self.area_search = None
+        self.decision_session = QuestDecisionSession()
+        self.last_motion = None
+        self.last_interaction_text = ""
+        self.point_arrival_time = None
         self.jev_call_count = 0
         self.jev_total_tokens = 0
         self.jev_cost_estimate = 0.0
@@ -142,6 +154,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             # 1. 优先判定剧情对话
             if self.config.get("Auto Skip Dialog", True):
                 if self.check_skip():
+                    self._mark_scene_transition("dialog_started", self.STATE_DIALOG)
                     self.current_state = self.STATE_DIALOG
                     self.letterbox_freeze_start_time = 0.0
                     self.log_info("检测到剧情跳过选项，点击执行跳过")
@@ -150,6 +163,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
                 top_left_skip = detect_top_left_skip_button(frame)
                 if top_left_skip.found:
+                    self._mark_scene_transition("dialog_started", self.STATE_DIALOG)
                     self.current_state = self.STATE_DIALOG
                     self.letterbox_freeze_start_time = 0.0
                     self.log_info(
@@ -169,6 +183,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                     continue
 
                 if self.skip_message():
+                    self._mark_scene_transition("dialog_started", self.STATE_DIALOG)
                     self.current_state = self.STATE_DIALOG
                     self.letterbox_freeze_start_time = 0.0
                     self.log_info("检测到短消息对话，点击推进")
@@ -177,6 +192,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
                 advance_result = detect_dialog_advance_indicator(frame)
                 if advance_result.found:
+                    self._mark_scene_transition("dialog_started", self.STATE_DIALOG)
                     self.current_state = self.STATE_DIALOG
                     self.letterbox_freeze_start_time = 0.0
                     self.log_info(
@@ -189,6 +205,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             # 2. 判定进入战斗状态
             if self.config.get("Auto Combat in Quest", True):
                 if self.in_combat():
+                    self._mark_scene_transition("combat_started", self.STATE_COMBAT)
                     self.current_state = self.STATE_COMBAT
                     self.letterbox_freeze_start_time = 0.0
                     self.log_info("检测到进入战斗状态，交由角色战斗执行器执行操作")
@@ -198,6 +215,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             # 3. 判定上下黑边剧情动画
             letterbox_info = detect_letterbox(frame)
             if letterbox_info.is_letterbox:
+                self._mark_scene_transition("cutscene_started", self.STATE_LETTERBOX_CUTSCENE)
                 self.current_state = self.STATE_LETTERBOX_CUTSCENE
                 self._handle_letterbox_state(frame)
                 continue
@@ -206,6 +224,14 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
             # 4. 判定大世界任务导航与交互
             self._handle_world_navigation_and_interaction(frame)
+
+    def _mark_scene_transition(self, outcome: str, state: str):
+        if self.current_state != state:
+            self.decision_session.mark_transition(outcome)
+            self.area_search = None
+            self.navigation_progress = QuestProgressTracker()
+            self.target_search.reset()
+            self.point_arrival_time = None
 
     def _handle_letterbox_state(self, frame: np.ndarray):
         now = time.time()
@@ -235,6 +261,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             return
 
         height, width = frame.shape[:2]
+        self._read_quest_goal(frame)
 
         # 0. 优先检测是否处于攀爬状态
         climb_result = detect_climbing_state(frame)
@@ -255,33 +282,38 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.climbing_start_time = 0.0
 
         # 1. 检查是否存在 F 键交互
-        has_f = False
-        action_text = ""
-        try:
-            if hasattr(self, "find_f_with_text") and self.find_f_with_text() is not None:
-                has_f = True
-        except Exception:
-            pass
+        has_f, action_text = self._read_interaction(frame)
 
-        if not has_f:
-            interact_result = detect_interact_action(frame)
-            if interact_result.has_f:
-                has_f = True
-                action_text = interact_result.action_text
+        self.last_interaction_text = action_text
+        if self.decision_session.observe(self.guidance_text, action_text, time.time()):
+            self.area_search = None
+            self.navigation_progress = QuestProgressTracker()
+            self.target_search.reset()
+            self.point_arrival_time = None
+            self.log_info(f"任务要求已经更新：{self.guidance_text}")
+
+        area = detect_quest_area(frame) if self.area_search is None else self.area_search.find_observation(frame)
+        if area is None and self.area_search is not None and detect_quest_beacon(frame).found:
+            self.decision_session.mark_transition("quest_marker_changed")
+            self.area_search = None
+            self.navigation_progress = QuestProgressTracker()
+            self.log_info("黄色任务区域已切换为任务信标，继续跟随新的指引")
+        if area is not None or self.area_search is not None:
+            self._handle_area_navigation(frame, area, has_f, action_text)
+            return
 
         # 2. 提取任务信标与目标距离
         beacon_result = detect_quest_beacon(frame)
         current_distance = self._extract_quest_distance(frame, beacon_result)
         if current_distance is None and not beacon_result.found:
-            if time.time() - self.guidance_last_read >= 2.0:
-                self.guidance_text = " ".join(box.name for box in self.ocr(0.01, 0.20, 0.28, 0.43, frame=frame) if box.name)
-                self.guidance_last_read = time.time()
             if re.search(r"跟随.*花朵|Follow.*flower", self.guidance_text, re.IGNORECASE):
                 beacon_result = detect_flower_guidance(frame)
                 self.navigation_progress.require_distance = False
             else:
                 self.navigation_progress.require_distance = True
         self.navigation_progress.observe(current_distance)
+        if current_distance is None or current_distance > 2:
+            self.point_arrival_time = None
 
         # 3. 若任务目标距离超过 200 米，尝试打开地图定位并传送到附近传送点
         if current_distance is not None and current_distance > 200.0:
@@ -300,18 +332,18 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 is_near_goal = True
 
         if has_f:
-            if is_near_goal:
+            if is_near_goal or (current_distance is not None and current_distance <= 8.0):
                 self._stop_all_movement()
-                self.navigation_progress = QuestProgressTracker()
                 self.current_state = self.STATE_DECIDE_INTERACT
-                self.log_info("已到达任务目标附近且出现交互按键 [F]，执行交互推进")
-                self._trigger_ai_decision(
+                decision = self._trigger_ai_decision(
                     frame,
                     has_f_button=True,
-                    action_text=action_text
+                    action_text=action_text,
+                    event="near_interaction",
+                    current_distance=current_distance,
                 )
-                self.sleep(1.2)
-                return
+                if decision not in ("search", "observe", "stale"):
+                    return
             else:
                 dist_info = f"当前距离任务目标还有 {current_distance:.1f} 米" if current_distance is not None else "任务目标仍在远方"
                 self.log_info(f"检测到路过交互 [F] ({dist_info})，忽略路过交互继续前进寻路")
@@ -326,17 +358,11 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         # 5. 到达 1 至 2 米范围内停止移动并等待交互
         if current_distance is not None and current_distance <= 2.0:
             self._stop_all_movement()
-            self.log_info(f"已到达任务目标附近 (距离 {current_distance:.1f} 米)，停止移动，等待交互触发")
-            if beacon_result.found:
-                beacon_cx = beacon_result.x + beacon_result.width // 2
-                turn_cmd = calculate_camera_turn(
-                    screen_width=width,
-                    beacon_center_x=beacon_cx,
-                    camera_sensitivity=sensitivity,
-                    max_delta_x=60
-                )
-                if turn_cmd.need_turn:
-                    self._apply_camera_turn(turn_cmd.delta_x_pixels)
+            if self.point_arrival_time is None:
+                self.point_arrival_time = time.time()
+            elif time.time() - self.point_arrival_time >= 10:
+                raise RuntimeError("到达任务点后持续没有交互或任务变化，停止等待")
+            self._trigger_ai_decision(frame, event="point_arrival", current_distance=current_distance)
             self.sleep(0.4)
             return
 
@@ -425,19 +451,116 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self._apply_camera_turn(self.target_search.next_turn())
         self.sleep(0.2)
 
+    def _read_quest_goal(self, frame: np.ndarray, force: bool = False):
+        if not force and time.time() - self.guidance_last_read < 2:
+            return
+        boxes = self.ocr(.01, .20, .28, .43, frame=frame)
+        lines = [box.name for box in boxes if box.name and not re.fullmatch(r"\s*\d+(?:\.\d+)?\s*(?:米|m|M)\s*", box.name)]
+        text = sanitize_quest_text(" ".join(lines)).strip()
+        if text:
+            self.guidance_text = text
+        self.guidance_last_read = time.time()
+
+    def _read_interaction(self, frame: np.ndarray) -> tuple[bool, str]:
+        f_box = self.find_f_with_text()
+        if f_box is None:
+            result = detect_interact_action(frame)
+            return result.has_f, sanitize_quest_text(result.action_text)
+        text_box = f_box.copy(x_offset=f_box.width * 2, width_offset=f_box.width * 9,
+                             height_offset=f_box.height * 2, y_offset=-f_box.height)
+        text = sanitize_quest_text(" ".join(box.name for box in self.ocr(box=text_box, frame=frame) if box.name))
+        return True, text
+
+    def _handle_area_navigation(self, frame: np.ndarray, area, has_f: bool, action_text: str):
+        self.current_state = self.STATE_NAVIGATE
+        if area is None:
+            self._stop_all_movement()
+            self.area_search.lose_observation()
+            self.sleep(.2)
+            return
+        entering = self.area_search is None
+        if entering:
+            self.area_search = QuestAreaSearch()
+            self.navigation_progress = QuestProgressTracker(require_distance=False)
+            self.target_search.reset()
+            self.log_info("识别到黄色任务区域，开始向圈中心移动")
+        mx, my, mw, mh = minimap_box(frame)
+        if not self.area_search.observe(area, frame[my:my + mh, mx:mx + mw]):
+            self.decision_session.mark_transition("quest_area_changed")
+            self.decision_session.seen_states.clear()
+            self.area_search = QuestAreaSearch()
+            self.area_search.observe(area, frame[my:my + mh, mx:mx + mw])
+            self.navigation_progress = QuestProgressTracker(require_distance=False)
+            entering = True
+            self.log_info("任务区域已经改变，开始接近新的圈中心")
+        if self.config.get("Switch to First Character for Movement", True) and self._ensure_first_character():
+            return
+        if entering or (has_f and area.center_distance <= area.radius):
+            result = self._trigger_ai_decision(
+                frame, has_f_button=has_f, action_text=action_text,
+                event="area_entry" if entering else "area_interaction",
+            )
+            if result not in ("search", "observe", "stale"):
+                return
+        if self.navigation_progress.recovery_step is not None:
+            self._continue_navigation_recovery()
+            return
+        if self.navigation_progress.blocked:
+            self._handle_stuck_recovery(frame)
+            return
+        previous_ring = self.area_search.completed_rings
+        mode, bearing, distance = self.area_search.navigate(time.time())
+        phase_label = {"center": "接近圈中心", "wait": "等待任务触发", "search": "搜索任务区域"}[self.area_search.phase]
+        self.info_set("区域搜索", f"{phase_label}，搜索路线进度 {self.area_search.search_fraction:.0%}")
+        if mode == "center":
+            self._stop_all_movement()
+            waiting = time.time() - self.area_search.arrived_at
+            if waiting < 2:
+                self.sleep(.2)
+                return
+            result = self._trigger_ai_decision(frame, has_f_button=has_f, action_text=action_text, event="area_center")
+            if result in ("interact", "attack", "skill"):
+                return
+            if result == "search" or waiting >= 6:
+                self.area_search.start_search()
+                self.log_info("圈中心未触发任务变化，开始由内向外移动搜索")
+            else:
+                self.sleep(.2)
+            return
+        if mode == "complete":
+            if self.decision_session.pending is not None:
+                self.sleep(.2)
+                return
+            result = self._trigger_ai_decision(frame, has_f_button=has_f, action_text=action_text, event="area_complete")
+            if result in ("interact", "attack", "skill"):
+                return
+            raise RuntimeError("黄色圈内搜索已经完成，任务仍未推进")
+        if mode == "waypoint":
+            if self.area_search.completed_rings > previous_ring:
+                self.log_info(f"区域搜索已完成 {self.area_search.completed_rings} 圈，检查任务要求")
+                self._trigger_ai_decision(frame, has_f_button=has_f, action_text=action_text, event="area_ring")
+            return
+        if mode == "calibrate":
+            self._apply_movement(["w"], .12)
+            return
+        if mode == "walk":
+            self._apply_movement(self.area_search.movement_keys, self.area_search.movement_duration(distance))
+            return
+        self.sleep(.2)
+
     def _handle_climbing_state(self, frame: np.ndarray, climbing_duration: float = 0.0):
         self.log_info(f"正在攀爬，持续 {climbing_duration:.1f} 秒，保持向上移动")
         self._apply_movement(["w"], 0.3, progress_tracker=self.climbing_progress)
         if not self.climbing_progress.blocked:
             return
         self._stop_all_movement()
-        self.log_info(
-            "连续尝试攀爬 3 秒后背景保持静止，发送 [X] 键脱离攀爬并侧向绕行"
-        )
-        self.send_key("x", down_time=0.1)
-        self.sleep(0.35)
-        self.climbing_start_time = 0.0
-        self._handle_stuck_recovery(frame)
+        result = self._trigger_ai_decision(self.frame, event="climbing_blocked")
+        if result == "climb_drop":
+            self.climbing_start_time = 0.0
+            self.navigation_progress.begin_recovery()
+            return
+        if self.climbing_progress.movement_seconds >= 6:
+            raise RuntimeError("连续攀爬没有进展，任务决策未确认可继续的操作")
 
     def _try_teleport_to_nearest_waypoint(self, current_distance: float) -> bool:
         now = time.time()
@@ -513,6 +636,9 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
     def _handle_stuck_recovery(self, frame: np.ndarray):
         self._stop_all_movement()
+        result = self._trigger_ai_decision(frame, event="movement_blocked")
+        if result != "recover":
+            raise RuntimeError("角色移动持续受阻，任务决策未确认绕行操作")
         self.navigation_progress.begin_recovery()
         self.log_info(f"检测到角色前进受阻，第 {self.navigation_progress.recovery_count} 次绕行，执行后退、侧向移动与前进")
         self._continue_navigation_recovery()
@@ -589,6 +715,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             return
         if not keys:
             return
+        if self.area_search is not None and progress_tracker is None:
+            self.area_search.record_movement(keys, duration)
         before = self.frame.copy() if "w" in keys else None
         try:
             for key in keys:
@@ -600,6 +728,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         if before is not None:
             self.next_frame()
             motion = detect_background_motion(before, self.frame)
+            self.last_motion = motion
             tracker = self.navigation_progress if progress_tracker is None else progress_tracker
             tracker.record_movement(keys, duration, moving=motion.moving)
             self.log_debug(f"移动背景判断: moving={motion.moving}, displacement={motion.displacement_pixels:.2f}, vertical={motion.vertical_pixels:.2f}, points={motion.tracked_points}")
@@ -624,43 +753,137 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         frame: np.ndarray,
         has_f_button: bool = False,
         action_text: str = "",
-        is_frozen_letterbox: bool = False
+        is_frozen_letterbox: bool = False,
+        event: str = "interaction",
+        current_distance: Optional[float] = None,
     ):
+        self._stop_all_movement()
+        now = time.time()
+        if is_frozen_letterbox:
+            event = "frozen_cutscene"
+        self.decision_session.observe(self.guidance_text, action_text, now)
+        if self.decision_session.pending is not None:
+            self.sleep(.2)
+            return "observe"
+        area_context = self.area_search.context() if self.area_search is not None else None
+        location = str(self.area_search.completed_rings) if self.area_search is not None else event
+        progress = location
+        if area_context is not None:
+            progress += ":" + area_context["phase"]
+        history = self.decision_session.context()
+        if history and history[-1]["goal"] == self.decision_session.goal and history[-1]["location"] == location:
+            progress += f":{len(history)}:{history[-1]['outcome']}"
+        if is_frozen_letterbox:
+            attempts = sum(item["location"] == event and item["goal"] == self.decision_session.goal for item in self.decision_session.context())
+            if attempts >= 3:
+                raise RuntimeError("剧情静止期间三次决策没有推进任务，停止重复操作")
+            progress += f":{attempts}"
+        if not self.decision_session.can_call(event, action_text, progress, now):
+            return "observe"
         api_url = str(self.config.get("API URL") or os.environ.get("JEV_API_URL") or "")
         api_key = str(self.config.get("API Key") or os.environ.get("JEV_API_KEY") or "")
 
-        ocr_text = ""
-        if is_frozen_letterbox or not has_f_button:
-            boxes = self.ocr(frame=prepare_quest_ocr_frame(frame))
-            ocr_text = sanitize_quest_text("\n".join(box.name for box in boxes if box.name))
+        boxes = self.ocr(frame=prepare_quest_ocr_frame(frame))
+        ocr_text = sanitize_quest_text("\n".join(box.name for box in boxes if box.name))
+        actions = ["wait"]
+        if is_frozen_letterbox:
+            actions.append("click")
+        elif event == "climbing_blocked":
+            actions.extend(["climb_continue", "climb_drop"])
+        elif event == "movement_blocked":
+            actions.append("recover")
+        elif self.area_search is not None or event == "near_interaction":
+            actions.append("search")
+        if has_f_button:
+            actions.append("interact")
+        at_target = event == "point_arrival" or (area_context is not None and area_context["phase"] in ("wait", "search"))
+        if at_target and re.search(r"攻击|攻擊|击碎|擊碎|破坏|破壞|摧毁|摧毀|attack|destroy|break", self.guidance_text, re.IGNORECASE):
+            actions.append("attack")
+        skill_key = None
+        if at_target and re.search(r"技能|能力|工具|感知|声骸|聲骸|skill|ability|tool|sensor", self.guidance_text, re.IGNORECASE):
+            key_match = re.search(r"(?:按下|按住|点击|點擊|Press|Hold|Tap)\s*[\[（(]?\s*([eEtTqQ])\b", ocr_text, re.IGNORECASE)
+            if key_match:
+                skill_key = key_match[1].lower()
+                actions.append("skill")
+        failures = self.decision_session.failed_actions(action_text, location)
+        actions = [choice for choice in actions if choice not in failures]
+        if not actions:
+            raise RuntimeError("任务动作持续未产生进展，当前没有可继续的操作")
+        context = {
+            "event": event,
+            "has_f_button": has_f_button,
+            "interaction_text": action_text,
+            "distance_meters": current_distance,
+            "area": area_context,
+            "movement": None if self.last_motion is None else {
+                "moving": self.last_motion.moving,
+                "displacement_pixels": round(self.last_motion.displacement_pixels, 2),
+                "vertical_pixels": round(self.last_motion.vertical_pixels, 2),
+            },
+            "stationary_movement_seconds": round(self.climbing_progress.movement_seconds if event == "climbing_blocked" else self.navigation_progress.movement_seconds, 1),
+            "skill_key": skill_key,
+            "recent_actions": self.decision_session.context(),
+            "available_actions": actions,
+        }
+        goal_before_request = self.guidance_text
 
         action: QuestAction = decide_quest_action(
             frame=frame,
             has_f_button=has_f_button,
             action_text=action_text,
-            quest_goal_text="跟随任务引导推进剧情",
+            quest_goal_text=self.guidance_text,
             is_frozen_letterbox=is_frozen_letterbox,
             api_url=api_url,
             api_key=api_key,
             ocr_text=ocr_text,
+            context=context,
         )
         self._record_jev_usage(action)
-
-        self.log_info(f"决策引擎执行动作: {action.action_type}, 详情: {action.description}")
+        self.log_info(f"JEV 判断: action={action.action_type}, confidence={action.confidence:.2f}, task={action.task_kind}, event={event}")
+        if not action.confident:
+            self.log_info("任务判断置信度不足，继续取得新的画面信息")
+            return "observe"
+        if not self.is_game_window_active():
+            return "stale"
+        self.next_frame()
+        if not is_frozen_letterbox:
+            self._read_quest_goal(self.frame, force=True)
+            if self.guidance_text != goal_before_request or detect_letterbox(self.frame).is_letterbox or detect_dialog_advance_indicator(self.frame).found:
+                self.decision_session.observe(self.guidance_text, action_text, time.time())
+                return "stale"
+        elif not detect_letterbox(self.frame).is_letterbox:
+            return "stale"
         if action.action_type == "interact" and action.key == "f":
+            if not has_f_button or action.interaction_relevance is None or action.interaction_relevance < .8:
+                self.log_info("当前交互与任务的关联不足，继续搜索任务目标")
+                return "search" if "search" in actions else "observe"
+            current_f, current_text = self._read_interaction(self.frame)
+            if not current_f or current_text != action_text:
+                return "stale"
             self.send_key("f", down_time=0.1)
         elif action.action_type == "click":
             self.click(0.5, 0.5)
         elif action.action_type == "attack":
+            if action.task_kind != "attack" or action.task_confidence < .75:
+                return "observe"
             self.click(key="left")
-        elif action.action_type == "skill" and action.key:
-            self.send_key(action.key, down_time=0.1)
+        elif action.action_type == "skill":
+            if action.task_kind != "skill" or action.task_confidence < .75 or skill_key is None:
+                return "observe"
+            self.send_key(skill_key, down_time=.1)
+        elif action.action_type == "climb_drop":
+            if not detect_climbing_state(self.frame).is_climbing:
+                return "stale"
+            self.send_key("x", down_time=.1)
+        if action.action_type not in ("search", "recover", "climb_continue"):
+            self.decision_session.record(action.action_type, action_text, location, time.time())
 
         if action.wait_seconds > 0:
             self.sleep(action.wait_seconds)
+        return action.action_type
 
     def _record_jev_usage(self, action: QuestAction):
-        if getattr(action, "total_tokens", 0) > 0 or getattr(action, "cost", 0.0) > 0:
+        if action.called_model:
             count = getattr(self, "jev_call_count", 0) + 1
             tokens = getattr(self, "jev_total_tokens", 0) + getattr(action, "total_tokens", 0)
             cost = getattr(self, "jev_cost_estimate", 0.0) + getattr(action, "cost", 0.0)

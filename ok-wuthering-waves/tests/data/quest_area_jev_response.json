@@ -1,0 +1,36 @@
+{
+  "model": "jev-1.13.0",
+  "answers": {
+    "action": {
+      "type": "choice",
+      "choice": "search",
+      "confidence": 0.96,
+      "probabilities": {
+        "search": 0.98,
+        "wait": 0.02
+      }
+    },
+    "task_kind": {
+      "type": "choice",
+      "choice": "follow",
+      "confidence": 0.97,
+      "probabilities": {
+        "search": 0.02,
+        "skill": 0.0,
+        "attack": 0.0,
+        "interact": 0.0,
+        "unknown": 0.0,
+        "wait": 0.0,
+        "follow": 0.98
+      }
+    },
+    "interaction_relevant": {
+      "type": "noul",
+      "noul": 0.05
+    }
+  },
+  "usage": {
+    "input_tokens": 793,
+    "output_tokens": 116
+  }
+}
