@@ -1861,3 +1861,10 @@ msgstr "경로 불러오기"
 
 msgid "All sections"
 msgstr "모든 구간"
+
+msgid "Show Task Floating Window"
+msgstr "작업 실행 시 최상위 작은 창 표시"
+
+msgid "Display real-time task status in a floating window at the bottom-right corner when running tasks"
+msgstr "작업 실행 시 화면 우측 하단에 최상위 작은 창을 띄워 실시간 정보를 표시합니다"
+

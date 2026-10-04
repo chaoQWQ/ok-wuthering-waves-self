@@ -1860,3 +1860,10 @@ msgstr "ルートを読み込む"
 
 msgid "All sections"
 msgstr "全区間"
+
+msgid "Show Task Floating Window"
+msgstr "タスク実行時に最前面の小ウィンドウを表示"
+
+msgid "Display real-time task status in a floating window at the bottom-right corner when running tasks"
+msgstr "タスク実行中に画面右下に最前面の小ウィンドウを表示し、リアルタイム情報を表示します"
+

@@ -132,6 +132,8 @@ def blur_area(width, height):
 
 basic_config_option = create_basic_options(enable_blur=True)
 basic_config_option.default_config['Game Package'] = 'hd'
+basic_config_option.default_config['Show Task Floating Window'] = True
+basic_config_option.config_description['Show Task Floating Window'] = 'Display real-time task status in a floating window at the bottom-right corner when running tasks'
 basic_config_option.config_type['Game Package'] = {
     'type': 'drop_down', 'options': ['sd', 'hd', 'uhd'],
 }

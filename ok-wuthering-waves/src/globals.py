@@ -16,6 +16,7 @@ class Globals:
         self._yolo_model = None
         self.mini_map_arrow = None
         self.logged_in = False
+        self.task_floating_window = None
 
     @property
     def yolo_model(self):
@@ -35,6 +36,11 @@ class Globals:
 
     def yolo_detect(self, image, threshold=0.6, label=-1):
         return self.yolo_model.detect(image, threshold=threshold, label=label)
+
+    def on_show_main_window(self, main_window):
+        from src.gui.TaskFloatingWindow import start_task_floating_window
+        self.task_floating_window = start_task_floating_window(main_window)
+
 
 if __name__ == "__main__":
     glbs = Globals(exit_event=None)

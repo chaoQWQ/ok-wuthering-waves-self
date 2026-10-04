@@ -2016,3 +2016,10 @@ msgstr "鏡頭旋轉靈敏度"
 
 msgid "Switch to First Character for Movement"
 msgstr "移動固定切換一號位角色"
+
+msgid "Show Task Floating Window"
+msgstr "任務運行時顯示置頂小視窗"
+
+msgid "Display real-time task status in a floating window at the bottom-right corner when running tasks"
+msgstr "任務運行時在螢幕右下角顯示置頂小視窗，展示即時運行資訊"
+

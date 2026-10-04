@@ -1781,3 +1781,10 @@ msgstr "Cargar ruta"
 
 msgid "All sections"
 msgstr "Todas las secciones"
+
+msgid "Show Task Floating Window"
+msgstr "Mostrar ventana flotante de tareas"
+
+msgid "Display real-time task status in a floating window at the bottom-right corner when running tasks"
+msgstr "Mostrar el estado de la tarea en tiempo real en una ventana flotante fija en la esquina inferior derecha"
+
