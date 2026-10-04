@@ -569,9 +569,9 @@ def detect_top_left_skip_button(
     tpl_h, tpl_w = template.shape[:2]
     frame_h, frame_w = frame.shape[:2]
 
-    # 截取屏幕左上角区域（横向 0~25%，纵向 0~22%）
-    ex = int(frame_w * 0.25)
-    ey = int(frame_h * 0.22)
+    # 截取屏幕左上角区域（横向 0~28%，纵向 0~25%）
+    ex = int(frame_w * 0.28)
+    ey = int(frame_h * 0.25)
 
     roi = frame[:ey, :ex]
     gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
@@ -580,7 +580,7 @@ def detect_top_left_skip_button(
     best_score = -1.0
     best_match = None
 
-    for factor in [0.8, 0.9, 1.0, 1.15, 1.3]:
+    for factor in [0.75, 0.85, 0.95, 1.0, 1.05, 1.15, 1.25, 1.4, 1.6]:
         scaled_w = max(5, int(tpl_w * scale_base * factor))
         scaled_h = max(5, int(tpl_h * scale_base * factor))
 

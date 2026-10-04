@@ -33,6 +33,7 @@ class TestQuestStoryTask(unittest.TestCase):
         self.task.last_search_log_time = 0.0
         self.task.last_char_switch_time = 0.0
         self.task.last_nav_frame = None
+        self.task.navigation_movement_pending = True
         self.task.stuck_start_time = 0.0
         self.task.last_observed_distance = None
         self.task.stuck_count = 0
@@ -137,9 +138,9 @@ class TestQuestStoryTask(unittest.TestCase):
 
     def test_world_navigation_moves_forward_when_beacon_found(self):
         import cv2, os
-        img_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791091183192.jpg"
+        img_path = r"tests/images/quest_navigation_aligned.png"
         if not os.path.exists(img_path):
-            self.skipTest("大世界信标样本图片不存在")
+            self.skipTest("对齐信标测试图片不存在")
         frame = cv2.imread(img_path)
         self.task._handle_world_navigation_and_interaction(frame)
         self.assertEqual(self.task.current_state, QuestStoryTask.STATE_NAVIGATE)
@@ -182,9 +183,9 @@ class TestQuestStoryTask(unittest.TestCase):
 
     def test_world_navigation_slow_walks_under_twenty_meters(self):
         import cv2, os
-        img_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791091183192.jpg"
+        img_path = r"tests/images/quest_navigation_aligned.png"
         if not os.path.exists(img_path):
-            self.skipTest("大世界信标样本图片不存在")
+            self.skipTest("对齐信标测试图片不存在")
         frame = cv2.imread(img_path)
         self.task._extract_quest_distance = lambda f, b: 12.0
         self.task._handle_world_navigation_and_interaction(frame)
@@ -195,9 +196,9 @@ class TestQuestStoryTask(unittest.TestCase):
 
     def test_world_navigation_sprints_over_twenty_meters(self):
         import cv2, os
-        img_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791091183192.jpg"
+        img_path = r"tests/images/quest_navigation_aligned.png"
         if not os.path.exists(img_path):
-            self.skipTest("大世界信标样本图片不存在")
+            self.skipTest("对齐信标测试图片不存在")
         frame = cv2.imread(img_path)
         self.task._extract_quest_distance = lambda f, b: 35.0
         self.task._handle_world_navigation_and_interaction(frame)

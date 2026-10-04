@@ -153,11 +153,16 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                     self.log_info(
                         f"检测到左上角剧情跳过按钮 (置信度 {top_left_skip.confidence:.2f})，点击执行跳过"
                     )
-                    fh, fw = frame.shape[:2]
-                    rx = (top_left_skip.x + top_left_skip.width / 2.0) / fw
-                    ry = (top_left_skip.y + top_left_skip.height / 2.0) / fh
-                    self.click(rx, ry, after_sleep=0.3)
-                    self.wait_until(self.skip_confirm, time_out=2.5, raise_if_not_found=False)
+                    skip_box = Box(
+                        top_left_skip.x,
+                        top_left_skip.y,
+                        top_left_skip.width,
+                        top_left_skip.height,
+                        confidence=top_left_skip.confidence,
+                        name="top_left_skip_dialog"
+                    )
+                    self.click_box(skip_box, down_time=0.05, after_sleep=0.3)
+                    self.wait_until(self.skip_confirm, time_out=3.0, raise_if_not_found=False)
                     self.sleep(0.2)
                     continue
 
