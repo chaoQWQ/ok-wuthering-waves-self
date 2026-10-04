@@ -220,19 +220,6 @@ class TestQuestStoryTask(unittest.TestCase):
         self.assertTrue(len(decision_called) > 0)
         # 验证触发停止并松开移动按键
         self.assertTrue(any(act == "up" and k == "w" for act, k in self.task.sent_keys))
-    def test_stuck_detection_and_recovery(self):
-        import numpy as np
-        frame = np.ones((720, 1280, 3), dtype=np.uint8) * 100
-        self.task.last_nav_frame = frame.copy()
-        self.task.stuck_start_time = time.time() - 2.0  # 模拟持续卡滞超过 1.2 秒
-        self.task.last_observed_distance = 15.0
-
-        recovered = self.task._check_and_handle_stuck(frame, current_distance=15.0)
-        self.assertTrue(recovered)
-        # 验证后退动作与绕行进度。
-        self.assertTrue(any(k == "s" for act, k in self.task.sent_keys))
-        self.assertEqual(self.task.navigation_progress.recovery_step, 1)
-
     def test_is_game_window_active_blocks_actions_when_inactive(self):
         self.task.is_game_window_active = lambda: False
         dummy_frame = np.zeros((720, 1280, 3), dtype=np.uint8)
@@ -242,20 +229,6 @@ class TestQuestStoryTask(unittest.TestCase):
         # 验证处于后台时不产生任何按键下发动作
         self.assertFalse(any(act == "down" for act, k in self.task.sent_keys))
         self.assertEqual(self.task.current_state, QuestStoryTask.STATE_IDLE)
-
-    def test_climbing_state_starts_recovery(self):
-        import cv2, os
-        img_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791109409398.jpg"
-        if not os.path.exists(img_path):
-            self.skipTest("攀爬样本图片不存在")
-        frame = cv2.imread(img_path)
-        # 初始攀爬，持续时间 0 秒（小于 5 秒）
-        self.task.climbing_start_time = 0.0
-        self.task._handle_world_navigation_and_interaction(frame)
-        # 验证触发脱离攀爬按键 'x' 与后退 's'
-        self.assertTrue(any(act == "send" and k == "x" for act, k in self.task.sent_keys))
-        self.assertTrue(any(k == "s" for act, k in self.task.sent_keys))
-        self.assertEqual(self.task.navigation_progress.recovery_step, 1)
 
     def test_passing_by_interaction_ignored_when_distance_over_three_meters(self):
         import cv2, os
@@ -331,5 +304,4 @@ class TestQuestStoryTask(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
 

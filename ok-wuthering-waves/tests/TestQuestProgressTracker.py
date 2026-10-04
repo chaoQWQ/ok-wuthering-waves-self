@@ -3,6 +3,9 @@ from pathlib import Path
 import re
 import unittest
 
+import cv2
+
+from src.utils.QuestBackgroundMotion import detect_background_motion
 from src.utils.QuestNavigator import compute_movement_action
 from src.utils.QuestProgressTracker import QuestProgressTracker
 
@@ -12,6 +15,8 @@ class TestQuestProgressTracker(unittest.TestCase):
     def setUpClass(cls):
         cls.lines = (Path(__file__).parent / "data" / "quest_counter_navigation.txt").read_text(encoding="utf-8-sig").splitlines()
         cls.movements = []
+        frame = cv2.imread(str(Path(__file__).parent / "images" / "quest_navigation_start.png"))
+        cls.stationary = detect_background_motion(frame, frame).moving
         for line in cls.lines:
             match = re.search(r"距离目标 (\d+(?:\.\d+)?) 米", line)
             if match:
@@ -24,10 +29,10 @@ class TestQuestProgressTracker(unittest.TestCase):
         for index, (timestamp, distance) in enumerate(samples):
             tracker.observe(distance)
             action = compute_movement_action(distance)
-            tracker.record_movement(action.keys, action.press_duration)
+            tracker.record_movement(action.keys, action.press_duration, moving=self.stationary)
             if tracker.blocked:
-                self.assertEqual(index, 5)
-                self.assertLess((timestamp - samples[0][0]).total_seconds(), 5)
+                self.assertEqual(index, 11)
+                self.assertLess((timestamp - samples[0][0]).total_seconds(), 10)
                 break
         else:
             self.fail("记录中的连续前进没有触发绕行")
@@ -44,7 +49,7 @@ class TestQuestProgressTracker(unittest.TestCase):
                 self.assertEqual(tracker.movement_seconds, 0)
                 reductions += 1
             action = compute_movement_action(distance)
-            tracker.record_movement(action.keys, action.press_duration)
+            tracker.record_movement(action.keys, action.press_duration, moving=self.stationary)
             closest_distance = distance if closest_distance is None else min(closest_distance, distance)
         self.assertGreater(reductions, 3)
 
@@ -72,12 +77,12 @@ class TestQuestProgressTracker(unittest.TestCase):
             tracker.observe(distance)
             if tracker.recovery_step is not None:
                 keys, duration = tracker.next_recovery_movement()
-                tracker.record_movement(keys, duration)
+                tracker.record_movement(keys, duration, moving=self.stationary)
                 if keys in (["a"], ["d"]):
                     sides.append(keys[0])
             else:
                 action = compute_movement_action(distance)
-                tracker.record_movement(action.keys, action.press_duration)
+                tracker.record_movement(action.keys, action.press_duration, moving=self.stationary)
                 if tracker.blocked:
                     if tracker.recovery_count == 4:
                         with self.assertRaisesRegex(RuntimeError, "四次绕行"):

@@ -12,6 +12,7 @@ from src.utils.QuestDecisionEngine import QuestAction, decide_quest_action
 from src.utils.QuestNavigator import calculate_camera_turn, compute_movement_action
 from src.utils.QuestOcrPrivacy import prepare_quest_ocr_frame, sanitize_quest_text
 from src.utils.QuestProgressTracker import QuestProgressTracker
+from src.utils.QuestBackgroundMotion import detect_background_motion
 from src.utils.QuestVision import (
     BeaconResult,
     ClimbStateResult,
@@ -69,12 +70,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.last_search_log_time: float = 0.0
         self.last_char_switch_time: float = 0.0
         self.climbing_start_time: float = 0.0
-        self.last_nav_frame: Optional[np.ndarray] = None
-        self.navigation_movement_pending = False
         self.navigation_progress = QuestProgressTracker()
-        self.stuck_start_time: float = 0.0
-        self.last_observed_distance: Optional[float] = None
-        self.stuck_count: int = 0
+        self.climbing_progress = QuestProgressTracker(require_distance=False)
         self.last_teleport_attempt_time: float = 0.0
         self.jev_call_count: int = 0
         self.jev_total_tokens: int = 0
@@ -115,11 +112,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.letterbox_freeze_start_time = 0.0
         self.last_search_log_time = 0.0
         self.climbing_start_time = 0.0
-        self.navigation_movement_pending = False
         self.navigation_progress = QuestProgressTracker()
-        self.last_nav_frame = None
-        self.stuck_start_time = 0.0
-        self.last_observed_distance = None
+        self.climbing_progress = QuestProgressTracker(require_distance=False)
         self.jev_call_count = 0
         self.jev_total_tokens = 0
         self.jev_cost_estimate = 0.0
@@ -240,10 +234,16 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             now = time.time()
             if self.climbing_start_time == 0.0:
                 self.climbing_start_time = now
+                self.climbing_progress = QuestProgressTracker(require_distance=False)
+                self.navigation_progress.recovery_step = None
+                self.navigation_progress.movement_seconds = 0.0
             climbing_duration = now - self.climbing_start_time
-            self._handle_climbing_escape(frame, climbing_duration)
+            self._handle_climbing_state(frame, climbing_duration)
             return
         else:
+            if self.climbing_start_time != 0.0:
+                self.navigation_progress.movement_seconds = 0.0
+                self.navigation_progress.stationary_observed = False
             self.climbing_start_time = 0.0
 
         # 1. 检查是否存在 F 键交互
@@ -328,12 +328,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self._continue_navigation_recovery()
             return
         if self.navigation_progress.blocked:
-            self.log_info(f"累计前进 {self.navigation_progress.movement_seconds:.1f} 秒后任务距离没有缩减，执行侧向绕行")
+            self.log_info(f"累计前进 {self.navigation_progress.movement_seconds:.1f} 秒后背景保持静止且任务距离没有缩减，执行侧向绕行")
             self._handle_stuck_recovery(frame)
-            return
-
-        # 7. 检查短时间贴墙受阻卡滞
-        if self._check_and_handle_stuck(frame, current_distance):
             return
 
         # 8. 视野中存在任务信标
@@ -410,13 +406,18 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self._apply_camera_turn(120)
         self.sleep(0.2)
 
-    def _handle_climbing_escape(self, frame: np.ndarray, climbing_duration: float = 0.0):
+    def _handle_climbing_state(self, frame: np.ndarray, climbing_duration: float = 0.0):
+        self.log_info(f"正在攀爬，持续 {climbing_duration:.1f} 秒，保持向上移动")
+        self._apply_movement(["w"], 0.3, progress_tracker=self.climbing_progress)
+        if not self.climbing_progress.blocked:
+            return
         self._stop_all_movement()
         self.log_info(
-            f"检测到角色处于攀爬状态 (持续 {climbing_duration:.1f} 秒)，发送 [X] 键脱离攀爬并后撤调整路线"
+            "连续尝试攀爬 3 秒后背景保持静止，发送 [X] 键脱离攀爬并侧向绕行"
         )
         self.send_key("x", down_time=0.1)
         self.sleep(0.35)
+        self.climbing_start_time = 0.0
         self._handle_stuck_recovery(frame)
 
     def _try_teleport_to_nearest_waypoint(self, current_distance: float) -> bool:
@@ -491,50 +492,6 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.navigation_progress = QuestProgressTracker()
         return True
 
-    def _check_and_handle_stuck(self, frame: np.ndarray, current_distance: Optional[float]) -> bool:
-        if not self.navigation_movement_pending:
-            self.last_nav_frame = frame.copy()
-            self.last_observed_distance = current_distance
-            self.stuck_start_time = 0.0
-            return False
-        now = time.time()
-        is_stuck = False
-        last_nav = getattr(self, "last_nav_frame", None)
-        stuck_start = getattr(self, "stuck_start_time", 0.0)
-        last_dist = getattr(self, "last_observed_distance", None)
-
-        if last_nav is not None and last_nav.shape == frame.shape:
-            ch, cw = frame.shape[:2]
-            center_crop_curr = frame[int(ch * 0.25):int(ch * 0.75), int(cw * 0.25):int(cw * 0.75)]
-            center_crop_prev = last_nav[int(ch * 0.25):int(ch * 0.75), int(cw * 0.25):int(cw * 0.75)]
-            diff_val = float(np.mean(np.abs(center_crop_curr.astype(float) - center_crop_prev.astype(float))))
-
-            distance_not_reduced = True
-            if current_distance is not None and last_dist is not None:
-                if current_distance < last_dist - 0.2:
-                    distance_not_reduced = False
-
-            if diff_val < 3.0 and distance_not_reduced:
-                if stuck_start == 0.0:
-                    self.stuck_start_time = now
-                elif now - stuck_start >= 1.2:
-                    is_stuck = True
-            else:
-                self.stuck_start_time = 0.0
-        else:
-            self.stuck_start_time = 0.0
-
-        self.last_nav_frame = frame.copy()
-        if current_distance is not None:
-            self.last_observed_distance = current_distance
-
-        if is_stuck:
-            self._handle_stuck_recovery(frame)
-            self.stuck_start_time = 0.0
-            return True
-
-        return False
-
     def _handle_stuck_recovery(self, frame: np.ndarray):
         self._stop_all_movement()
         self.navigation_progress.begin_recovery()
@@ -544,8 +501,6 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
     def _continue_navigation_recovery(self):
         keys, duration = self.navigation_progress.next_recovery_movement()
         self._apply_movement(keys, duration)
-        self.last_nav_frame = None
-        self.stuck_start_time = 0.0
         if self.navigation_progress.recovery_step is None:
             self.log_info("侧向绕行完成，重新识别任务方向与距离")
 
@@ -600,8 +555,6 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             return
         if delta_x == 0:
             return
-        self.navigation_movement_pending = False
-        self.stuck_start_time = 0.0
         try:
             import win32api
             import win32con
@@ -611,13 +564,13 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             controller = mouse.Controller()
             controller.move(delta_x, 0)
 
-    def _apply_movement(self, keys: list, duration: float):
+    def _apply_movement(self, keys: list, duration: float, progress_tracker=None):
         if not self.is_game_window_active():
             self._stop_all_movement()
             return
         if not keys:
             return
-        self.navigation_movement_pending = True
+        before = self.frame.copy() if "w" in keys else None
         try:
             for key in keys:
                 self.send_key_down(key)
@@ -625,7 +578,12 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         finally:
             for key in keys:
                 self.send_key_up(key)
-        self.navigation_progress.record_movement(keys, duration)
+        if before is not None:
+            self.next_frame()
+            motion = detect_background_motion(before, self.frame)
+            tracker = self.navigation_progress if progress_tracker is None else progress_tracker
+            tracker.record_movement(keys, duration, moving=motion.moving)
+            self.log_debug(f"移动背景判断: moving={motion.moving}, displacement={motion.displacement_pixels:.2f}, vertical={motion.vertical_pixels:.2f}, points={motion.tracked_points}")
 
     def _ensure_first_character(self) -> bool:
         now = time.time()

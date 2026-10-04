@@ -8,6 +8,8 @@ class QuestProgressTracker:
     movement_seconds: float = 0.0
     recovery_count: int = 0
     recovery_step: Optional[int] = None
+    require_distance: bool = True
+    stationary_observed: bool = False
 
     def observe(self, distance: Optional[float]):
         if distance is None or self.recovery_step is not None:
@@ -19,13 +21,20 @@ class QuestProgressTracker:
             self.movement_seconds = 0.0
             self.recovery_count = 0
 
-    def record_movement(self, keys: list[str], duration: float):
+    def record_movement(self, keys: list[str], duration: float, moving: Optional[bool] = None):
         if self.recovery_step is None and "w" in keys:
-            self.movement_seconds += duration
+            self.stationary_observed = moving is False
+            if moving is False:
+                self.movement_seconds += duration
+            else:
+                self.movement_seconds = 0.0
+                if moving is True:
+                    self.recovery_count = 0
 
     @property
     def blocked(self) -> bool:
-        return self.best_distance is not None and self.movement_seconds >= 1.5
+        distance_known = self.best_distance is not None or not self.require_distance
+        return distance_known and self.stationary_observed and self.movement_seconds >= 3.0 - 1e-6
 
     def begin_recovery(self):
         if self.recovery_step is not None:
