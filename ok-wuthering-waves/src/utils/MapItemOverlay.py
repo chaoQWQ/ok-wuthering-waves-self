@@ -441,8 +441,7 @@ def _native_draw_path_layers(painter, path_layers, highlight_color=None):
     环境或单元测试 mock），则回退到用小正方形采样折线近似。
 
     每段连线宽度 4px（含 2px 黑色描边，避免在浅色地图上消失）。
-    方向箭头在线段中点用填充小矩形表示。当前目标段（highlight_color 非 None）
-    用更高亮的颜色绘制，线宽加粗为 6px。
+    方向箭头在线段中点沿节点顺序绘制。
     """
     if not path_layers:
         return
@@ -484,13 +483,17 @@ def _native_draw_path_layers(painter, path_layers, highlight_color=None):
                         x2, y2 = int(points[i+1][0] * ratio), int(points[i+1][1] * ratio)
                         _draw_gdi_line(hdc, x1, y1, x2, y2, outline_color, 6)
                         _draw_gdi_line(hdc, x1, y1, x2, y2, gdi_color, 4)
-                        # 线段中点画方向小方块（近似箭头）
                         mx = (x1 + x2) // 2
                         my = (y1 + y2) // 2
-                        painter.rectangle(
-                            int(mx / ratio) - 4, int(my / ratio) - 4, 8, 8,
-                            color=rgb, line_width=2,
-                        )
+                        length = math.hypot(x2 - x1, y2 - y1)
+                        if length:
+                            ux, uy = (x2 - x1) / length, (y2 - y1) / length
+                            tip_x, tip_y = int(mx + 6 * ratio * ux), int(my + 6 * ratio * uy)
+                            for side in (-1, 1):
+                                wing_x = int(mx - 6 * ratio * ux - side * 5 * ratio * uy)
+                                wing_y = int(my - 6 * ratio * uy + side * 5 * ratio * ux)
+                                _draw_gdi_line(hdc, tip_x, tip_y, wing_x, wing_y,
+                                               gdi_color, max(1, round(3 * ratio)))
                 return
     except Exception:
         pass

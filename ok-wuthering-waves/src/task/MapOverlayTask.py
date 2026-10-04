@@ -705,6 +705,9 @@ class OverlayController:
     def _update_kuro_route(self, player_pos, state_id):
         data = self.task.config.get('_Kuro route', {})
         section_id = int(self.task.config.get('_Kuro route section', 0))
+        if data and not section_id:
+            section_id = KuroRoute.from_data(data).path.sections[0].section_id
+            self.task.config['_Kuro route section'] = section_id
         self._ensure_marks()
         signature = (json.dumps(data, sort_keys=True, ensure_ascii=False),
                      section_id, self.task.config.get('Collection account', 'default'),
@@ -1275,6 +1278,10 @@ class OverlayController:
             self._last_geometry = geometry
             window.set_window_geometry(*geometry)
         window.show_overlay()
+        navigation = self._kuro_navigation if self._kuro_enabled() else None
+        sections = tuple((section.section_id, len(section.nodes))
+                         for section in navigation.route.path.sections) if navigation else ()
+        window.set_route_sections(sections, self.task.config.get('_Kuro route section', 0))
         # Status_Panel text for the big map (Requirements 12.3, 12.9), built after
         # the (possible) auto-advance above so target info reflects the current
         # target; rendered on the InteractionOverlayWindow and its box unioned
@@ -1354,6 +1361,14 @@ class OverlayController:
             return
         self._bubble_image_index = (self._bubble_image_index + step) % len(self._bubble_image_urls)
         self._show_guide_image()
+
+    def on_route_section_selected(self, section_id):
+        if self._kuro_navigation is None:
+            return
+        if section_id not in {section.section_id for section in self._kuro_navigation.route.path.sections}:
+            raise ValueError('所选线路不存在')
+        self.task.config['_Kuro route section'] = section_id
+        self.close_bubble()
 
     def _show_guide_image(self):
         if not self._bubble_image_urls:
@@ -1984,12 +1999,9 @@ class OverlayController:
           矩形，圆判定会漏掉左右两侧）；与 db 项共用同一矩形，投影用
           ``overlay.project_to_minimap`` 以相同的 player/scale/center 上下文，与 db 项
           投影完全一致，因此稳定、不随远处抖动。
-        - 对每个 section 按**原始节点顺序**投影，按“节点是否可见”切分为若干极大连续
-          可见 run（相邻可见节点组成一段折线）。每个 run 生成一个 :class:`PathLayer`
-          （``color`` 为该 section 颜色，``points`` 为 run 内节点屏幕点，``node_ids``
-          对应）。这样 path_layers 只含可见附近的短折线，掩码 stroker 开销小、无远处
-          乱线、随缩放抖动的远段被丢弃；不固定缩放（继续用传入 ``scale``）、不丢弃近处
-          可见节点。
+        - 每个 section 按原始节点顺序生成完整的 :class:`PathLayer`，原生覆盖层
+          在窗口边界裁剪连线，保留跨越可见区域边界的线段。节点图标和命中区按
+          ``view_bounds`` 筛选。
         - 命中区与 ClickTarget 只为**可见节点**生成，且使用节点在 section 内的**原始
           index**（下面的 ``node_index``），保证双击 ``set_target(section_id, index)``
           正确、并让 :meth:`_compute_target_marker` 能按 section_id/index 找回目标。
@@ -2024,6 +2036,10 @@ class OverlayController:
                 )
                 for node in nodes
             ]
+            section_node_ids = tuple(node.position_id for node in nodes)
+            clipped_layers.append(PathLayer(
+                color=(255, 60, 60) if target_id_str in section_node_ids else section.color,
+                points=tuple(projected), node_ids=section_node_ids))
             visible = [
                 view_bounds[0] <= px <= view_bounds[2]
                 and view_bounds[1] <= py <= view_bounds[3]
@@ -2039,15 +2055,6 @@ class OverlayController:
                 j = i
                 while j + 1 < n and visible[j + 1]:
                     j += 1
-                run_points = tuple(projected[k] for k in range(i, j + 1))
-                run_node_ids = tuple(nodes[k].position_id for k in range(i, j + 1))
-                clipped_layers.append(
-                    PathLayer(
-                        color=(255, 60, 60) if (target_id_str is not None and target_id_str in run_node_ids) else section.color,
-                        points=run_points,
-                        node_ids=run_node_ids,
-                    )
-                )
                 for k in range(i, j + 1):
                     px, py = projected[k]
                     node = nodes[k]
@@ -2463,6 +2470,7 @@ class OverlayController:
             window.rightClicked.connect(self.on_right_click)
             window.emptyClicked.connect(self.close_bubble)
             window.imageStepClicked.connect(self.on_image_step)
+            window.routeSectionSelected.connect(self.on_route_section_selected)
         except Exception as exc:  # pragma: no cover - Qt runtime specific
             logger.warning(f"[Overlay] failed to connect window signals: {exc}")
             return

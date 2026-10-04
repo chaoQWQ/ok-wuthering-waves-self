@@ -4,7 +4,7 @@ import time
 import unittest
 from pathlib import Path
 
-from PySide6.QtCore import QThread, Qt
+from PySide6.QtCore import QPoint, QThread, Qt
 from PySide6.QtGui import QImage, QPainter
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
@@ -143,6 +143,79 @@ class TestPointGuideDisplay(unittest.TestCase):
             self.assertFalse(disk_cache.get_pixmap(POINT_ID, url).isNull())
         finally:
             disk_cache.stop()
+
+    def test_live_overlay_route_section_selection(self):
+        from src.utils.MapMarksDB import MapMarksDB
+        from src.utils.NodeIconCache import NodeIconCache
+        data = KuroRoutesClient(8).detail('1452042731439439872')
+        self.controller._marks_db = MapMarksDB(str(Path(self.directory.name) / 'marks.db'))
+        self.controller._icon_cache = NodeIconCache(str(Path(self.directory.name) / 'icons'))
+        self.task.config['_Kuro route'] = data
+        self.task.config['Kuro route navigation'] = True
+        self.controller._update_kuro_route(None, 8)
+        first_id = data['sectionList'][0]['sectionId']
+        second_id = data['sectionList'][1]['sectionId']
+        self.assertEqual(self.task.config['_Kuro route section'], first_id)
+        self.assertEqual(len(self.controller._route.sections), 1)
+        choices = tuple((s.section_id, len(s.nodes))
+                        for s in self.controller._kuro_navigation.route.path.sections)
+        self.window.set_route_sections(choices, first_id)
+        self.window.show()
+        self.app.processEvents()
+        self.assertEqual(self.window.section_selector.count(), 15)
+        self.assertTrue(self.window.mask().contains(self.window.section_selector.geometry().center()))
+        selector = self.window.section_selector
+        QTest.mouseClick(selector, Qt.LeftButton, pos=QPoint(selector.width() - 15, selector.height() // 2))
+        QTest.qWait(200)
+        self.assertTrue(selector.view().isVisible())
+        option_rect = selector.view().visualRect(selector.model().index(1, 0))
+        QTest.mouseMove(selector.view().viewport(), option_rect.center())
+        QTest.qWait(50)
+        QTest.mouseClick(selector.view().viewport(), Qt.LeftButton, pos=option_rect.center())
+        self.assertEqual(self.task.config['_Kuro route section'], second_id)
+        self.controller._update_kuro_route(None, 8)
+        section = self.controller._route.sections[0]
+        self.assertEqual(section.section_id, second_id)
+        self.assertEqual(self.controller._chest_target.location_id, section.nodes[0].position_id)
+        layers, items, boxes, targets = self.controller._build_visible_path(
+            section.nodes[0].x, section.nodes[0].y, 0.01, 400, 300, (0, 0, 800, 600))
+        self.assertEqual(len(layers), 1)
+        self.assertEqual(len(layers[0].segments), len(section.nodes) - 1)
+        self.assertTrue(all(t.section_id == second_id for t in targets))
+        restored = Config('guide-test', self.task.default_config, folder=self.directory.name)
+        self.assertEqual(restored['_Kuro route section'], second_id)
+
+    def test_native_direction_arrow_pixels(self):
+        import ctypes
+        from ctypes import wintypes
+        from ok.ui.overlay.win32_gdi import BITMAPINFO, GdiCanvas, gdi32
+        from src.utils.PathRoute import PathLayer
+        from src.utils.MapItemOverlay import MapItemOverlay
+        info = BITMAPINFO()
+        info.bmiHeader.biSize = ctypes.sizeof(info.bmiHeader)
+        info.bmiHeader.biWidth = 200
+        info.bmiHeader.biHeight = -100
+        info.bmiHeader.biPlanes = 1
+        info.bmiHeader.biBitCount = 32
+        pixels = ctypes.c_void_p()
+        dc = gdi32.CreateCompatibleDC(None)
+        bitmap = gdi32.CreateDIBSection(dc, ctypes.byref(info), 0, ctypes.byref(pixels), None, 0)
+        self.assertTrue(dc and bitmap)
+        previous = gdi32.SelectObject(dc, bitmap)
+        gdi32.GetPixel.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+        gdi32.GetPixel.restype = wintypes.DWORD
+        try:
+            ctypes.memset(pixels, 0, 200 * 100 * 4)
+            layer = PathLayer((40, 220, 180), ((20, 50), (180, 50)), ('a', 'b'))
+            MapItemOverlay.make_paint_callback([], (layer,), draw_path_nodes=False)(GdiCanvas(dc, 1), None)
+            color = 40 | (220 << 8) | (180 << 16)
+            self.assertEqual(gdi32.GetPixel(dc, 60, 50), color)
+            self.assertEqual(gdi32.GetPixel(dc, 95, 54), color)
+            self.assertNotEqual(gdi32.GetPixel(dc, 105, 54), color)
+        finally:
+            gdi32.SelectObject(dc, previous)
+            gdi32.DeleteObject(bitmap)
+            gdi32.DeleteDC(dc)
 
 
 if __name__ == '__main__':

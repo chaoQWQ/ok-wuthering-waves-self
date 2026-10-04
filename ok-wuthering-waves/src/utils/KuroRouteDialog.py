@@ -163,6 +163,7 @@ class KuroRouteDialog(MessageBoxBase):
             self.section_combo.addItem(self.translate('All sections'), userData=0)
             for index, section in enumerate(route.path.sections, 1):
                 self.section_combo.addItem(f'分段 {index} · {len(section.nodes)} 点', userData=section.section_id)
+            self.section_combo.setCurrentIndex(1)
             self.status_label.setText(f'{len(route.path.sections)} 分段 · {count} 点')
             self.yesButton.setEnabled(True)
 

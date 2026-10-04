@@ -56,7 +56,7 @@ from PySide6.QtGui import (
     QPen,
     QRegion,
 )
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QComboBox, QListView, QWidget
 
 from src.utils.map_geometry import topmost_hit
 from src.utils.MapItemOverlay import (
@@ -155,6 +155,8 @@ class InteractionOverlayWindow(QWidget):
     rightClicked = Signal(int)
     emptyClicked = Signal()
     imageStepClicked = Signal(int)
+    routeSectionSelected = Signal(int)
+    _sections_requested = Signal(object, int)
 
     # Internal cross-thread marshalling signals: public methods may be called
     # from the ok task thread, but the actual Qt work must run on the GUI
@@ -222,6 +224,18 @@ class InteractionOverlayWindow(QWidget):
         self._geometry_requested.connect(self._do_set_geometry, Qt.QueuedConnection)
         self._show_requested.connect(self._do_show, Qt.QueuedConnection)
         self._hide_requested.connect(self._do_hide, Qt.QueuedConnection)
+        self._sections_requested.connect(self._do_sections, Qt.QueuedConnection)
+        self._section_choices = ()
+        self.section_selector = QComboBox(self)
+        self.section_selector.setView(QListView(self.section_selector))
+        self.section_selector.setObjectName('routeSectionSelector')
+        self.section_selector.setStyleSheet(
+            'QComboBox { background: #303030; color: #ffe7a0; padding: 6px; }'
+            'QAbstractItemView { background: #303030; color: #ffe7a0; }')
+        self.section_selector.activated.connect(
+            lambda index: self.routeSectionSelected.emit(int(self.section_selector.itemData(index))))
+        self.section_selector.view().clicked.connect(self._select_section_item)
+        self.section_selector.hide()
 
         if width > 0 and height > 0:
             self.setGeometry(x, y, width, height)
@@ -237,6 +251,32 @@ class InteractionOverlayWindow(QWidget):
         线程执行（见 :meth:`_do_set_geometry`）。
         """
         self._geometry_requested.emit(int(x), int(y), int(width), int(height))
+
+    def set_route_sections(self, sections, selected_section):
+        self._sections_requested.emit(tuple(sections), int(selected_section))
+
+    def _select_section_item(self, index):
+        self.section_selector.setCurrentIndex(index.row())
+        self.section_selector.hidePopup()
+        self.routeSectionSelected.emit(int(self.section_selector.itemData(index.row())))
+
+    def _do_sections(self, sections, selected_section):
+        if sections != self._section_choices:
+            self._section_choices = sections
+            self.section_selector.clear()
+            for number, (section_id, count) in enumerate(sections, 1):
+                self.section_selector.addItem(f'线路 {number} · {count} 个点位', section_id)
+        self.section_selector.setCurrentIndex(self.section_selector.findData(selected_section))
+        self.section_selector.setVisible(bool(sections))
+        self.section_selector.setGeometry(max(0, self.width() - 220), 20, 200, 36)
+        self._apply_composed_mask()
+        self.update()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, 'section_selector'):
+            self.section_selector.setGeometry(max(0, self.width() - 220), 20, 200, 36)
+            self._apply_composed_mask()
 
     def render_items(self, draw_items, bubble=None, path_layers=()) -> None:
         """Update overlay content and trigger a repaint (Requirements 2, 5).
@@ -376,6 +416,8 @@ class InteractionOverlayWindow(QWidget):
         - the current bubble box (so the bubble is not clipped, fix B).
         """
         region = QRegion()
+        if self._section_choices:
+            region = region.united(self.section_selector.geometry())
         # Hit_Box rectangles.
         for rect, _z in self._hitboxes_with_z:
             region = region.united(
