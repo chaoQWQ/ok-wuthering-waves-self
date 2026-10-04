@@ -61,10 +61,15 @@ class TestQuestNavigator(unittest.TestCase):
         self.assertIn("w", cmd.keys)
         self.assertIn("shift", cmd.keys)
 
-    def test_movement_action_run(self):
-        cmd = compute_movement_action(distance_meters=8.0, angle_error_deg=5.0)
-        self.assertEqual(cmd.mode, "run")
-        self.assertEqual(cmd.keys, ["w"])
+    def test_movement_action_walk_under_twenty_meters(self):
+        # 距离小于等于 20 米时禁止使用闪避快跑，采用慢走模式
+        cmd_8m = compute_movement_action(distance_meters=8.0, angle_error_deg=5.0)
+        self.assertEqual(cmd_8m.mode, "walk")
+        self.assertEqual(cmd_8m.keys, ["w"])
+
+        cmd_20m = compute_movement_action(distance_meters=20.0, angle_error_deg=5.0)
+        self.assertEqual(cmd_20m.mode, "walk")
+        self.assertEqual(cmd_20m.keys, ["w"])
 
     def test_movement_action_walk(self):
         cmd = compute_movement_action(distance_meters=2.5, angle_error_deg=5.0)
@@ -72,9 +77,13 @@ class TestQuestNavigator(unittest.TestCase):
         self.assertEqual(cmd.keys, ["w"])
 
     def test_movement_action_arrive(self):
-        cmd = compute_movement_action(distance_meters=1.0, angle_error_deg=5.0)
-        self.assertEqual(cmd.mode, "arrive")
-        self.assertEqual(cmd.keys, [])
+        cmd_1m = compute_movement_action(distance_meters=1.0, angle_error_deg=5.0)
+        self.assertEqual(cmd_1m.mode, "arrive")
+        self.assertEqual(cmd_1m.keys, [])
+
+        cmd_2m = compute_movement_action(distance_meters=2.0, angle_error_deg=5.0)
+        self.assertEqual(cmd_2m.mode, "arrive")
+        self.assertEqual(cmd_2m.keys, [])
 
     def test_movement_action_angle_error_wait(self):
         cmd = compute_movement_action(distance_meters=50.0, angle_error_deg=60.0)

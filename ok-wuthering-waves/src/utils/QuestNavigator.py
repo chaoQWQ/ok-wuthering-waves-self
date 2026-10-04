@@ -22,7 +22,8 @@ def calculate_camera_turn(
     beacon_center_x: Optional[int] = None,
     minimap_bearing_deg: Optional[float] = None,
     camera_sensitivity: float = 1.0,
-    tolerance_ratio: float = 0.02
+    tolerance_ratio: float = 0.02,
+    max_delta_x: int = 100
 ) -> CameraTurnCommand:
     if screen_width <= 0:
         raise ValueError("屏幕宽度必须大于零")
@@ -39,7 +40,8 @@ def calculate_camera_turn(
                 turn_direction="none"
             )
 
-        delta_x = int(diff_x * camera_sensitivity)
+        raw_delta_x = int(diff_x * camera_sensitivity)
+        delta_x = max(-max_delta_x, min(max_delta_x, raw_delta_x))
         direction = "right" if delta_x > 0 else "left"
         return CameraTurnCommand(
             delta_x_pixels=delta_x,
@@ -55,16 +57,18 @@ def calculate_camera_turn(
         else:
             angle_diff = norm_deg
 
-        if abs(angle_diff) <= 5.0:
+        if abs(angle_diff) <= 6.0:
             return CameraTurnCommand(
                 delta_x_pixels=0,
                 need_turn=False,
                 turn_direction="none"
             )
 
-        # 估算每个角度对应的像素移动量
-        pixels_per_deg = (screen_width / 90.0) * camera_sensitivity
-        delta_x = int(angle_diff * pixels_per_deg)
+        # 估算每个角度对应的像素移动量并施加平滑上限
+        pixels_per_deg = (screen_width / 180.0) * camera_sensitivity
+        raw_delta_x = int(angle_diff * pixels_per_deg)
+        map_max_delta = max(max_delta_x, 150)
+        delta_x = max(-map_max_delta, min(map_max_delta, raw_delta_x))
         direction = "right" if delta_x > 0 else "left"
         return CameraTurnCommand(
             delta_x_pixels=delta_x,
@@ -86,36 +90,33 @@ def compute_movement_action(
     if distance_meters < 0:
         raise ValueError("目标距离不能为负数")
 
-    if abs(angle_error_deg) > 35.0:
+    # 偏航角度误差过大（超过 28 度）时优先原地校准朝向，避免环绕画圈
+    if abs(angle_error_deg) > 28.0:
         return MovementActionCommand(
             keys=[],
             mode="wait",
             press_duration=0.0
         )
 
-    if distance_meters <= 1.5:
+    # 达到 1 至 2 米范围内判定为已到达，停止前进并等待交互触发
+    if distance_meters <= 2.0:
         return MovementActionCommand(
             keys=[],
             mode="arrive",
             press_duration=0.0
         )
 
-    if distance_meters <= 3.5:
+    # 距离小于等于 20 米时禁止使用闪避快跑冲刺，采用慢走模式平稳接近
+    if distance_meters <= 20.0:
         return MovementActionCommand(
             keys=["w"],
             mode="walk",
-            press_duration=0.2
+            press_duration=0.25
         )
 
-    if distance_meters <= 15.0:
-        return MovementActionCommand(
-            keys=["w"],
-            mode="run",
-            press_duration=0.5
-        )
-
+    # 大于 20 米时采用远距离加速快跑前进
     return MovementActionCommand(
         keys=["w", "shift"],
         mode="sprint",
-        press_duration=0.8
+        press_duration=0.6
     )

@@ -10,6 +10,7 @@ from src.task.WWOneTimeTask import WWOneTimeTask
 from src.utils.QuestDecisionEngine import QuestAction, decide_quest_action
 from src.utils.QuestNavigator import calculate_camera_turn, compute_movement_action
 from src.utils.QuestVision import (
+    BeaconResult,
     detect_dialog_advance_indicator,
     detect_interact_action,
     detect_letterbox,
@@ -182,15 +183,17 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 has_f = True
                 action_text = interact_result.action_text
 
+        # 出现 F 键交互立即停止全部移动并执行交互
         if has_f:
+            self._stop_all_movement()
             self.current_state = self.STATE_DECIDE_INTERACT
-            self.log_info(f"检测到交互按键 [F]，准备执行交互动作")
+            self.log_info(f"检测到交互按键 [F]，停止移动并执行交互")
             self._trigger_ai_decision(
                 frame,
                 has_f_button=True,
                 action_text=action_text
             )
-            self.sleep(1.0)
+            self.sleep(1.2)
             return
 
         # 寻路导航状态
@@ -201,39 +204,84 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self._ensure_first_character()
 
         beacon_result = detect_quest_beacon(frame)
+        current_distance = self._extract_quest_distance(frame, beacon_result)
+
+        # 到达 1 至 2 米范围内停止移动并等待交互
+        if current_distance is not None and current_distance <= 2.0:
+            self._stop_all_movement()
+            self.log_info(f"已到达任务目标附近 (距离 {current_distance:.1f} 米)，停止移动，等待交互触发")
+            if beacon_result.found:
+                beacon_cx = beacon_result.x + beacon_result.width // 2
+                turn_cmd = calculate_camera_turn(
+                    screen_width=width,
+                    beacon_center_x=beacon_cx,
+                    camera_sensitivity=sensitivity,
+                    max_delta_x=60
+                )
+                if turn_cmd.need_turn:
+                    self._apply_camera_turn(turn_cmd.delta_x_pixels)
+            self.sleep(0.4)
+            return
+
         if beacon_result.found:
             beacon_cx = beacon_result.x + beacon_result.width // 2
+            diff_x = beacon_cx - width / 2.0
+            angle_error_deg = (diff_x / (width / 2.0)) * 45.0
+
             turn_cmd = calculate_camera_turn(
                 screen_width=width,
                 beacon_center_x=beacon_cx,
-                camera_sensitivity=sensitivity
+                camera_sensitivity=sensitivity,
+                max_delta_x=100
             )
             if turn_cmd.need_turn:
                 self._apply_camera_turn(turn_cmd.delta_x_pixels)
 
-            # 计算前进移动动作
-            move_cmd = compute_movement_action(distance_meters=20.0)
-            self.log_info(
-                f"检测到任务信标 (x={beacon_result.x}, y={beacon_result.y}, 置信度 {beacon_result.confidence:.2f})，调整视角并向前推进"
+            effective_distance = current_distance if current_distance is not None else 10.0
+            move_cmd = compute_movement_action(
+                distance_meters=effective_distance,
+                angle_error_deg=angle_error_deg
             )
+
+            # 角度误差较大时原地校准视角，严禁边转向边移动以避免环绕画圈
+            if move_cmd.mode == "wait":
+                self.log_info(f"正在原地校准视角朝向信标 (角度偏差 {angle_error_deg:.1f}°)")
+                self.sleep(0.1)
+                return
+
+            if move_cmd.mode == "walk":
+                dist_str = f"{current_distance:.1f} 米" if current_distance is not None else "近距离"
+                self.log_info(f"距离目标 {dist_str} (小于等于20米)，采用慢走模式平稳推进")
+            elif move_cmd.mode == "sprint":
+                dist_str = f"{current_distance:.1f} 米" if current_distance is not None else "远距离"
+                self.log_info(f"距离目标 {dist_str}，快跑冲刺快速推进")
+
             self._apply_movement(move_cmd.keys, move_cmd.press_duration)
             return
 
         # 视野无信标，依据小地图指示箭头旋转镜头并移动
         arrow_result = detect_minimap_quest_arrow(frame)
         if arrow_result.found:
+            norm_deg = arrow_result.bearing_deg % 360.0
+            angle_diff = norm_deg - 360.0 if norm_deg > 180.0 else norm_deg
+
             turn_cmd = calculate_camera_turn(
                 screen_width=width,
                 minimap_bearing_deg=arrow_result.bearing_deg,
-                camera_sensitivity=sensitivity
+                camera_sensitivity=sensitivity,
+                max_delta_x=120
             )
             if turn_cmd.need_turn:
                 self._apply_camera_turn(turn_cmd.delta_x_pixels)
 
-            self.log_info(
-                f"依据小地图指引调整视角 (方位角 {arrow_result.bearing_deg:.1f}°)，向前推进"
-            )
-            self._apply_movement(["w"], 0.6)
+            # 若角度偏差超过 20 度，原地旋转镜头，严禁边转向边移动以避免环绕画圈
+            if abs(angle_diff) > 20.0:
+                self.log_info(f"依据小地图指引原地调整朝向 (方位角 {arrow_result.bearing_deg:.1f}°)")
+                self.sleep(0.1)
+                return
+
+            self.log_info(f"朝向小地图指引方向对齐完成，向前慢步推进")
+            self._apply_movement(["w"], 0.25)
             return
 
         # 视野与小地图暂无目标标识，周期性输出状态并慢速探索
@@ -241,7 +289,43 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         if now - self.last_search_log_time > 3.0:
             self.last_search_log_time = now
             self.log_info("正在巡视场景搜索任务信标与小地图指引...")
-        self._apply_movement(["w"], 0.3)
+        self._apply_movement(["w"], 0.25)
+
+    def _stop_all_movement(self):
+        for key in ["w", "a", "s", "d", "shift"]:
+            try:
+                self.send_key_up(key)
+            except Exception:
+                pass
+
+    def _extract_quest_distance(self, frame: np.ndarray, beacon_result: BeaconResult) -> Optional[float]:
+        try:
+            boxes = self.ocr(0.01, 0.18, 0.28, 0.48, match=r"(\d+(?:\.\d+)?)\s*(?:米|m|M)", frame=frame)
+            if boxes:
+                text = boxes[0].name or ""
+                dist = parse_distance_text(text)
+                if dist is not None:
+                    return dist
+        except Exception:
+            pass
+
+        if beacon_result.found:
+            try:
+                fh, fw = frame.shape[:2]
+                rx = max(0.0, (beacon_result.x - beacon_result.width) / fw)
+                ry = min(1.0, (beacon_result.y + beacon_result.height) / fh)
+                r_to_x = min(1.0, (beacon_result.x + beacon_result.width * 2) / fw)
+                r_to_y = min(1.0, (beacon_result.y + beacon_result.height * 3) / fh)
+                boxes = self.ocr(rx, ry, r_to_x, r_to_y, match=r"(\d+(?:\.\d+)?)\s*(?:米|m|M)?", frame=frame)
+                if boxes:
+                    text = boxes[0].name or ""
+                    dist = parse_distance_text(text)
+                    if dist is not None:
+                        return dist
+            except Exception:
+                pass
+
+        return None
 
     def _apply_camera_turn(self, delta_x: int):
         try:

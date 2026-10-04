@@ -246,6 +246,36 @@ def parse_distance_text(text: str) -> Optional[float]:
     return None
 
 
+def extract_beacon_distance_roi(
+    frame: np.ndarray,
+    beacon_result: BeaconResult
+) -> Optional[np.ndarray]:
+    if not beacon_result.found:
+        return None
+    fh, fw = frame.shape[:2]
+    bx, by, bw, bh = beacon_result.x, beacon_result.y, beacon_result.width, beacon_result.height
+    sy = by + bh
+    ey = min(fh, by + int(bh * 2.8))
+    sx = max(0, bx - bw // 2)
+    ex = min(fw, bx + int(bw * 1.8))
+    if ey <= sy or ex <= sx:
+        return None
+    return frame[sy:ey, sx:ex]
+
+
+def extract_task_panel_distance_roi(
+    frame: np.ndarray
+) -> np.ndarray:
+    if frame is None or frame.size == 0:
+        raise ValueError("输入画面数组不能为空")
+    fh, fw = frame.shape[:2]
+    sy = int(fh * 0.18)
+    ey = int(fh * 0.48)
+    sx = int(fw * 0.01)
+    ex = int(fw * 0.28)
+    return frame[sy:ey, sx:ex]
+
+
 def detect_minimap_quest_arrow(
     frame: np.ndarray,
     minimap_roi_box: Optional[Tuple[int, int, int, int]] = None

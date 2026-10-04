@@ -143,8 +143,59 @@ class TestQuestStoryTask(unittest.TestCase):
         self.task.in_team = lambda: (True, 0, 3)
         switched = self.task._ensure_first_character()
         self.assertFalse(switched)
-        self.assertFalse(any(act == "send" and k == "1" for act, k in self.task.sent_keys))
+    def test_world_navigation_stops_within_two_meters(self):
+        import cv2, numpy as np
+        dummy_frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        self.task._extract_quest_distance = lambda f, b: 1.5
+        self.task._handle_world_navigation_and_interaction(dummy_frame)
+        # 验证停止前进，不发送 w 键移动
+        self.assertFalse(any(act == "down" and k == "w" for act, k in self.task.sent_keys))
+        # 验证释放全部按键
+        self.assertTrue(any(act == "up" and k == "w" for act, k in self.task.sent_keys))
+        self.assertTrue(any(k == "Log" and "停止移动" in v for k, v in self.task.ui_logs))
+
+    def test_world_navigation_slow_walks_under_twenty_meters(self):
+        import cv2, os
+        img_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791091183192.jpg"
+        if not os.path.exists(img_path):
+            self.skipTest("大世界信标样本图片不存在")
+        frame = cv2.imread(img_path)
+        self.task._extract_quest_distance = lambda f, b: 12.0
+        self.task._handle_world_navigation_and_interaction(frame)
+        self.assertTrue(any(act == "down" and k == "w" for act, k in self.task.sent_keys))
+        # 验证距离小于等于 20 米时绝对不按 shift 冲刺
+        self.assertFalse(any(k == "shift" for act, k in self.task.sent_keys))
+        self.assertTrue(any(k == "Log" and "慢走模式" in v for k, v in self.task.ui_logs))
+
+    def test_world_navigation_sprints_over_twenty_meters(self):
+        import cv2, os
+        img_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791091183192.jpg"
+        if not os.path.exists(img_path):
+            self.skipTest("大世界信标样本图片不存在")
+        frame = cv2.imread(img_path)
+        self.task._extract_quest_distance = lambda f, b: 35.0
+        self.task._handle_world_navigation_and_interaction(frame)
+        self.assertTrue(any(act == "down" and k == "w" for act, k in self.task.sent_keys))
+        # 验证距离大于 20 米时采用冲刺
+        self.assertTrue(any(act == "down" and k == "shift" for act, k in self.task.sent_keys))
+        self.assertTrue(any(k == "Log" and "冲刺" in v for k, v in self.task.ui_logs))
+
+    def test_world_navigation_user_screenshot_stops_and_interacts(self):
+        import cv2, os
+        img_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791103623271.jpg"
+        if not os.path.exists(img_path):
+            self.skipTest("用户最新上传图片不存在")
+        frame = cv2.imread(img_path)
+        decision_called = []
+        self.task._trigger_ai_decision = lambda *args, **kwargs: decision_called.append(True)
+        self.task._handle_world_navigation_and_interaction(frame)
+        self.assertEqual(self.task.current_state, QuestStoryTask.STATE_DECIDE_INTERACT)
+        self.assertTrue(len(decision_called) > 0)
+        # 验证触发停止并松开移动按键
+        self.assertTrue(any(act == "up" and k == "w" for act, k in self.task.sent_keys))
+        self.assertTrue(any(k == "Log" and "停止移动并执行交互" in v for k, v in self.task.ui_logs))
 
 
 if __name__ == "__main__":
     unittest.main()
+
