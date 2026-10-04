@@ -105,6 +105,23 @@ class TestQuestVision(unittest.TestCase):
         self.assertTrue(res.has_f)
         self.assertIsNotNone(res.box)
 
+    def test_detect_interact_action_negative(self):
+        if not os.path.exists(self.img_beacon_path):
+            self.skipTest("大世界远距离信标样本不存在")
+        frame = cv2.imread(self.img_beacon_path)
+        res = detect_interact_action(frame)
+        self.assertFalse(res.has_f)
+        self.assertIsNone(res.box)
+
+    def test_detect_quest_beacon_on_real_image(self):
+        if not os.path.exists(self.img_beacon_path):
+            self.skipTest("大世界远距离信标样本不存在")
+        frame = cv2.imread(self.img_beacon_path)
+        res = detect_quest_beacon(frame)
+        self.assertTrue(res.found)
+        self.assertGreater(res.x, 700)
+        self.assertGreaterEqual(res.confidence, 0.75)
+
     def test_detect_dialog_advance_indicator_positive(self):
         if not os.path.exists(self.img_dialog_advance_path):
             self.skipTest("剧情推进样本图片不存在")

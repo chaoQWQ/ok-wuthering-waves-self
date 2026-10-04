@@ -58,11 +58,19 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.last_frame: Optional[np.ndarray] = None
         self.letterbox_freeze_start_time: float = 0.0
         self.last_action_time: float = 0.0
+        self.last_search_log_time: float = 0.0
 
     def run(self):
+        try:
+            WWOneTimeTask.run(self)
+        except Exception as e:
+            logger.warning(f"初始化任务执行环境异常: {e}")
+
+        self.log_info("剧情模式已启动，已激活游戏窗口并重置鼠标位置")
         self.current_state = self.STATE_IDLE
         self.last_frame = None
         self.letterbox_freeze_start_time = 0.0
+        self.last_search_log_time = 0.0
 
         while not self.executor.paused:
             self.sleep(0.05)
@@ -75,6 +83,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 if self.check_skip():
                     self.current_state = self.STATE_DIALOG
                     self.letterbox_freeze_start_time = 0.0
+                    self.log_info("检测到剧情跳过选项，点击执行跳过")
                     self.sleep(0.2)
                     continue
 
@@ -82,8 +91,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 if top_left_skip.found:
                     self.current_state = self.STATE_DIALOG
                     self.letterbox_freeze_start_time = 0.0
-                    logger.info(
-                        f"检测到左上角剧情跳过按钮，点击执行跳过 (置信度 {top_left_skip.confidence:.2f})"
+                    self.log_info(
+                        f"检测到左上角剧情跳过按钮 (置信度 {top_left_skip.confidence:.2f})，点击执行跳过"
                     )
                     skip_box = Box(top_left_skip.x, top_left_skip.y, top_left_skip.width, top_left_skip.height)
                     self.click_box(skip_box, after_sleep=0.2)
@@ -94,6 +103,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 if self.skip_message():
                     self.current_state = self.STATE_DIALOG
                     self.letterbox_freeze_start_time = 0.0
+                    self.log_info("检测到短消息对话，点击推进")
                     self.sleep(0.2)
                     continue
 
@@ -101,8 +111,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 if advance_result.found:
                     self.current_state = self.STATE_DIALOG
                     self.letterbox_freeze_start_time = 0.0
-                    logger.info(
-                        f"检测到剧情推进标识，点击界面进入下一段对话 (置信度 {advance_result.confidence:.2f})"
+                    self.log_info(
+                        f"检测到剧情对白推进标识 (置信度 {advance_result.confidence:.2f})，点击界面进入下一段对话"
                     )
                     self.click(0.5, 0.8)
                     self.sleep(0.25)
@@ -113,6 +123,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 if self.in_combat():
                     self.current_state = self.STATE_COMBAT
                     self.letterbox_freeze_start_time = 0.0
+                    self.log_info("检测到进入战斗状态，交由角色战斗执行器执行操作")
                     self.get_current_char().perform()
                     continue
 
@@ -138,7 +149,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 freeze_duration = now - self.letterbox_freeze_start_time
                 wait_limit = float(self.config.get("Letterbox Freeze Wait Seconds", 30.0))
                 if freeze_duration >= wait_limit:
-                    logger.info(
+                    self.log_info(
                         f"黑边动画静止已达 {freeze_duration:.1f} 秒，触发交互决策"
                     )
                     self._trigger_ai_decision(frame, is_frozen_letterbox=True)
@@ -153,17 +164,28 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
     def _handle_world_navigation_and_interaction(self, frame: np.ndarray):
         height, width = frame.shape[:2]
 
-        # 检查中心右侧交互按键
-        interact_result = detect_interact_action(frame)
-        beacon_result = detect_quest_beacon(frame)
+        # 检查交互按键
+        has_f = False
+        action_text = ""
+        try:
+            if hasattr(self, "find_f_with_text") and self.find_f_with_text() is not None:
+                has_f = True
+        except Exception:
+            pass
 
-        if interact_result.has_f:
+        if not has_f:
+            interact_result = detect_interact_action(frame)
+            if interact_result.has_f:
+                has_f = True
+                action_text = interact_result.action_text
+
+        if has_f:
             self.current_state = self.STATE_DECIDE_INTERACT
-            logger.info("检测到交互按键，准备执行交互动作")
+            self.log_info(f"检测到交互按键 [F]，准备执行交互动作")
             self._trigger_ai_decision(
                 frame,
                 has_f_button=True,
-                action_text=interact_result.action_text
+                action_text=action_text
             )
             self.sleep(1.0)
             return
@@ -172,8 +194,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.current_state = self.STATE_NAVIGATE
         sensitivity = float(self.config.get("Camera Sensitivity", 1.0))
 
+        beacon_result = detect_quest_beacon(frame)
         if beacon_result.found:
-            # 根据信标位置旋转镜头
             beacon_cx = beacon_result.x + beacon_result.width // 2
             turn_cmd = calculate_camera_turn(
                 screen_width=width,
@@ -183,20 +205,37 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             if turn_cmd.need_turn:
                 self._apply_camera_turn(turn_cmd.delta_x_pixels)
 
-            # 推进移动
+            # 计算前进移动动作
             move_cmd = compute_movement_action(distance_meters=20.0)
+            self.log_info(
+                f"检测到任务信标 (x={beacon_result.x}, y={beacon_result.y}, 置信度 {beacon_result.confidence:.2f})，调整视角并向前推进"
+            )
             self._apply_movement(move_cmd.keys, move_cmd.press_duration)
-        else:
-            # 信标不在视野中，依据小地图指示箭头旋转镜头
-            arrow_result = detect_minimap_quest_arrow(frame)
-            if arrow_result.found:
-                turn_cmd = calculate_camera_turn(
-                    screen_width=width,
-                    minimap_bearing_deg=arrow_result.bearing_deg,
-                    camera_sensitivity=sensitivity
-                )
-                if turn_cmd.need_turn:
-                    self._apply_camera_turn(turn_cmd.delta_x_pixels)
+            return
+
+        # 视野无信标，依据小地图指示箭头旋转镜头并移动
+        arrow_result = detect_minimap_quest_arrow(frame)
+        if arrow_result.found:
+            turn_cmd = calculate_camera_turn(
+                screen_width=width,
+                minimap_bearing_deg=arrow_result.bearing_deg,
+                camera_sensitivity=sensitivity
+            )
+            if turn_cmd.need_turn:
+                self._apply_camera_turn(turn_cmd.delta_x_pixels)
+
+            self.log_info(
+                f"依据小地图指引调整视角 (方位角 {arrow_result.bearing_deg:.1f}°)，向前推进"
+            )
+            self._apply_movement(["w"], 0.6)
+            return
+
+        # 视野与小地图暂无目标标识，周期性输出状态并慢速探索
+        now = time.time()
+        if now - self.last_search_log_time > 3.0:
+            self.last_search_log_time = now
+            self.log_info("正在巡视场景搜索任务信标与小地图指引...")
+        self._apply_movement(["w"], 0.3)
 
     def _apply_camera_turn(self, delta_x: int):
         try:
@@ -237,7 +276,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             api_key=api_key
         )
 
-        logger.info(f"决策引擎执行动作: {action.action_type}, 详情: {action.description}")
+        self.log_info(f"决策引擎执行动作: {action.action_type}, 详情: {action.description}")
         if action.action_type == "interact" and action.key == "f":
             self.send_key("f", down_time=0.1)
         elif action.action_type == "click":

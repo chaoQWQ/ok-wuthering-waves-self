@@ -1,5 +1,6 @@
 import unittest
 import numpy as np
+from ok import Logger
 
 from src.task.QuestStoryTask import QuestStoryTask
 
@@ -27,6 +28,14 @@ class TestQuestStoryTask(unittest.TestCase):
         self.task.current_state = QuestStoryTask.STATE_IDLE
         self.task.last_frame = None
         self.task.letterbox_freeze_start_time = 0.0
+        self.task.last_search_log_time = 0.0
+        self.task.logger = Logger.get_logger("test")
+        self.task.ui_logs = []
+        self.task.info_set = lambda k, v: self.task.ui_logs.append((k, v))
+        self.task.sent_keys = []
+        self.task.send_key_down = lambda k: self.task.sent_keys.append(("down", k))
+        self.task.send_key_up = lambda k: self.task.sent_keys.append(("up", k))
+        self.task.sleep = lambda s: None
 
     def test_task_states_definition(self):
         self.assertEqual(QuestStoryTask.STATE_IDLE, "IDLE")
@@ -35,6 +44,10 @@ class TestQuestStoryTask(unittest.TestCase):
         self.assertEqual(QuestStoryTask.STATE_COMBAT, "COMBAT")
         self.assertEqual(QuestStoryTask.STATE_NAVIGATE, "NAVIGATE")
         self.assertEqual(QuestStoryTask.STATE_DECIDE_INTERACT, "DECIDE_INTERACT")
+
+    def test_log_info_updates_ui_logs(self):
+        self.task.log_info("正在寻找剧情任务目标")
+        self.assertTrue(any(k == "Log" and "正在寻找剧情任务目标" in v for k, v in self.task.ui_logs))
 
     def test_handle_letterbox_state_freezing(self):
         # 模拟两帧完全相同的黑边动画画面
@@ -69,7 +82,6 @@ class TestQuestStoryTask(unittest.TestCase):
         from src.utils.QuestVision import detect_dialog_advance_indicator
         res = detect_dialog_advance_indicator(frame)
         self.assertTrue(res.found)
-        # 验证能够从当前帧提取到推进标识并将状态更新至 STATE_DIALOG
         if res.found:
             self.task.current_state = QuestStoryTask.STATE_DIALOG
             self.task.letterbox_freeze_start_time = 0.0
@@ -92,6 +104,29 @@ class TestQuestStoryTask(unittest.TestCase):
     def test_skip_message_callable_defined(self):
         self.assertTrue(hasattr(self.task, "skip_message"))
         self.assertTrue(callable(getattr(self.task, "skip_message")))
+
+    def test_world_navigation_moves_forward_when_beacon_found(self):
+        import cv2, os
+        img_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791091183192.jpg"
+        if not os.path.exists(img_path):
+            self.skipTest("大世界信标样本图片不存在")
+        frame = cv2.imread(img_path)
+        self.task._handle_world_navigation_and_interaction(frame)
+        self.assertEqual(self.task.current_state, QuestStoryTask.STATE_NAVIGATE)
+        # 验证已向底层发送了向前移动按键
+        self.assertTrue(any(k == "w" for act, k in self.task.sent_keys))
+
+    def test_world_navigation_triggers_interact_when_f_present(self):
+        import cv2, os
+        img_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791091315830.jpg"
+        if not os.path.exists(img_path):
+            self.skipTest("大世界交互样本图片不存在")
+        frame = cv2.imread(img_path)
+        decision_called = []
+        self.task._trigger_ai_decision = lambda *args, **kwargs: decision_called.append(True)
+        self.task._handle_world_navigation_and_interaction(frame)
+        self.assertEqual(self.task.current_state, QuestStoryTask.STATE_DECIDE_INTERACT)
+        self.assertTrue(len(decision_called) > 0)
 
 
 if __name__ == "__main__":

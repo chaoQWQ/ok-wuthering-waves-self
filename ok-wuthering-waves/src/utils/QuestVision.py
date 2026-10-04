@@ -100,35 +100,91 @@ def detect_screen_freeze(
 
 def detect_quest_beacon(
     frame: np.ndarray,
-    search_box: Optional[Tuple[int, int, int, int]] = None
+    search_box: Optional[Tuple[int, int, int, int]] = None,
+    template_path: Optional[str] = None,
+    threshold: float = 0.75
 ) -> BeaconResult:
     if frame is None or frame.size == 0:
         raise ValueError("输入画面数组不能为空")
 
     frame_height, frame_width = frame.shape[:2]
+
+    if template_path is None:
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(current_dir))
+        template_path = os.path.join(project_root, "assets", "quest_beacon_icon.png")
+
+    # 构建空间遮罩排除固定界面区域
+    spatial_mask = np.ones((frame_height, frame_width), dtype=np.uint8) * 255
+    # 排除顶部信息栏
+    spatial_mask[:int(frame_height * 0.08), :] = 0
+    # 排除底部技能按键区域
+    spatial_mask[int(frame_height * 0.80):, :] = 0
+    # 排除左上角小地图区域
+    spatial_mask[:int(frame_height * 0.25), :int(frame_width * 0.16)] = 0
+    # 排除左侧固定任务描述栏
+    spatial_mask[int(frame_height * 0.20):int(frame_height * 0.45), :int(frame_width * 0.25)] = 0
+    # 排除右侧队伍状态栏
+    spatial_mask[:int(frame_height * 0.50), int(frame_width * 0.88):] = 0
+
     if search_box:
         sx, sy, sw, sh = search_box
-        roi = frame[sy:sy + sh, sx:sx + sw]
-        offset_x, offset_y = sx, sy
-    else:
-        # 默认搜索区域排除底部按键区与顶部信息栏
-        sy = int(frame_height * 0.1)
-        sh = int(frame_height * 0.8)
-        sx = 0
-        sw = frame_width
-        roi = frame[sy:sy + sh, sx:sx + sw]
-        offset_x, offset_y = sx, sy
+        box_mask = np.zeros((frame_height, frame_width), dtype=np.uint8)
+        box_mask[sy:sy + sh, sx:sx + sw] = 255
+        spatial_mask = cv2.bitwise_and(spatial_mask, box_mask)
 
-    roi_b, roi_g, roi_r = roi[:, :, 0], roi[:, :, 1], roi[:, :, 2]
-    # 金黄色判定条件：红高、绿高、蓝低，红蓝差值显著
+    # 提取金黄色色彩掩码
+    roi_b, roi_g, roi_r = frame[:, :, 0], frame[:, :, 1], frame[:, :, 2]
     gold_mask = (
-        (roi_r > 185)
-        & (roi_g > 165)
-        & (roi_b < 145)
-        & ((roi_r.astype(int) - roi_b.astype(int)) > 55)
+        (roi_r > 175)
+        & (roi_g > 155)
+        & (roi_b < 155)
+        & ((roi_r.astype(int) - roi_b.astype(int)) > 45)
     ).astype(np.uint8)
 
-    contours, _ = cv2.findContours(gold_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # 优先执行高精度模板匹配
+    if os.path.exists(template_path):
+        template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
+        if template is not None:
+            gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            th, tw = template.shape[:2]
+            best_score = -1.0
+            best_rect: Optional[Tuple[int, int, int, int]] = None
+
+            scale_base = frame_width / 1024.0
+            for scale_factor in [0.7, 0.85, 1.0, 1.2]:
+                scaled_w = max(6, int(tw * scale_base * scale_factor))
+                scaled_h = max(6, int(th * scale_base * scale_factor))
+                scaled_template = cv2.resize(template, (scaled_w, scaled_h), interpolation=cv2.INTER_AREA)
+
+                res = cv2.matchTemplate(gray_frame, scaled_template, cv2.TM_CCOEFF_NORMED)
+                res_h, res_w = res.shape[:2]
+                res_valid_mask = spatial_mask[:res_h, :res_w]
+                res[res_valid_mask == 0] = -1.0
+
+                min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
+                if max_val > best_score:
+                    bx, by = max_loc
+                    patch_gold = gold_mask[by:by + scaled_h, bx:bx + scaled_w]
+                    gold_ratio = float(np.mean(patch_gold)) if patch_gold.size > 0 else 0.0
+                    if gold_ratio > 0.03:
+                        best_score = float(max_val)
+                        best_rect = (bx, by, scaled_w, scaled_h)
+
+            if best_rect and best_score >= threshold:
+                bx, by, bw, bh = best_rect
+                return BeaconResult(
+                    found=True,
+                    x=bx,
+                    y=by,
+                    width=bw,
+                    height=bh,
+                    confidence=best_score
+                )
+
+    # 备用方案：几何连通域筛选
+    masked_gold = cv2.bitwise_and(gold_mask, gold_mask, mask=spatial_mask)
+    contours, _ = cv2.findContours(masked_gold, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     best_candidate: Optional[Tuple[int, int, int, int, float]] = None
 
     for cnt in contours:
@@ -139,8 +195,7 @@ def detect_quest_beacon(
         if not (0.55 <= aspect_ratio <= 1.8):
             continue
 
-        # 计算内部中心亮度特征（信标中心四角星芒区域呈明亮反光）
-        crop = roi[y:y + h, x:x + w]
+        crop = frame[y:y + h, x:x + w]
         center_h = max(1, h // 3)
         center_w = max(1, w // 3)
         center_crop = crop[center_h:h - center_h, center_w:w - center_w]
@@ -153,7 +208,7 @@ def detect_quest_beacon(
 
         confidence = min(1.0, (center_brightness / 255.0) * (1.0 - abs(1.0 - aspect_ratio)))
         if best_candidate is None or confidence > best_candidate[4]:
-            best_candidate = (x + offset_x, y + offset_y, w, h, confidence)
+            best_candidate = (x, y, w, h, confidence)
 
     if best_candidate:
         bx, by, bw, bh, bconf = best_candidate
@@ -205,49 +260,50 @@ def detect_minimap_quest_arrow(
         # 左上角默认小地图区域
         mx = int(width * 0.01)
         my = int(height * 0.02)
-        mw = int(width * 0.12)
-        mh = int(height * 0.22)
+        mw = int(width * 0.13)
+        mh = int(height * 0.23)
 
     roi = frame[my:my + mh, mx:mx + mw]
     roi_b, roi_g, roi_r = roi[:, :, 0], roi[:, :, 1], roi[:, :, 2]
 
-    # 金色箭头判定：高饱和黄色
+    # 金黄色判定条件：红高、绿高、蓝低，色彩差值显著
     gold_mask = (
-        (roi_r > 190)
-        & (roi_g > 170)
-        & (roi_b < 130)
-        & ((roi_r.astype(int) - roi_b.astype(int)) > 70)
+        (roi_r > 185)
+        & (roi_g > 165)
+        & (roi_b < 140)
+        & ((roi_r.astype(int) - roi_b.astype(int)) > 55)
     ).astype(np.uint8)
 
     contours, _ = cv2.findContours(gold_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    center_map_x = mw / 2.0
-    center_map_y = mh / 2.0
+    center_map_x = mw * 0.48
+    center_map_y = mh * 0.44
 
     best_arrow: Optional[Tuple[float, int, int]] = None
-    min_dist_to_rim = 1e9
+    max_area = 0.0
 
     for cnt in contours:
-        x, y, w, h = cv2.boundingRect(cnt)
-        if not (8 <= w <= 45 and 8 <= h <= 45):
+        area = cv2.contourArea(cnt)
+        if area < 15.0:
             continue
+        x, y, w, h = cv2.boundingRect(cnt)
+        if not (6 <= w <= 50 and 6 <= h <= 50):
+            continue
+
         arrow_cx = x + w / 2.0
         arrow_cy = y + h / 2.0
         dx = arrow_cx - center_map_x
         dy = arrow_cy - center_map_y
-        dist = np.hypot(dx, dy)
-
-        # 箭头通常处于小地图边缘环带
-        min_radius = min(mw, mh) * 0.25
-        max_radius = max(mw, mh) * 0.65
-        if not (min_radius <= dist <= max_radius):
-            continue
+        dist = float(np.hypot(dx, dy))
 
         # 计算顺时针角度（正北上方为 0 度，正东为 90 度）
-        angle_rad = np.arctan2(dx, -dy)
-        angle_deg = float(np.degrees(angle_rad)) % 360.0
+        if dist >= 10.0:
+            angle_rad = np.arctan2(dx, -dy)
+            angle_deg = float(np.degrees(angle_rad)) % 360.0
+        else:
+            angle_deg = 0.0
 
-        if dist < min_dist_to_rim:
-            min_dist_to_rim = dist
+        if area > max_area:
+            max_area = area
             best_arrow = (angle_deg, int(mx + arrow_cx), int(my + arrow_cy))
 
     if best_arrow:
@@ -287,7 +343,9 @@ def detect_edge_turn_hint(
 
 def detect_interact_action(
     frame: np.ndarray,
-    search_box: Optional[Tuple[int, int, int, int]] = None
+    search_box: Optional[Tuple[int, int, int, int]] = None,
+    template_path: Optional[str] = None,
+    threshold: float = 0.85
 ) -> InteractActionResult:
     if frame is None or frame.size == 0:
         raise ValueError("输入画面数组不能为空")
@@ -298,32 +356,37 @@ def detect_interact_action(
     else:
         # 中心右侧交互按钮搜索区域
         sx = int(width * 0.55)
-        sy = int(height * 0.42)
+        sy = int(height * 0.38)
         sw = int(width * 0.35)
-        sh = int(height * 0.25)
+        sh = int(height * 0.32)
 
     roi = frame[sy:sy + sh, sx:sx + sw]
     gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
 
-    # 寻找白色圆角矩形按键图标（F 键外框）
-    white_mask = (gray > 220).astype(np.uint8)
-    contours, _ = cv2.findContours(white_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if template_path is None:
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(current_dir))
+        template_path = os.path.join(project_root, "assets", "interact_f_icon.png")
 
-    found_f_box: Optional[Tuple[int, int, int, int]] = None
-    for cnt in contours:
-        x, y, w, h = cv2.boundingRect(cnt)
-        if 8 <= w <= 50 and 8 <= h <= 50:
-            aspect = float(w) / float(h)
-            if 0.65 <= aspect <= 1.5:
-                found_f_box = (sx + x, sy + y, w, h)
-                break
+    if os.path.exists(template_path):
+        template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
+        if template is not None:
+            th, tw = template.shape[:2]
+            scale = width / 1024.0
+            stw = max(5, int(tw * scale))
+            sth = max(5, int(th * scale))
+            scaled_tpl = cv2.resize(template, (stw, sth), interpolation=cv2.INTER_AREA)
 
-    if found_f_box:
-        return InteractActionResult(
-            has_f=True,
-            action_text="",
-            box=found_f_box
-        )
+            if gray.shape[0] >= sth and gray.shape[1] >= stw:
+                res = cv2.matchTemplate(gray, scaled_tpl, cv2.TM_CCOEFF_NORMED)
+                _, max_val, _, max_loc = cv2.minMaxLoc(res)
+                if max_val >= threshold:
+                    found_f_box = (sx + max_loc[0], sy + max_loc[1], stw, sth)
+                    return InteractActionResult(
+                        has_f=True,
+                        action_text="",
+                        box=found_f_box
+                    )
 
     return InteractActionResult(
         has_f=False,
