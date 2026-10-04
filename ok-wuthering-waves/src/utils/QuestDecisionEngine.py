@@ -16,6 +16,10 @@ class QuestAction:
     description: str
     wait_seconds: float
     turn_pixels: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    cost: float = 0.0
 
 
 def decide_local(
@@ -137,13 +141,27 @@ def parse_jev_response(response_json: dict) -> QuestAction:
     wait_seconds = float(data.get("wait_seconds", 1.0))
     turn_pixels = int(data.get("turn_pixels", 0))
 
+    usage = response_json.get("usage", {}) if isinstance(response_json, dict) else {}
+    prompt_tokens = int(usage.get("prompt_tokens", 0) or 0)
+    completion_tokens = int(usage.get("completion_tokens", 0) or 0)
+    total_tokens = int(usage.get("total_tokens", prompt_tokens + completion_tokens) or 0)
+    cost = float(response_json.get("cost", 0.0) or usage.get("cost", 0.0) or 0.0)
+
+    if total_tokens == 0:
+        total_tokens = 800
+
     return QuestAction(
         action_type=action_type,
         key=key,
         description=description,
         wait_seconds=wait_seconds,
-        turn_pixels=turn_pixels
+        turn_pixels=turn_pixels,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        total_tokens=total_tokens,
+        cost=cost
     )
+
 
 
 DEFAULT_JEV_API_URL = "https://api.typesafe.ai/v1/systemone"

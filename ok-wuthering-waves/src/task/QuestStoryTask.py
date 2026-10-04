@@ -72,6 +72,9 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.tracked_quest_distance: Optional[float] = None
         self.distance_last_changed_time: float = 0.0
         self.last_teleport_attempt_time: float = 0.0
+        self.jev_call_count: int = 0
+        self.jev_total_tokens: int = 0
+        self.jev_cost_estimate: float = 0.0
 
     def is_game_window_active(self) -> bool:
         try:
@@ -109,6 +112,11 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.last_search_log_time = 0.0
         self.tracked_quest_distance = None
         self.distance_last_changed_time = time.time()
+        self.jev_call_count = 0
+        self.jev_total_tokens = 0
+        self.jev_cost_estimate = 0.0
+        self.info_set("JEV 调用次数", "0 次")
+        self.info_set("JEV 额度消耗", "0 tokens")
 
         while not self.executor.paused:
             self.sleep(0.05)
@@ -413,6 +421,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 api_url=api_url,
                 api_key=api_key
             )
+            self._record_jev_usage(action)
             self.log_info(f"AI 寻路决策建议: {action.action_type}, 详情: {action.description}")
             if action.action_type == "climb_drop":
                 self.send_key("x", down_time=0.1)
@@ -668,6 +677,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             api_url=api_url,
             api_key=api_key
         )
+        self._record_jev_usage(action)
 
         self.log_info(f"决策引擎执行动作: {action.action_type}, 详情: {action.description}")
         if action.action_type == "interact" and action.key == "f":
@@ -681,6 +691,19 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
         if action.wait_seconds > 0:
             self.sleep(action.wait_seconds)
+
+    def _record_jev_usage(self, action: QuestAction):
+        if getattr(action, "total_tokens", 0) > 0 or getattr(action, "cost", 0.0) > 0:
+            count = getattr(self, "jev_call_count", 0) + 1
+            tokens = getattr(self, "jev_total_tokens", 0) + getattr(action, "total_tokens", 0)
+            cost = getattr(self, "jev_cost_estimate", 0.0) + getattr(action, "cost", 0.0)
+            self.jev_call_count = count
+            self.jev_total_tokens = tokens
+            self.jev_cost_estimate = cost
+            self.info_set("JEV 调用次数", f"{count} 次")
+            cost_display = f"${cost:.4f}" if cost > 0 else f"{tokens} tokens"
+            self.info_set("JEV 额度消耗", cost_display)
+
 
     def skip_message(self) -> bool:
         if self.find_one("message", horizontal_variance=0.15):

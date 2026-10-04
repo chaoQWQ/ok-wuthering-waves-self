@@ -39,6 +39,9 @@ class TestQuestStoryTask(unittest.TestCase):
         self.task.tracked_quest_distance = None
         self.task.distance_last_changed_time = 0.0
         self.task.last_teleport_attempt_time = 0.0
+        self.task.jev_call_count = 0
+        self.task.jev_total_tokens = 0
+        self.task.jev_cost_estimate = 0.0
         self.task.logger = Logger.get_logger("test")
         self.task.ui_logs = []
         self.task.info_set = lambda k, v: self.task.ui_logs.append((k, v))
@@ -311,9 +314,28 @@ class TestQuestStoryTask(unittest.TestCase):
         self.assertTrue(any(x == 0.89 and y == 0.92 for x, y in self.task.clicked_cords))
         self.assertTrue(any(k == "Log" and "超过 200 米" in v for k, v in self.task.ui_logs))
 
+    def test_record_jev_usage_updates_ui_table(self):
+        from src.utils.QuestDecisionEngine import QuestAction
+        action = QuestAction(
+            action_type="turn",
+            key=None,
+            description="向右旋转视角走向石板路",
+            wait_seconds=0.2,
+            turn_pixels=120,
+            total_tokens=920,
+            cost=0.0018
+        )
+        self.task._record_jev_usage(action)
+        self.assertEqual(self.task.jev_call_count, 1)
+        self.assertEqual(self.task.jev_total_tokens, 920)
+        self.assertAlmostEqual(self.task.jev_cost_estimate, 0.0018, places=4)
+        self.assertTrue(any(k == "JEV 调用次数" and "1 次" in v for k, v in self.task.ui_logs))
+        self.assertTrue(any(k == "JEV 额度消耗" and "$0.0018" in v for k, v in self.task.ui_logs))
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 
 
