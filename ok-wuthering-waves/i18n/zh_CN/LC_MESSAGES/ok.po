@@ -1715,6 +1715,42 @@ msgstr "渊海遗藏"
 msgid "Collection account management"
 msgstr "收集账号管理"
 
+msgid "Manage accounts"
+msgstr "管理账号"
+
+msgid "Manage local profiles and their completion records"
+msgstr "添加、编辑、切换或删除本地账号档案和收集记录"
+
+msgid "Local profiles only; select the matching profile after changing the game account"
+msgstr "这里只管理本地收集记录。切换游戏账号后，请选择对应档案；此操作不会切换游戏登录账号。"
+
+msgid "Search accounts"
+msgstr "搜索账号"
+
+msgid "Rename account"
+msgstr "编辑账号名称"
+
+msgid "Delete account"
+msgstr "删除账号"
+
+msgid "Use selected account"
+msgstr "使用选中账号"
+
+msgid "Default profile"
+msgstr "默认档案"
+
+msgid "Current profile"
+msgstr "当前使用"
+
+msgid "Completed marks"
+msgstr "个已完成标点"
+
+msgid "Delete this profile and its completion records? A database backup will be saved first."
+msgstr "确认删除此账号档案及其收集记录？删除前会自动保存数据库备份。"
+
+msgid "Backup saved"
+msgstr "备份已保存"
+
 msgid "Add account"
 msgstr "添加账号"
 

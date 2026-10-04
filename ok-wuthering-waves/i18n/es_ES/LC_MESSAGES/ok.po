@@ -1585,6 +1585,42 @@ msgstr "Tesoros abisales"
 msgid "Collection account management"
 msgstr "Gestión de cuentas de colección"
 
+msgid "Manage accounts"
+msgstr "Gestionar cuentas"
+
+msgid "Manage local profiles and their completion records"
+msgstr "Añadir, editar, cambiar o eliminar perfiles locales y su progreso"
+
+msgid "Local profiles only; select the matching profile after changing the game account"
+msgstr "Solo perfiles locales. Selecciona el perfil correspondiente al cambiar de cuenta en el juego. Esto no cambia la sesión del juego."
+
+msgid "Search accounts"
+msgstr "Buscar cuentas"
+
+msgid "Rename account"
+msgstr "Editar nombre de cuenta"
+
+msgid "Delete account"
+msgstr "Eliminar cuenta"
+
+msgid "Use selected account"
+msgstr "Usar cuenta seleccionada"
+
+msgid "Default profile"
+msgstr "Perfil predeterminado"
+
+msgid "Current profile"
+msgstr "Perfil actual"
+
+msgid "Completed marks"
+msgstr "marcadores completados"
+
+msgid "Delete this profile and its completion records? A database backup will be saved first."
+msgstr "¿Eliminar este perfil y su progreso? Antes se guardará una copia de seguridad de la base de datos."
+
+msgid "Backup saved"
+msgstr "Copia de seguridad guardada"
+
 msgid "Add account"
 msgstr "Añadir cuenta"
 

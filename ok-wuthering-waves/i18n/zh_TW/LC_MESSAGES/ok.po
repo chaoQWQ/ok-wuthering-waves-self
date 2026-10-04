@@ -1793,6 +1793,42 @@ msgstr "淵海遺藏"
 msgid "Collection account management"
 msgstr "收集帳號管理"
 
+msgid "Manage accounts"
+msgstr "管理帳號"
+
+msgid "Manage local profiles and their completion records"
+msgstr "新增、編輯、切換或刪除本機帳號檔案與收集記錄"
+
+msgid "Local profiles only; select the matching profile after changing the game account"
+msgstr "此處管理本機收集記錄。切換遊戲帳號後，請選擇對應檔案；此操作不會切換遊戲登入帳號。"
+
+msgid "Search accounts"
+msgstr "搜尋帳號"
+
+msgid "Rename account"
+msgstr "編輯帳號名稱"
+
+msgid "Delete account"
+msgstr "刪除帳號"
+
+msgid "Use selected account"
+msgstr "使用選取帳號"
+
+msgid "Default profile"
+msgstr "預設檔案"
+
+msgid "Current profile"
+msgstr "目前使用"
+
+msgid "Completed marks"
+msgstr "個已完成標點"
+
+msgid "Delete this profile and its completion records? A database backup will be saved first."
+msgstr "確認刪除此帳號檔案及其收集記錄？刪除前會自動儲存資料庫備份。"
+
+msgid "Backup saved"
+msgstr "備份已儲存"
+
 msgid "Add account"
 msgstr "新增帳號"
 

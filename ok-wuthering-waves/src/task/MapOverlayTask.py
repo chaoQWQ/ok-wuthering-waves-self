@@ -2594,7 +2594,7 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
             '_Collection map': '',
             # 本地领取记录档案；从下拉框选择游戏 UID 或自定义账号别名。
             'Collection account': 'default',
-            # 仅用于把“添加账号”按钮排列在账号下拉框之后；按钮不会修改此值。
+            # 账号管理按钮排列在账号下拉框之后；按钮不会修改此值。
             'Collection account management': False,
             # 控制全部地图高价值物品覆盖层，按一次隐藏、再按一次显示。
             'Map display toggle hotkey': '<ctrl>+<f8>',
@@ -2640,9 +2640,9 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         }
         self.config_type['Collection account management'] = {
             'type': 'button',
-            'text': 'Add account',
-            'icon': FluentIcon.ADD,
-            'callback': self.add_collection_account,
+            'text': 'Manage accounts',
+            'icon': FluentIcon.EDIT,
+            'callback': self.manage_collection_accounts,
         }
         # 面板可见文案统一用英文源串，由 i18n/<locale>/LC_MESSAGES/ok.po 提供翻译。
         self.config_description = {
@@ -2654,7 +2654,7 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
             'Chest search': 'Select the nearest unconfirmed collectible and show its direction; movement and collection remain manual',
             'Collection types': 'Choose which collectible groups are displayed and used for nearest-target guidance',
             'Collection account': 'Choose the local completion profile used to store collected-item progress',
-            'Collection account management': 'Add a game UID or custom alias and switch to the new profile',
+            'Collection account management': 'Manage local profiles and their completion records',
             'Map display toggle hotkey': 'Hotkey to show or hide all map high-value-item overlays (pynput format, e.g. <ctrl>+<f8>)',
             'Chest confirm hotkey': 'Press after manually collecting the selected target to mark it as completed',
             '_Chest confirm distance (world units)': 'Only allow confirmation when the player is close to the selected chest',
@@ -2803,23 +2803,18 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
     def _refresh_collection_account_options(self, selected=None, ensure=False):
         """Reload the persisted profile list used by the account dropdown."""
         from src.utils.MapMarksDB import (
-            DEFAULT_ACCOUNT_ID, MapMarksDB, normalize_account_id,
+            MapMarksDB, normalize_account_id,
         )
 
         selected = normalize_account_id(selected)
-        accounts = [DEFAULT_ACCOUNT_ID]
-        db = None
+        os.makedirs(os.path.dirname(MARKS_DB_PATH), exist_ok=True)
+        db = MapMarksDB(MARKS_DB_PATH)
         try:
-            os.makedirs(os.path.dirname(MARKS_DB_PATH), exist_ok=True)
-            db = MapMarksDB(MARKS_DB_PATH)
             if ensure:
                 db.ensure_account(selected)
             accounts = db.list_accounts()
-        except Exception as exc:
-            logger.warning(f'[Overlay] collection account list failed: {exc}')
         finally:
-            if db is not None:
-                db.close()
+            db.close()
 
         if selected not in accounts:
             accounts.append(selected)
@@ -2845,6 +2840,26 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         from src.utils.TaskConfigRefresh import refresh_task_config_widgets
 
         refresh_task_config_widgets(self, og.main_window, self.tr)
+
+    def manage_collection_accounts(self, *args):
+        from src.utils.CollectionAccountManager import CollectionAccountManager
+        dialog = CollectionAccountManager(
+            MARKS_DB_PATH, self.config['Collection account'], self.tr,
+            self._collection_account_changed, og.main_window,
+        )
+        dialog.exec()
+
+    def _collection_account_changed(self, account):
+        self.config['Collection account'] = account
+        self._refresh_collection_account_options(account)
+        controller = self._overlay_controller
+        if controller is not None:
+            controller._marks_loaded = False
+            controller._kuro_signature = None
+            controller._clear_chest_target()
+            controller._ensure_marks()
+        self.info_set('Collection account', account)
+        self._refresh_config_widgets()
 
     def _on_executor_paused(self, paused):
         """暂停时关闭覆盖层；恢复且地图任务启用时再创建。"""

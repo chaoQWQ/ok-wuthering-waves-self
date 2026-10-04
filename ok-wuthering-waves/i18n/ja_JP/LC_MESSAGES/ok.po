@@ -1664,6 +1664,42 @@ msgstr "淵海の秘蔵"
 msgid "Collection account management"
 msgstr "収集アカウント管理"
 
+msgid "Manage accounts"
+msgstr "アカウント管理"
+
+msgid "Manage local profiles and their completion records"
+msgstr "ローカルプロフィールと収集記録の追加・編集・切替・削除"
+
+msgid "Local profiles only; select the matching profile after changing the game account"
+msgstr "ローカルの収集記録を管理します。ゲームのアカウントを切り替えたら対応するプロフィールを選択してください。ゲームへのログインは切り替わりません。"
+
+msgid "Search accounts"
+msgstr "アカウントを検索"
+
+msgid "Rename account"
+msgstr "アカウント名を編集"
+
+msgid "Delete account"
+msgstr "アカウントを削除"
+
+msgid "Use selected account"
+msgstr "選択したアカウントを使用"
+
+msgid "Default profile"
+msgstr "既定のプロフィール"
+
+msgid "Current profile"
+msgstr "使用中"
+
+msgid "Completed marks"
+msgstr "件の完了済みマーカー"
+
+msgid "Delete this profile and its completion records? A database backup will be saved first."
+msgstr "このプロフィールと収集記録を削除しますか？削除前にデータベースのバックアップを保存します。"
+
+msgid "Backup saved"
+msgstr "バックアップ保存済み"
+
 msgid "Add account"
 msgstr "アカウントを追加"
 

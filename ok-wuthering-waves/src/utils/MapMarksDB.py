@@ -11,6 +11,9 @@ Validates: Requirements 3.1, 3.2, 3.3, 3.6, 3.7, 3.8, 6.4, 6.5
 """
 
 import sqlite3
+from contextlib import closing
+from pathlib import Path
+from uuid import uuid4
 
 DEFAULT_ACCOUNT_ID = "default"
 
@@ -134,6 +137,70 @@ class MapMarksDB:
         )
         self._conn.commit()
         return account_id
+
+    def account_counts(self) -> dict[str, int]:
+        rows = self._conn.execute(
+            "SELECT a.account_id, COUNT(m.location_id) FROM collection_accounts a "
+            "LEFT JOIN completed_marks m ON a.account_id=m.account_id "
+            "GROUP BY a.account_id"
+        ).fetchall()
+        return dict(rows)
+
+    def create_account(self, account_id: str) -> str:
+        account_id = self._validate_account_name(account_id)
+        with self._conn:
+            self._conn.execute(
+                "INSERT INTO collection_accounts(account_id) VALUES (?)", (account_id,)
+            )
+        return account_id
+
+    @staticmethod
+    def _validate_account_name(account_id):
+        value = str(account_id).strip()
+        if not value or len(value) > 64:
+            raise ValueError('账号名称长度必须为 1 至 64 个字符')
+        return value
+
+    def _require_editable_account(self, account_id):
+        if account_id == DEFAULT_ACCOUNT_ID:
+            raise ValueError('默认档案需要保留')
+        if account_id not in self.list_accounts():
+            raise ValueError('账号档案不存在')
+
+    def backup(self, directory: str) -> str:
+        folder = Path(directory)
+        folder.mkdir(parents=True, exist_ok=True)
+        target = folder / ('map_marks_' + uuid4().hex + '.db')
+        with closing(sqlite3.connect(str(target))) as destination:
+            self._conn.backup(destination)
+        return str(target)
+
+    def rename_account(self, account_id: str, new_name: str, backup_directory: str) -> str:
+        self._require_editable_account(account_id)
+        new_name = self._validate_account_name(new_name)
+        if new_name == account_id:
+            return account_id
+        if new_name in self.list_accounts():
+            raise ValueError('账号名称已经存在')
+        self.backup(backup_directory)
+        with self._conn:
+            self._conn.execute(
+                "UPDATE collection_accounts SET account_id=? WHERE account_id=?",
+                (new_name, account_id),
+            )
+            self._conn.execute(
+                "UPDATE completed_marks SET account_id=? WHERE account_id=?",
+                (new_name, account_id),
+            )
+        return new_name
+
+    def delete_account(self, account_id: str, backup_directory: str) -> str:
+        self._require_editable_account(account_id)
+        backup_path = self.backup(backup_directory)
+        with self._conn:
+            self._conn.execute("DELETE FROM completed_marks WHERE account_id=?", (account_id,))
+            self._conn.execute("DELETE FROM collection_accounts WHERE account_id=?", (account_id,))
+        return backup_path
 
     def load_completed(self, account_id=DEFAULT_ACCOUNT_ID) -> set:
         """Return the set of all completed ids (Requirement 3.6)."""
