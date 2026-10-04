@@ -6,6 +6,7 @@ import numpy as np
 from src.utils.QuestVision import (
     BeaconResult,
     LetterboxResult,
+    detect_dialog_advance_indicator,
     detect_edge_turn_hint,
     detect_interact_action,
     detect_letterbox,
@@ -19,6 +20,7 @@ from src.utils.QuestVision import (
 class TestQuestVision(unittest.TestCase):
 
     def setUp(self):
+        self.img_dialog_advance_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791092805274.png"
         self.img_letterbox_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791092288151.png"
         self.img_normal_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791091315830.jpg"
         self.img_beacon_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791091183192.jpg"
@@ -100,6 +102,30 @@ class TestQuestVision(unittest.TestCase):
         res = detect_interact_action(frame)
         self.assertTrue(res.has_f)
         self.assertIsNotNone(res.box)
+
+    def test_detect_dialog_advance_indicator_positive(self):
+        if not os.path.exists(self.img_dialog_advance_path):
+            self.skipTest("剧情推进样本图片不存在")
+        frame = cv2.imread(self.img_dialog_advance_path)
+        res = detect_dialog_advance_indicator(frame)
+        self.assertTrue(res.found)
+        self.assertGreaterEqual(res.confidence, 0.75)
+        self.assertGreater(res.x, 450)
+        self.assertLess(res.x, 550)
+
+    def test_detect_dialog_advance_indicator_negative(self):
+        if not os.path.exists(self.img_normal_path):
+            self.skipTest("大世界样本图片不存在")
+        frame = cv2.imread(self.img_normal_path)
+        res = detect_dialog_advance_indicator(frame)
+        self.assertFalse(res.found)
+
+    def test_detect_dialog_advance_indicator_invalid_input(self):
+        with self.assertRaises(ValueError):
+            detect_dialog_advance_indicator(None)
+        with self.assertRaises(FileNotFoundError):
+            frame = np.zeros((100, 100, 3), dtype=np.uint8)
+            detect_dialog_advance_indicator(frame, template_path="non_existent.png")
 
 
 if __name__ == "__main__":

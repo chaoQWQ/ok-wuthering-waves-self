@@ -9,6 +9,7 @@ from src.task.WWOneTimeTask import WWOneTimeTask
 from src.utils.QuestDecisionEngine import QuestAction, decide_quest_action
 from src.utils.QuestNavigator import calculate_camera_turn, compute_movement_action
 from src.utils.QuestVision import (
+    detect_dialog_advance_indicator,
     detect_interact_action,
     detect_letterbox,
     detect_minimap_quest_arrow,
@@ -73,6 +74,17 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                     self.current_state = self.STATE_DIALOG
                     self.letterbox_freeze_start_time = 0.0
                     self.sleep(0.2)
+                    continue
+
+                advance_result = detect_dialog_advance_indicator(frame)
+                if advance_result.found:
+                    self.current_state = self.STATE_DIALOG
+                    self.letterbox_freeze_start_time = 0.0
+                    logger.info(
+                        f"检测到剧情推进标识，点击界面进入下一段对话 (置信度 {advance_result.confidence:.2f})"
+                    )
+                    self.click(0.5, 0.8)
+                    self.sleep(0.25)
                     continue
 
             # 2. 判定进入战斗状态

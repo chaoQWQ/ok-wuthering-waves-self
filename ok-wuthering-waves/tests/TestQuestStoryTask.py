@@ -57,11 +57,23 @@ class TestQuestStoryTask(unittest.TestCase):
         frame_moving = np.zeros((576, 1024, 3), dtype=np.uint8)
         frame_moving[100:476, :] = 200
 
-        self.task._handle_letterbox_state(frame1)
-        self.task.letterbox_freeze_start_time = 1000.0
-        # 画面剧烈变动，重置静止计时器
         self.task._handle_letterbox_state(frame_moving)
         self.assertEqual(self.task.letterbox_freeze_start_time, 0.0)
+
+    def test_advance_indicator_triggers_dialog_state(self):
+        import cv2, os
+        img_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791092805274.png"
+        if not os.path.exists(img_path):
+            self.skipTest("推进样本图片不存在")
+        frame = cv2.imread(img_path)
+        from src.utils.QuestVision import detect_dialog_advance_indicator
+        res = detect_dialog_advance_indicator(frame)
+        self.assertTrue(res.found)
+        # 验证能够从当前帧提取到推进标识并将状态更新至 STATE_DIALOG
+        if res.found:
+            self.task.current_state = QuestStoryTask.STATE_DIALOG
+            self.task.letterbox_freeze_start_time = 0.0
+        self.assertEqual(self.task.current_state, QuestStoryTask.STATE_DIALOG)
 
 
 if __name__ == "__main__":

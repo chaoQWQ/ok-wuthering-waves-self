@@ -1,3 +1,4 @@
+import os
 import re
 from dataclasses import dataclass
 from typing import Optional, Tuple
@@ -328,4 +329,88 @@ def detect_interact_action(
         has_f=False,
         action_text="",
         box=None
+    )
+
+
+@dataclass
+class DialogAdvanceResult:
+    found: bool
+    x: int
+    y: int
+    width: int
+    height: int
+    confidence: float
+
+
+def detect_dialog_advance_indicator(
+    frame: np.ndarray,
+    template_path: Optional[str] = None,
+    threshold: float = 0.75
+) -> DialogAdvanceResult:
+    if frame is None or frame.size == 0:
+        raise ValueError("输入画面数组不能为空")
+
+    if template_path is None:
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(current_dir))
+        template_path = os.path.join(project_root, "assets", "dialog_advance_icon.png")
+
+    if not os.path.exists(template_path):
+        raise FileNotFoundError(f"推进图标模板文件不存在: {template_path}")
+
+    template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
+    if template is None:
+        raise RuntimeError(f"无法读取推进图标模板: {template_path}")
+
+    tpl_h, tpl_w = template.shape[:2]
+    frame_h, frame_w = frame.shape[:2]
+
+    # 截取屏幕底部中央的候选区域
+    sx = int(frame_w * 0.40)
+    ex = int(frame_w * 0.60)
+    sy = int(frame_h * 0.70)
+    ey = int(frame_h * 0.95)
+
+    roi = frame[sy:ey, sx:ex]
+    gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+
+    # 依据画面分辨率自适应缩放模板（以 1024 宽度为基准尺寸）
+    scale = frame_w / 1024.0
+    scaled_w = max(5, int(tpl_w * scale))
+    scaled_h = max(5, int(tpl_h * scale))
+
+    scaled_template = cv2.resize(template, (scaled_w, scaled_h), interpolation=cv2.INTER_AREA)
+
+    if gray_roi.shape[0] < scaled_h or gray_roi.shape[1] < scaled_w:
+        return DialogAdvanceResult(
+            found=False,
+            x=0,
+            y=0,
+            width=0,
+            height=0,
+            confidence=0.0
+        )
+
+    match_result = cv2.matchTemplate(gray_roi, scaled_template, cv2.TM_CCOEFF_NORMED)
+    _, max_val, _, max_loc = cv2.minMaxLoc(match_result)
+
+    if max_val >= threshold:
+        match_x = sx + max_loc[0]
+        match_y = sy + max_loc[1]
+        return DialogAdvanceResult(
+            found=True,
+            x=match_x,
+            y=match_y,
+            width=scaled_w,
+            height=scaled_h,
+            confidence=float(max_val)
+        )
+
+    return DialogAdvanceResult(
+        found=False,
+        x=0,
+        y=0,
+        width=0,
+        height=0,
+        confidence=float(max_val)
     )
