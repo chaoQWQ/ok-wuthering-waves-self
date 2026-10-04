@@ -13,6 +13,7 @@ from src.utils.QuestVision import (
     detect_minimap_quest_arrow,
     detect_quest_beacon,
     detect_screen_freeze,
+    detect_top_left_skip_button,
     parse_distance_text,
 )
 
@@ -24,6 +25,7 @@ class TestQuestVision(unittest.TestCase):
         self.img_letterbox_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791092288151.png"
         self.img_normal_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791091315830.jpg"
         self.img_beacon_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791091183192.jpg"
+        self.img_top_left_skip_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791096463074.png"
 
     def test_detect_letterbox_true(self):
         if not os.path.exists(self.img_letterbox_path):
@@ -126,6 +128,30 @@ class TestQuestVision(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             frame = np.zeros((100, 100, 3), dtype=np.uint8)
             detect_dialog_advance_indicator(frame, template_path="non_existent.png")
+
+    def test_detect_top_left_skip_button_positive(self):
+        if not os.path.exists(self.img_top_left_skip_path):
+            self.skipTest("左上角跳过按钮样本图片不存在")
+        frame = cv2.imread(self.img_top_left_skip_path)
+        res = detect_top_left_skip_button(frame)
+        self.assertTrue(res.found)
+        self.assertGreaterEqual(res.confidence, 0.75)
+        self.assertLess(res.x, 150)
+        self.assertLess(res.y, 100)
+
+    def test_detect_top_left_skip_button_negative(self):
+        if not os.path.exists(self.img_normal_path):
+            self.skipTest("大世界样本图片不存在")
+        frame = cv2.imread(self.img_normal_path)
+        res = detect_top_left_skip_button(frame)
+        self.assertFalse(res.found)
+
+    def test_detect_top_left_skip_button_invalid_input(self):
+        with self.assertRaises(ValueError):
+            detect_top_left_skip_button(None)
+        with self.assertRaises(FileNotFoundError):
+            frame = np.zeros((100, 100, 3), dtype=np.uint8)
+            detect_top_left_skip_button(frame, template_path="non_existent.png")
 
 
 if __name__ == "__main__":

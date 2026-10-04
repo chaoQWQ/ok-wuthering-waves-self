@@ -3,7 +3,7 @@ import time
 from typing import Optional
 
 import numpy as np
-from ok import Logger
+from ok import Box, Logger
 from src.task.BaseCombatTask import BaseCombatTask
 from src.task.SkipBaseTask import SkipBaseTask
 from src.task.WWOneTimeTask import WWOneTimeTask
@@ -16,6 +16,7 @@ from src.utils.QuestVision import (
     detect_minimap_quest_arrow,
     detect_quest_beacon,
     detect_screen_freeze,
+    detect_top_left_skip_button,
     parse_distance_text,
 )
 
@@ -71,7 +72,26 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
             # 1. 优先判定剧情对话
             if self.config.get("Auto Skip Dialog", True):
-                if self.check_skip() or self.skip_message():
+                if self.check_skip():
+                    self.current_state = self.STATE_DIALOG
+                    self.letterbox_freeze_start_time = 0.0
+                    self.sleep(0.2)
+                    continue
+
+                top_left_skip = detect_top_left_skip_button(frame)
+                if top_left_skip.found:
+                    self.current_state = self.STATE_DIALOG
+                    self.letterbox_freeze_start_time = 0.0
+                    logger.info(
+                        f"检测到左上角剧情跳过按钮，点击执行跳过 (置信度 {top_left_skip.confidence:.2f})"
+                    )
+                    skip_box = Box(top_left_skip.x, top_left_skip.y, top_left_skip.width, top_left_skip.height)
+                    self.click_box(skip_box, after_sleep=0.2)
+                    self.wait_until(self.skip_confirm, time_out=3, raise_if_not_found=False)
+                    self.sleep(0.2)
+                    continue
+
+                if self.skip_message():
                     self.current_state = self.STATE_DIALOG
                     self.letterbox_freeze_start_time = 0.0
                     self.sleep(0.2)
@@ -229,3 +249,13 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
         if action.wait_seconds > 0:
             self.sleep(action.wait_seconds)
+
+    def skip_message(self) -> bool:
+        if self.find_one("message", horizontal_variance=0.15):
+            if message_dialog := self.find_one("message_dialog", vertical_variance=0.4, horizontal_variance=0.2):
+                click = message_dialog.copy(y_offset=2.5 * message_dialog.height)
+                click.width = self.width_of_screen(0.63)
+                self.click(click, after_sleep=0.2)
+                logger.info(f"点击推进短消息对话 {click}")
+                return True
+        return False

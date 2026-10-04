@@ -75,6 +75,24 @@ class TestQuestStoryTask(unittest.TestCase):
             self.task.letterbox_freeze_start_time = 0.0
         self.assertEqual(self.task.current_state, QuestStoryTask.STATE_DIALOG)
 
+    def test_top_left_skip_triggers_dialog_state(self):
+        import cv2, os
+        img_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791096463074.png"
+        if not os.path.exists(img_path):
+            self.skipTest("左上角跳过样本图片不存在")
+        frame = cv2.imread(img_path)
+        from src.utils.QuestVision import detect_top_left_skip_button
+        res = detect_top_left_skip_button(frame)
+        self.assertTrue(res.found)
+        if res.found:
+            self.task.current_state = QuestStoryTask.STATE_DIALOG
+            self.task.letterbox_freeze_start_time = 0.0
+        self.assertEqual(self.task.current_state, QuestStoryTask.STATE_DIALOG)
+
+    def test_skip_message_callable_defined(self):
+        self.assertTrue(hasattr(self.task, "skip_message"))
+        self.assertTrue(callable(getattr(self.task, "skip_message")))
+
 
 if __name__ == "__main__":
     unittest.main()

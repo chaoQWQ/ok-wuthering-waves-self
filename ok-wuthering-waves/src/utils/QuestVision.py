@@ -414,3 +414,82 @@ def detect_dialog_advance_indicator(
         height=0,
         confidence=float(max_val)
     )
+
+
+@dataclass
+class TopLeftSkipResult:
+    found: bool
+    x: int
+    y: int
+    width: int
+    height: int
+    confidence: float
+
+
+def detect_top_left_skip_button(
+    frame: np.ndarray,
+    template_path: Optional[str] = None,
+    threshold: float = 0.75
+) -> TopLeftSkipResult:
+    if frame is None or frame.size == 0:
+        raise ValueError("输入画面数组不能为空")
+
+    if template_path is None:
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(current_dir))
+        template_path = os.path.join(project_root, "assets", "skip_dialog_hex.png")
+
+    if not os.path.exists(template_path):
+        raise FileNotFoundError(f"左上角跳过按钮模板文件不存在: {template_path}")
+
+    template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
+    if template is None:
+        raise RuntimeError(f"无法读取跳过按钮模板: {template_path}")
+
+    tpl_h, tpl_w = template.shape[:2]
+    frame_h, frame_w = frame.shape[:2]
+
+    # 截取屏幕左上角区域（横向 0~20%，纵向 0~20%）
+    ex = int(frame_w * 0.20)
+    ey = int(frame_h * 0.20)
+
+    roi = frame[:ey, :ex]
+    gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+
+    scale = frame_w / 1024.0
+    scaled_w = max(5, int(tpl_w * scale))
+    scaled_h = max(5, int(tpl_h * scale))
+
+    scaled_template = cv2.resize(template, (scaled_w, scaled_h), interpolation=cv2.INTER_AREA)
+
+    if gray_roi.shape[0] < scaled_h or gray_roi.shape[1] < scaled_w:
+        return TopLeftSkipResult(
+            found=False,
+            x=0,
+            y=0,
+            width=0,
+            height=0,
+            confidence=0.0
+        )
+
+    match_result = cv2.matchTemplate(gray_roi, scaled_template, cv2.TM_CCOEFF_NORMED)
+    _, max_val, _, max_loc = cv2.minMaxLoc(match_result)
+
+    if max_val >= threshold:
+        return TopLeftSkipResult(
+            found=True,
+            x=max_loc[0],
+            y=max_loc[1],
+            width=scaled_w,
+            height=scaled_h,
+            confidence=float(max_val)
+        )
+
+    return TopLeftSkipResult(
+        found=False,
+        x=0,
+        y=0,
+        width=0,
+        height=0,
+        confidence=float(max_val)
+    )
