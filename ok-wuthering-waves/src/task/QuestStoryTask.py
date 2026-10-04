@@ -1,3 +1,4 @@
+import os
 import time
 from typing import Optional
 
@@ -203,8 +204,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         action_text: str = "",
         is_frozen_letterbox: bool = False
     ):
-        api_url = str(self.config.get("API URL", ""))
-        api_key = str(self.config.get("API Key", ""))
+        api_url = str(self.config.get("API URL") or os.environ.get("JEV_API_URL") or "")
+        api_key = str(self.config.get("API Key") or os.environ.get("JEV_API_KEY") or "")
 
         action: QuestAction = decide_quest_action(
             frame=frame,
