@@ -1935,3 +1935,6 @@ msgstr "API 访问密钥"
 
 msgid "Camera Sensitivity"
 msgstr "镜头旋转灵敏度"
+
+msgid "Switch to First Character for Movement"
+msgstr "移动固定切换一号位角色"

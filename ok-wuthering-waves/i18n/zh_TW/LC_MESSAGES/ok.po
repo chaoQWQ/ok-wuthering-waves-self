@@ -2013,3 +2013,6 @@ msgstr "API 存取金鑰"
 
 msgid "Camera Sensitivity"
 msgstr "鏡頭旋轉靈敏度"
+
+msgid "Switch to First Character for Movement"
+msgstr "移動固定切換一號位角色"

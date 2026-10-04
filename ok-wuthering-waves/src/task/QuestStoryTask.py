@@ -45,6 +45,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             "API URL": "https://api.typesafe.ai/v1/systemone",
             "API Key": "",
             "Camera Sensitivity": 1.0,
+            "Switch to First Character for Movement": True,
         }
         self.config_description = {
             "Auto Combat in Quest": "剧情期间遭遇敌人自动进入战斗",
@@ -53,12 +54,14 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             "API URL": "jev 视觉模型 API 地址",
             "API Key": "jev 视觉模型授权密钥",
             "Camera Sensitivity": "镜头旋转灵敏度系数",
+            "Switch to First Character for Movement": "移动寻路期间固定切换至一号位角色",
         }
         self.current_state = self.STATE_IDLE
         self.last_frame: Optional[np.ndarray] = None
         self.letterbox_freeze_start_time: float = 0.0
         self.last_action_time: float = 0.0
         self.last_search_log_time: float = 0.0
+        self.last_char_switch_time: float = 0.0
 
     def run(self):
         try:
@@ -194,6 +197,9 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.current_state = self.STATE_NAVIGATE
         sensitivity = float(self.config.get("Camera Sensitivity", 1.0))
 
+        if self.config.get("Switch to First Character for Movement", True):
+            self._ensure_first_character()
+
         beacon_result = detect_quest_beacon(frame)
         if beacon_result.found:
             beacon_cx = beacon_result.x + beacon_result.width // 2
@@ -255,6 +261,21 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.sleep(duration)
         for key in keys:
             self.send_key_up(key)
+
+    def _ensure_first_character(self) -> bool:
+        now = time.time()
+        if now - self.last_char_switch_time < 1.0:
+            return False
+        try:
+            in_team_status, current_index, _ = self.in_team()
+            if in_team_status and current_index != 0:
+                self.last_char_switch_time = now
+                self.log_info(f"当前出战为 {current_index + 1} 号位角色，切换至一号位角色执行移动")
+                self.send_key("1", after_sleep=0.3)
+                return True
+        except Exception as e:
+            logger.warning(f"检查并切换一号位角色异常: {e}")
+        return False
 
     def _trigger_ai_decision(
         self,

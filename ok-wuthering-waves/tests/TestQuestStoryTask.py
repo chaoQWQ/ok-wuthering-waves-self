@@ -24,17 +24,21 @@ class TestQuestStoryTask(unittest.TestCase):
             "API URL": "",
             "API Key": "",
             "Camera Sensitivity": 1.0,
+            "Switch to First Character for Movement": True,
         }
         self.task.current_state = QuestStoryTask.STATE_IDLE
         self.task.last_frame = None
         self.task.letterbox_freeze_start_time = 0.0
         self.task.last_search_log_time = 0.0
+        self.task.last_char_switch_time = 0.0
         self.task.logger = Logger.get_logger("test")
         self.task.ui_logs = []
         self.task.info_set = lambda k, v: self.task.ui_logs.append((k, v))
         self.task.sent_keys = []
+        self.task.send_key = lambda k, **kw: self.task.sent_keys.append(("send", str(k)))
         self.task.send_key_down = lambda k: self.task.sent_keys.append(("down", k))
         self.task.send_key_up = lambda k: self.task.sent_keys.append(("up", k))
+        self.task.in_team = lambda: (True, 0, 3)
         self.task.sleep = lambda s: None
 
     def test_task_states_definition(self):
@@ -127,6 +131,19 @@ class TestQuestStoryTask(unittest.TestCase):
         self.task._handle_world_navigation_and_interaction(frame)
         self.assertEqual(self.task.current_state, QuestStoryTask.STATE_DECIDE_INTERACT)
         self.assertTrue(len(decision_called) > 0)
+
+    def test_ensure_first_character_switches_when_not_in_first_position(self):
+        self.task.in_team = lambda: (True, 1, 3)
+        switched = self.task._ensure_first_character()
+        self.assertTrue(switched)
+        self.assertTrue(any(act == "send" and k == "1" for act, k in self.task.sent_keys))
+        self.assertTrue(any(k == "Log" and "切换至一号位角色" in v for k, v in self.task.ui_logs))
+
+    def test_ensure_first_character_noop_when_already_in_first_position(self):
+        self.task.in_team = lambda: (True, 0, 3)
+        switched = self.task._ensure_first_character()
+        self.assertFalse(switched)
+        self.assertFalse(any(act == "send" and k == "1" for act, k in self.task.sent_keys))
 
 
 if __name__ == "__main__":
