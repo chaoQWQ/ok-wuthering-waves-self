@@ -1,0 +1,558 @@
+2026-10-04 19:48:59,057 INFO TaskExecutor QuestStoryTask:剧情模式已启动，已激活游戏窗口并重置鼠标位置
+2026-10-04 19:48:59,057 INFO TaskExecutor QuestStoryTask:info_set JEV 调用次数 0 次
+2026-10-04 19:48:59,057 INFO TaskExecutor QuestStoryTask:info_set JEV 额度消耗 0 tokens
+2026-10-04 19:49:02,310 INFO TaskExecutor QuestStoryTask:info_set Liberation Key r
+2026-10-04 19:49:02,310 INFO TaskExecutor QuestStoryTask:info_set Echo Key q
+2026-10-04 19:49:07,317 INFO TaskExecutor QuestStoryTask:info_set Chars 奥古斯塔, Qingxiao, 白芷
+2026-10-04 19:49:07,317 INFO TaskExecutor QuestStoryTask:loaded chars success Augusta 0.962368369102478
+2026-10-04 19:49:07,318 INFO TaskExecutor QuestStoryTask:loaded chars success Qingxiao 0.9722353219985962
+2026-10-04 19:49:07,318 INFO TaskExecutor QuestStoryTask:loaded chars success Baizhi 0.9344322681427002
+2026-10-04 19:49:08,050 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 38.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:49:12,559 INFO TaskExecutor QuestStoryTask:距离目标 36.0 米，快跑冲刺快速推进
+2026-10-04 19:49:13,635 INFO TaskExecutor QuestStoryTask:距离目标 32.0 米，快跑冲刺快速推进
+2026-10-04 19:49:14,520 INFO TaskExecutor QuestStoryTask:检测到角色处于攀爬状态 (持续 0.0 秒)，发送 [X] 键脱离攀爬并后撤调整路线
+2026-10-04 19:49:17,301 INFO TaskExecutor QuestStoryTask:距离目标 24.0 米，快跑冲刺快速推进
+2026-10-04 19:49:18,295 INFO TaskExecutor QuestStoryTask:距离目标 24.0 米，快跑冲刺快速推进
+2026-10-04 19:49:19,324 INFO TaskExecutor QuestStoryTask:距离目标 18.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:49:20,073 INFO TaskExecutor QuestStoryTask:距离目标 11.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:49:20,809 INFO TaskExecutor QuestStoryTask:距离目标 9.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:49:21,506 INFO TaskExecutor QuestStoryTask:距离目标 8.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:49:22,171 INFO TaskExecutor QuestStoryTask:距离目标 8.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:49:22,825 INFO TaskExecutor QuestStoryTask:距离目标 7.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:49:24,126 INFO TaskExecutor QuestStoryTask:视野暂未发现任务信标，正在原地水平旋转视角搜寻目标方位...
+2026-10-04 19:49:26,287 INFO TaskExecutor QuestStoryTask:检测到左上角剧情跳过按钮 (置信度 0.77)，点击执行跳过
+2026-10-04 19:49:27,460 INFO TaskExecutor QuestStoryTask:left_click skip_quest_confirm (1181, 764) after_sleep 0
+2026-10-04 19:49:28,665 INFO TaskExecutor QuestStoryTask:视野暂未发现任务信标，正在原地水平旋转视角搜寻目标方位...
+2026-10-04 19:49:31,464 INFO TaskExecutor QuestStoryTask:视野暂未发现任务信标，正在原地水平旋转视角搜寻目标方位...
+2026-10-04 19:49:59,620 INFO TaskExecutor QuestStoryTask:视野暂未发现任务信标，正在原地水平旋转视角搜寻目标方位...
+2026-10-04 19:50:04,901 INFO TaskExecutor QuestStoryTask:视野暂未发现任务信标，正在原地水平旋转视角搜寻目标方位...
+2026-10-04 19:50:14,680 ERROR TaskExecutor QuestStoryTask:Target enemy failed, please disable Nvidia/AMD Filter or Sharpening! 
+2026-10-04 19:50:34,441 INFO TaskExecutor QuestStoryTask:视野暂未发现任务信标，正在原地水平旋转视角搜寻目标方位...
+2026-10-04 19:50:34,737 INFO TaskExecutor QuestStoryTask:检测到剧情对白推进标识 (置信度 0.77)，点击界面进入下一段对话
+2026-10-04 19:51:04,560 INFO TaskExecutor QuestStoryTask:视野暂未发现任务信标，正在原地水平旋转视角搜寻目标方位...
+2026-10-04 19:51:20,776 INFO TaskExecutor QuestStoryTask:检测到剧情对白推进标识 (置信度 0.76)，点击界面进入下一段对话
+2026-10-04 19:51:28,888 INFO TaskExecutor QuestStoryTask:视野暂未发现任务信标，正在原地水平旋转视角搜寻目标方位...
+2026-10-04 19:51:31,500 INFO TaskExecutor QuestStoryTask:视野暂未发现任务信标，正在原地水平旋转视角搜寻目标方位...
+2026-10-04 19:51:34,222 INFO TaskExecutor QuestStoryTask:视野暂未发现任务信标，正在原地水平旋转视角搜寻目标方位...
+2026-10-04 19:51:48,397 INFO TaskExecutor QuestStoryTask:视野暂未发现任务信标，正在原地水平旋转视角搜寻目标方位...
+2026-10-04 19:52:00,179 INFO TaskExecutor QuestStoryTask:视野暂未发现任务信标，正在原地水平旋转视角搜寻目标方位...
+2026-10-04 19:52:47,694 INFO TaskExecutor QuestStoryTask:视野暂未发现任务信标，正在原地水平旋转视角搜寻目标方位...
+2026-10-04 19:52:49,697 INFO TaskExecutor QuestStoryTask:视野暂未发现任务信标，正在原地水平旋转视角搜寻目标方位...
+2026-10-04 19:52:52,636 INFO TaskExecutor QuestStoryTask:视野暂未发现任务信标，正在原地水平旋转视角搜寻目标方位...
+2026-10-04 19:52:54,987 INFO TaskExecutor QuestStoryTask:视野暂未发现任务信标，正在原地水平旋转视角搜寻目标方位...
+2026-10-04 19:52:55,269 INFO TaskExecutor QuestStoryTask:检测到左上角剧情跳过按钮 (置信度 0.76)，点击执行跳过
+2026-10-04 19:52:58,597 INFO TaskExecutor QuestStoryTask:检测到左上角剧情跳过按钮 (置信度 0.76)，点击执行跳过
+2026-10-04 19:52:59,589 INFO TaskExecutor QuestStoryTask:left_click skip_quest_confirm (1181, 764) after_sleep 0
+2026-10-04 19:52:59,882 INFO TaskExecutor QuestStoryTask:检测到左上角剧情跳过按钮 (置信度 0.75)，点击执行跳过
+2026-10-04 19:53:03,564 INFO TaskExecutor QuestStoryTask:视野暂未发现任务信标，正在原地水平旋转视角搜寻目标方位...
+2026-10-04 19:53:06,095 INFO TaskExecutor QuestStoryTask:已到达任务目标附近 (距离 0.0 米)，停止移动，等待交互触发
+2026-10-04 19:53:07,766 INFO TaskExecutor QuestStoryTask:距离目标 10.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:08,413 INFO TaskExecutor QuestStoryTask:距离目标 10.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:09,050 INFO TaskExecutor QuestStoryTask:距离目标 9.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:09,659 INFO TaskExecutor QuestStoryTask:距离目标 9.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:10,293 INFO TaskExecutor QuestStoryTask:距离目标 8.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:10,922 INFO TaskExecutor QuestStoryTask:距离目标 8.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:11,507 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 7.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:11,549 INFO TaskExecutor QuestStoryTask:距离目标 7.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:12,114 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 6.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:12,150 INFO TaskExecutor QuestStoryTask:距离目标 6.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:12,716 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 6.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:12,755 INFO TaskExecutor QuestStoryTask:距离目标 6.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:13,342 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:13,382 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:13,982 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:14,031 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:14,671 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:14,718 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:15,304 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:15,344 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:15,950 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:15,993 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:16,582 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:16,624 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:17,228 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:17,271 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:17,836 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:17,876 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:18,452 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:18,494 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:19,080 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:19,118 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:19,669 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:19,710 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:20,265 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:20,304 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:20,854 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:20,893 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:21,440 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:21,484 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:22,066 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:22,108 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:22,655 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:22,694 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:23,259 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:23,298 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:23,865 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:23,868 INFO TaskExecutor QuestStoryTask:任务目标距离持续 10.5 秒未见缩减 (当前 5.0 米)，调用 AI 分析行进路线与方式
+2026-10-04 19:53:24,356 INFO TaskExecutor QuestStoryTask:info_set JEV 调用次数 1 次
+2026-10-04 19:53:24,356 INFO TaskExecutor QuestStoryTask:info_set JEV 额度消耗 548 tokens
+2026-10-04 19:53:24,356 INFO TaskExecutor QuestStoryTask:AI 寻路决策建议: walk, 详情: 沿平坦通道向前行进
+2026-10-04 19:53:25,082 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:25,123 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:25,682 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:25,721 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:26,297 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:26,338 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:26,907 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:26,949 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:27,543 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:27,581 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:28,146 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:28,183 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:28,761 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:28,803 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:29,423 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:29,463 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:30,067 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:30,110 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:30,684 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:30,726 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:31,300 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:31,340 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:31,920 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:31,966 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:32,563 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:32,604 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:33,166 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:33,207 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:33,790 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:33,833 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:34,434 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:34,437 INFO TaskExecutor QuestStoryTask:任务目标距离持续 10.6 秒未见缩减 (当前 5.0 米)，调用 AI 分析行进路线与方式
+2026-10-04 19:53:35,299 INFO TaskExecutor QuestStoryTask:info_set JEV 调用次数 2 次
+2026-10-04 19:53:35,299 INFO TaskExecutor QuestStoryTask:info_set JEV 额度消耗 1096 tokens
+2026-10-04 19:53:35,299 INFO TaskExecutor QuestStoryTask:AI 寻路决策建议: walk, 详情: 沿平坦通道向前行进
+2026-10-04 19:53:36,043 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:36,088 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:36,650 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:36,689 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:37,241 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:37,283 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:37,842 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:37,882 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:38,435 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:38,476 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:39,057 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:39,097 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:39,668 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:39,707 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:40,294 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:40,336 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:40,926 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:40,968 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:41,548 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:41,589 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:42,171 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:42,214 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:42,817 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:42,865 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:43,590 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:43,633 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:44,252 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:44,296 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:44,932 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:44,934 INFO TaskExecutor QuestStoryTask:任务目标距离持续 10.5 秒未见缩减 (当前 5.0 米)，调用 AI 分析行进路线与方式
+2026-10-04 19:53:45,709 INFO TaskExecutor QuestStoryTask:info_set JEV 调用次数 3 次
+2026-10-04 19:53:45,710 INFO TaskExecutor QuestStoryTask:info_set JEV 额度消耗 1644 tokens
+2026-10-04 19:53:45,710 INFO TaskExecutor QuestStoryTask:AI 寻路决策建议: walk, 详情: 沿平坦通道向前行进
+2026-10-04 19:53:46,435 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:46,481 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:47,075 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:47,119 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:47,697 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:47,740 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:48,316 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:48,360 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:48,924 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:48,968 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:49,560 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:49,601 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:50,179 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:50,219 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:50,801 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:50,845 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:51,452 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:51,498 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:52,090 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:52,131 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:52,717 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:52,763 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:53,343 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:53,387 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:54,027 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:54,070 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:54,644 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:54,688 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:55,253 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:55,255 INFO TaskExecutor QuestStoryTask:任务目标距离持续 10.3 秒未见缩减 (当前 5.0 米)，调用 AI 分析行进路线与方式
+2026-10-04 19:53:55,723 INFO TaskExecutor QuestStoryTask:info_set JEV 调用次数 4 次
+2026-10-04 19:53:55,723 INFO TaskExecutor QuestStoryTask:info_set JEV 额度消耗 2192 tokens
+2026-10-04 19:53:55,723 INFO TaskExecutor QuestStoryTask:AI 寻路决策建议: walk, 详情: 沿平坦通道向前行进
+2026-10-04 19:53:56,465 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:56,504 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:57,094 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:57,137 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:57,796 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:57,839 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:58,430 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:58,470 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:59,054 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:59,095 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:53:59,668 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:53:59,709 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:00,276 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:00,317 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:00,894 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:00,942 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:01,500 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:01,542 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:02,243 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:02,292 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:02,915 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:02,959 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:03,533 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:03,578 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:04,162 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:04,204 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:04,846 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:04,899 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:05,521 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:05,524 INFO TaskExecutor QuestStoryTask:任务目标距离持续 10.3 秒未见缩减 (当前 5.0 米)，调用 AI 分析行进路线与方式
+2026-10-04 19:54:06,011 INFO TaskExecutor QuestStoryTask:info_set JEV 调用次数 5 次
+2026-10-04 19:54:06,011 INFO TaskExecutor QuestStoryTask:info_set JEV 额度消耗 2740 tokens
+2026-10-04 19:54:06,011 INFO TaskExecutor QuestStoryTask:AI 寻路决策建议: walk, 详情: 沿平坦通道向前行进
+2026-10-04 19:54:06,786 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:06,839 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:07,443 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:07,489 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:08,060 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:08,104 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:08,679 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:08,721 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:09,298 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:09,340 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:09,940 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:09,984 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:10,574 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:10,616 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:11,188 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:11,231 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:11,836 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:11,882 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:12,494 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:12,542 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:13,186 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:13,225 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:13,807 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:13,853 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:14,419 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:14,460 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:15,043 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:15,084 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:15,657 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:15,660 INFO TaskExecutor QuestStoryTask:任务目标距离持续 10.1 秒未见缩减 (当前 5.0 米)，调用 AI 分析行进路线与方式
+2026-10-04 19:54:16,249 INFO TaskExecutor QuestStoryTask:info_set JEV 调用次数 6 次
+2026-10-04 19:54:16,249 INFO TaskExecutor QuestStoryTask:info_set JEV 额度消耗 3288 tokens
+2026-10-04 19:54:16,249 INFO TaskExecutor QuestStoryTask:AI 寻路决策建议: walk, 详情: 沿平坦通道向前行进
+2026-10-04 19:54:16,972 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:17,013 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:17,602 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:17,644 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:18,229 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:18,271 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:18,953 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:19,005 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:19,644 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:19,689 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:20,285 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:20,326 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:20,934 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:20,975 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:21,550 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:21,592 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:22,208 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:22,254 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:22,927 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:22,977 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:23,623 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:23,664 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:24,276 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:24,317 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:24,923 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:24,966 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:25,556 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:25,602 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:26,194 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:26,196 INFO TaskExecutor QuestStoryTask:任务目标距离持续 10.5 秒未见缩减 (当前 5.0 米)，调用 AI 分析行进路线与方式
+2026-10-04 19:54:27,050 INFO TaskExecutor QuestStoryTask:info_set JEV 调用次数 7 次
+2026-10-04 19:54:27,050 INFO TaskExecutor QuestStoryTask:info_set JEV 额度消耗 3836 tokens
+2026-10-04 19:54:27,050 INFO TaskExecutor QuestStoryTask:AI 寻路决策建议: walk, 详情: 沿平坦通道向前行进
+2026-10-04 19:54:27,795 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:27,839 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:28,419 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:28,461 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:29,108 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:29,161 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:29,806 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:29,852 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:30,538 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:30,591 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:31,261 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:31,312 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:32,077 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:32,132 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:32,754 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:32,797 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:33,405 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:33,448 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:34,068 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:34,113 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:34,748 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:34,795 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:35,400 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:35,447 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:36,036 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:36,081 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:36,722 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:36,724 INFO TaskExecutor QuestStoryTask:任务目标距离持续 10.5 秒未见缩减 (当前 5.0 米)，调用 AI 分析行进路线与方式
+2026-10-04 19:54:37,237 INFO TaskExecutor QuestStoryTask:info_set JEV 调用次数 8 次
+2026-10-04 19:54:37,237 INFO TaskExecutor QuestStoryTask:info_set JEV 额度消耗 4384 tokens
+2026-10-04 19:54:37,237 INFO TaskExecutor QuestStoryTask:AI 寻路决策建议: walk, 详情: 沿平坦通道向前行进
+2026-10-04 19:54:37,985 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:38,032 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:38,689 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:38,740 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:39,368 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:39,417 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:40,031 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:40,085 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:40,706 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:40,752 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:41,384 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:41,431 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:42,046 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:42,095 INFO TaskExecutor QuestStoryTask:检测到角色前进受阻卡滞 (第 1 次)，执行后撤与转向脱困避障
+2026-10-04 19:54:43,578 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:44,120 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:44,609 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:45,098 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:45,117 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:45,726 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:45,770 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:46,424 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:46,972 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:46,991 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:47,614 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:47,659 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:48,259 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:48,301 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:48,900 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:48,941 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:49,629 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:49,677 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:50,290 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:50,339 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:50,959 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:51,002 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:51,636 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:51,679 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:52,277 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:52,322 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:52,963 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:53,008 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:53,633 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:53,674 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:54,352 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:54,401 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:55,035 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:55,084 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:55,690 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:55,738 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:56,367 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:56,418 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:57,131 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:57,133 INFO TaskExecutor QuestStoryTask:任务目标距离持续 10.2 秒未见缩减 (当前 5.0 米)，调用 AI 分析行进路线与方式
+2026-10-04 19:54:57,689 INFO TaskExecutor QuestStoryTask:info_set JEV 调用次数 9 次
+2026-10-04 19:54:57,689 INFO TaskExecutor QuestStoryTask:info_set JEV 额度消耗 4932 tokens
+2026-10-04 19:54:57,689 INFO TaskExecutor QuestStoryTask:AI 寻路决策建议: walk, 详情: 沿平坦通道向前行进
+2026-10-04 19:54:58,472 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:58,519 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:59,133 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:59,187 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:54:59,791 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:54:59,840 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:00,458 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:00,502 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:01,124 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:01,169 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:01,753 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:01,802 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:02,418 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:02,463 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:03,170 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:03,226 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:03,852 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:03,901 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:04,534 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:04,584 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:05,239 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:05,285 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:06,006 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:06,062 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:06,730 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:06,781 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:07,409 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:07,412 INFO TaskExecutor QuestStoryTask:任务目标距离持续 10.3 秒未见缩减 (当前 5.0 米)，调用 AI 分析行进路线与方式
+2026-10-04 19:55:07,955 INFO TaskExecutor QuestStoryTask:info_set JEV 调用次数 10 次
+2026-10-04 19:55:07,955 INFO TaskExecutor QuestStoryTask:info_set JEV 额度消耗 5480 tokens
+2026-10-04 19:55:07,955 INFO TaskExecutor QuestStoryTask:AI 寻路决策建议: walk, 详情: 沿平坦通道向前行进
+2026-10-04 19:55:08,694 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:08,736 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:09,347 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:09,390 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:09,994 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:10,041 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:10,707 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:10,753 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:11,349 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:11,400 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:12,003 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:12,049 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:12,676 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:12,722 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:13,346 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:13,388 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:13,994 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:14,039 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:14,648 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:14,690 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:15,316 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:15,359 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:15,987 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:16,030 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:16,621 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:16,664 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:17,272 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:17,314 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:17,922 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:17,925 INFO TaskExecutor QuestStoryTask:任务目标距离持续 10.5 秒未见缩减 (当前 5.0 米)，调用 AI 分析行进路线与方式
+2026-10-04 19:55:18,406 INFO TaskExecutor QuestStoryTask:info_set JEV 调用次数 11 次
+2026-10-04 19:55:18,406 INFO TaskExecutor QuestStoryTask:info_set JEV 额度消耗 6028 tokens
+2026-10-04 19:55:18,406 INFO TaskExecutor QuestStoryTask:AI 寻路决策建议: walk, 详情: 沿平坦通道向前行进
+2026-10-04 19:55:19,187 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:19,229 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:19,859 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:19,900 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:20,527 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:20,572 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:21,189 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:21,232 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:21,877 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:21,926 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:22,564 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:22,614 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:23,358 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:23,407 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:24,100 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:24,152 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:24,783 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:24,833 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:25,461 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:25,508 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:26,122 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:26,171 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:26,787 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:26,832 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:27,446 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:27,494 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:28,103 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:28,104 INFO TaskExecutor QuestStoryTask:任务目标距离持续 10.2 秒未见缩减 (当前 5.0 米)，调用 AI 分析行进路线与方式
+2026-10-04 19:55:28,636 INFO TaskExecutor QuestStoryTask:info_set JEV 调用次数 12 次
+2026-10-04 19:55:28,637 INFO TaskExecutor QuestStoryTask:info_set JEV 额度消耗 6576 tokens
+2026-10-04 19:55:28,637 INFO TaskExecutor QuestStoryTask:AI 寻路决策建议: walk, 详情: 沿平坦通道向前行进
+2026-10-04 19:55:29,432 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:29,484 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:30,108 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:30,156 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:30,796 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:30,854 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:31,531 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:31,584 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:32,215 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:32,261 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:32,896 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:32,943 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:33,588 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:33,634 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:34,245 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:34,291 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:34,900 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:34,945 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:35,566 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:35,619 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:36,215 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:36,264 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:36,876 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:36,923 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:37,547 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:37,601 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:38,295 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:38,298 INFO TaskExecutor QuestStoryTask:任务目标距离持续 10.2 秒未见缩减 (当前 5.0 米)，调用 AI 分析行进路线与方式
+2026-10-04 19:55:38,788 INFO TaskExecutor QuestStoryTask:info_set JEV 调用次数 13 次
+2026-10-04 19:55:38,788 INFO TaskExecutor QuestStoryTask:info_set JEV 额度消耗 7124 tokens
+2026-10-04 19:55:38,788 INFO TaskExecutor QuestStoryTask:AI 寻路决策建议: walk, 详情: 沿平坦通道向前行进
+2026-10-04 19:55:39,679 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:39,731 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:40,387 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:40,436 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:41,060 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:41,109 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:41,738 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:41,783 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:42,380 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:42,426 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:43,063 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:43,112 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:43,774 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:43,824 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:44,435 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:44,484 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:45,150 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:45,200 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:45,856 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:45,903 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:46,634 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:46,692 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:47,349 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:47,400 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:48,069 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:48,114 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:48,739 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:48,741 INFO TaskExecutor QuestStoryTask:任务目标距离持续 10.4 秒未见缩减 (当前 5.0 米)，调用 AI 分析行进路线与方式
+2026-10-04 19:55:49,213 INFO TaskExecutor QuestStoryTask:info_set JEV 调用次数 14 次
+2026-10-04 19:55:49,214 INFO TaskExecutor QuestStoryTask:info_set JEV 额度消耗 7672 tokens
+2026-10-04 19:55:49,214 INFO TaskExecutor QuestStoryTask:AI 寻路决策建议: walk, 详情: 沿平坦通道向前行进
+2026-10-04 19:55:49,967 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:50,016 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:50,651 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:50,705 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:51,332 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:51,377 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:51,987 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:52,035 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:52,662 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:52,715 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:53,344 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:53,399 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进
+2026-10-04 19:55:54,007 INFO TaskExecutor QuestStoryTask:检测到路过交互 [F] (当前距离任务目标还有 5.0 米)，忽略路过交互继续前进寻路
+2026-10-04 19:55:54,055 INFO TaskExecutor QuestStoryTask:距离目标 5.0 米 (小于等于20米)，采用慢走模式平稳推进

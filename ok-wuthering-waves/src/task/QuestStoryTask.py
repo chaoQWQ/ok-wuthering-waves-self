@@ -10,6 +10,7 @@ from src.task.SkipBaseTask import SkipBaseTask
 from src.task.WWOneTimeTask import WWOneTimeTask
 from src.utils.QuestDecisionEngine import QuestAction, decide_quest_action
 from src.utils.QuestNavigator import calculate_camera_turn, compute_movement_action
+from src.utils.QuestProgressTracker import QuestProgressTracker
 from src.utils.QuestVision import (
     BeaconResult,
     ClimbStateResult,
@@ -55,8 +56,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             "Auto Combat in Quest": "剧情期间遭遇敌人自动进入战斗",
             "Auto Skip Dialog": "剧情对话期间自动跳过",
             "Letterbox Freeze Wait Seconds": "上下黑边剧情动画持续静止触发交互决策的等待秒数",
-            "API URL": "jev 视觉模型 API 地址",
-            "API Key": "jev 视觉模型授权密钥",
+            "API URL": "jev 文字决策 API 地址",
+            "API Key": "jev 授权密钥",
             "Camera Sensitivity": "镜头旋转灵敏度系数",
             "Switch to First Character for Movement": "移动寻路期间固定切换至一号位角色",
         }
@@ -69,11 +70,10 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.climbing_start_time: float = 0.0
         self.last_nav_frame: Optional[np.ndarray] = None
         self.navigation_movement_pending = False
+        self.navigation_progress = QuestProgressTracker()
         self.stuck_start_time: float = 0.0
         self.last_observed_distance: Optional[float] = None
         self.stuck_count: int = 0
-        self.tracked_quest_distance: Optional[float] = None
-        self.distance_last_changed_time: float = 0.0
         self.last_teleport_attempt_time: float = 0.0
         self.jev_call_count: int = 0
         self.jev_total_tokens: int = 0
@@ -115,11 +115,10 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.last_search_log_time = 0.0
         self.climbing_start_time = 0.0
         self.navigation_movement_pending = False
+        self.navigation_progress = QuestProgressTracker()
         self.last_nav_frame = None
         self.stuck_start_time = 0.0
         self.last_observed_distance = None
-        self.tracked_quest_distance = None
-        self.distance_last_changed_time = time.time()
         self.jev_call_count = 0
         self.jev_total_tokens = 0
         self.jev_cost_estimate = 0.0
@@ -264,6 +263,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         # 2. 提取任务信标与目标距离
         beacon_result = detect_quest_beacon(frame)
         current_distance = self._extract_quest_distance(frame, beacon_result)
+        self.navigation_progress.observe(current_distance)
 
         # 3. 若任务目标距离超过 200 米，尝试打开地图定位并传送到附近传送点
         if current_distance is not None and current_distance > 200.0:
@@ -284,6 +284,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         if has_f:
             if is_near_goal:
                 self._stop_all_movement()
+                self.navigation_progress = QuestProgressTracker()
                 self.current_state = self.STATE_DECIDE_INTERACT
                 self.log_info("已到达任务目标附近且出现交互按键 [F]，执行交互推进")
                 self._trigger_ai_decision(
@@ -321,26 +322,14 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.sleep(0.4)
             return
 
-        # 6. 持续跟踪任务距离：若持续 10 秒无缩减，调用 AI 模型判断行进方向与方式
-        now = time.time()
-        if current_distance is not None:
-            tracked_dist = getattr(self, "tracked_quest_distance", None)
-            last_changed = getattr(self, "distance_last_changed_time", 0.0)
-            if tracked_dist is None or not self.navigation_movement_pending:
-                self.tracked_quest_distance = current_distance
-                self.distance_last_changed_time = now
-            elif current_distance < tracked_dist - 0.5:
-                self.tracked_quest_distance = current_distance
-                self.distance_last_changed_time = now
-            else:
-                stagnant_duration = now - last_changed
-                if stagnant_duration >= 10.0:
-                    self.log_info(
-                        f"任务目标距离持续 {stagnant_duration:.1f} 秒未见缩减 (当前 {current_distance:.1f} 米)，调用 AI 分析行进路线与方式"
-                    )
-                    self._trigger_navigation_ai_or_turn(frame, default_turn_pixels=160)
-                    self.distance_last_changed_time = now
-                    return
+        # 绕行期间保持移动方向，完成整个过程后恢复信标导航。
+        if self.navigation_progress.recovery_step is not None:
+            self._continue_navigation_recovery()
+            return
+        if self.navigation_progress.blocked:
+            self.log_info(f"累计前进 {self.navigation_progress.movement_seconds:.1f} 秒后任务距离没有缩减，执行侧向绕行")
+            self._handle_stuck_recovery(frame)
+            return
 
         # 7. 检查短时间贴墙受阻卡滞
         if self._check_and_handle_stuck(frame, current_distance):
@@ -427,56 +416,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         )
         self.send_key("x", down_time=0.1)
         self.sleep(0.35)
-        self.send_key_down("s")
-        self.sleep(0.4)
-        self.send_key_up("s")
-        self.sleep(0.1)
-
-        # 仅在攀爬状态持续超过 5 秒时才允许调用 AI 模型进行路线分析
-        if climbing_duration >= 5.0:
-            self.log_info(
-                f"角色处于攀爬状态已超过 5 秒 (当前 {climbing_duration:.1f} 秒)，调用 AI 分析避障与绕行路线"
-            )
-            self._trigger_navigation_ai_or_turn(frame, default_turn_pixels=160)
-        else:
-            # 持续未满 5 秒时优先执行本地转向与后退脱困，避免频繁调用模型
-            self._apply_camera_turn(160)
-            self.sleep(0.1)
-            self._apply_movement(["w"], 0.3)
-
-    def _trigger_navigation_ai_or_turn(self, frame: np.ndarray, default_turn_pixels: int = 160):
-        self._stop_all_movement()
-        api_url = str(self.config.get("API URL") or os.environ.get("JEV_API_URL") or "")
-        api_key = str(self.config.get("API Key") or os.environ.get("JEV_API_KEY") or "")
-
-        if api_key:
-            action = decide_quest_action(
-                frame=frame,
-                quest_goal_text="观察地形道路与障碍物，规划可行进路线避让障碍物",
-                is_navigation_guidance=True,
-                api_url=api_url,
-                api_key=api_key
-            )
-            self._record_jev_usage(action)
-            self.log_info(f"AI 寻路决策建议: {action.action_type}, 详情: {action.description}")
-            if action.action_type == "climb_drop":
-                self.send_key("x", down_time=0.1)
-                self.sleep(0.3)
-                self._apply_movement(["s"], 0.4)
-            elif action.action_type == "turn":
-                turn_pix = action.turn_pixels if action.turn_pixels != 0 else default_turn_pixels
-                self._apply_camera_turn(turn_pix)
-                self.sleep(0.1)
-            elif action.action_type in ("walk", "sprint"):
-                keys = ["w"]
-                if action.action_type == "sprint":
-                    keys.append("shift")
-                self._apply_movement(keys, max(0.3, action.wait_seconds))
-            elif action.key:
-                self.send_key(action.key, down_time=0.1)
-        else:
-            self._apply_camera_turn(default_turn_pixels)
-            self.sleep(0.1)
+        self._handle_stuck_recovery(frame)
 
     def _try_teleport_to_nearest_waypoint(self, current_distance: float) -> bool:
         now = time.time()
@@ -547,8 +487,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.send_key("esc")
             self.sleep(1.5)
 
-        self.tracked_quest_distance = None
-        self.distance_last_changed_time = time.time()
+        self.navigation_progress = QuestProgressTracker()
         return True
 
     def _check_and_handle_stuck(self, frame: np.ndarray, current_distance: Optional[float]) -> bool:
@@ -597,28 +536,17 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
     def _handle_stuck_recovery(self, frame: np.ndarray):
         self._stop_all_movement()
-        count = getattr(self, "stuck_count", 0) + 1
-        self.stuck_count = count
-        self.log_info(f"检测到角色前进受阻卡滞 (第 {count} 次)，执行后撤与转向脱困避障")
-        # 1. 后退拉开与阻碍物距离
-        self.send_key_down("s")
-        self.sleep(0.4)
-        self.send_key_up("s")
-        self.sleep(0.1)
+        self.navigation_progress.begin_recovery()
+        self.log_info(f"检测到角色前进受阻，第 {self.navigation_progress.recovery_count} 次绕行，执行后退、侧向移动与前进")
+        self._continue_navigation_recovery()
 
-        # 2. 交替侧向转向绕行
-        turn_angle_delta = 160 if (count % 2 == 1) else -160
-        self._apply_camera_turn(turn_angle_delta)
-        self.sleep(0.1)
-
-        # 3. 短暂侧向小步推进绕过阻隔边缘
-        side_key = "d" if (count % 2 == 1) else "a"
-        self.send_key_down("w")
-        self.send_key_down(side_key)
-        self.sleep(0.4)
-        self.send_key_up(side_key)
-        self.send_key_up("w")
-        self.sleep(0.1)
+    def _continue_navigation_recovery(self):
+        keys, duration = self.navigation_progress.next_recovery_movement()
+        self._apply_movement(keys, duration)
+        self.last_nav_frame = None
+        self.stuck_start_time = 0.0
+        if self.navigation_progress.recovery_step is None:
+            self.log_info("侧向绕行完成，重新识别任务方向与距离")
 
     def _stop_all_movement(self):
         for key in ["w", "a", "s", "d", "shift"]:
@@ -689,11 +617,14 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         if not keys:
             return
         self.navigation_movement_pending = True
-        for key in keys:
-            self.send_key_down(key)
-        self.sleep(duration)
-        for key in keys:
-            self.send_key_up(key)
+        try:
+            for key in keys:
+                self.send_key_down(key)
+            self.sleep(duration)
+        finally:
+            for key in keys:
+                self.send_key_up(key)
+        self.navigation_progress.record_movement(keys, duration)
 
     def _ensure_first_character(self) -> bool:
         now = time.time()

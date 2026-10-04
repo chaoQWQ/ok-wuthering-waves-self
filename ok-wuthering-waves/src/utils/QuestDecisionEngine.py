@@ -1,11 +1,9 @@
-import base64
 import json
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from typing import Optional
 
-import cv2
 import numpy as np
 
 
@@ -46,21 +44,6 @@ def build_jev_payload(
 ) -> dict:
     if frame is None or frame.size == 0:
         raise ValueError("输入画面数组不能为空")
-
-    # 压缩为 1280x720 以控制传输数据量
-    height, width = frame.shape[:2]
-    if width > 1280 or height > 720:
-        target_w = 1280
-        target_h = int(height * (1280.0 / width))
-        resized = cv2.resize(frame, (target_w, target_h), interpolation=cv2.INTER_AREA)
-    else:
-        resized = frame
-
-    encode_success, buffer = cv2.imencode(".jpg", resized, [cv2.IMWRITE_JPEG_QUALITY, 85])
-    if not encode_success:
-        raise RuntimeError("画面压缩编码失败")
-
-    base64_img = base64.b64encode(buffer).decode("ascii")
 
     prompt_context = f"当前任务指引目标：{quest_goal_text}。"
     if is_frozen_letterbox:
@@ -289,4 +272,3 @@ def decide_quest_action(
         is_frozen_letterbox=is_frozen_letterbox,
         is_navigation_guidance=is_navigation_guidance
     )
-
