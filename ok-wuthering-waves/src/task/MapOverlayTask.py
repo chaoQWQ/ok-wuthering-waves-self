@@ -27,6 +27,7 @@ from src.utils.NodeIconCache import NodeIconCache
 from src.utils.PathRoute import load_path_route, build_path_layers, PathParseError, PathLayer, PATH_NODE_ICON_KEY
 from src.utils.ChestRoute import load_chest_route, ChestRouteParseError
 from src.utils.ChestGuidanceFilter import ChestGuidanceFilter
+from src.utils.BigMapViewFilter import BigMapViewFilter
 from src.utils.KuroRoutes import KuroRoute, RouteNavigator
 from src.utils.MapDistance import format_distance_meters
 from src.utils.TargetTracker import (
@@ -1031,7 +1032,7 @@ class OverlayController:
         self._clear_chest_target()
         self._chest_last_query_at = 0.0
 
-    def _chest_status_info(self) -> str:
+    def _chest_status_info(self, player_known=True) -> str:
         """Return a compact status-panel line for the current chest target."""
         if not self._chest_search_enabled():
             return '收集物搜寻：未启用'
@@ -1043,8 +1044,9 @@ class OverlayController:
                     return '库街区路线：本轮导航已结束'
                 return '库街区路线：等待地图和人物位置识别'
             return '收集物搜寻：当前地图无未确认目标'
+        distance = format_distance_meters(target.distance) if player_known else '未知'
         return (f'收集目标：{target.name} '
-                f'距离{format_distance_meters(target.distance)} 待确认')
+                f'距离{distance} 待确认')
 
     def _chest_route_status_info(self) -> Optional[str]:
         """Return the optional video-route validation status for the panel."""
@@ -1205,8 +1207,8 @@ class OverlayController:
                     self._chest_confirm_requested = False
                     self.task.info_set('Chest search', '请关闭大地图后确认当前路线目标')
             else:
-                self._process_chest_confirm(player_pos, self.task._locked_map_id)
-            self._update_chest_search(player_pos, self.task._locked_map_id)
+                self._process_chest_confirm(self.task.player_position_for_map(), self.task._locked_map_id)
+            self._update_chest_search(self.task.player_position_for_map(), self.task._locked_map_id)
         window = self._ensure_interaction_window()
         if window is None:
             # Create-failure fallback (Requirement 1.9): render the big map with
@@ -1227,7 +1229,9 @@ class OverlayController:
             # Player coordinate update: auto-advance before rebuilding content so
             # the rendered target reflects the advance (Requirements 9.1, 9.2);
             # no target -> no-op (Requirement 9.4).
-            self.maybe_auto_advance(player_pos)
+            actual_position = self.task.player_position_for_map()
+            if actual_position is not None:
+                self.maybe_auto_advance(actual_position)
         window_draw_items, line_layers, hitboxes = self._build_bigmap_content(
             player_pos, game_scale
         )
@@ -2175,6 +2179,10 @@ class OverlayController:
         if not self.task.config.get('Show status panel', True):
             return ()
 
+        view_position = player_pos if not minimap else None
+        if not minimap:
+            player_pos = self.task.player_position_for_map()
+
         map_mode = '小地图' if minimap else '大地图'
         path_desc = '库街区路线' if self._kuro_enabled() else ('路线模式' if self._path_mode else '普通模式')
         mode_desc = f'{map_mode} / {path_desc}'
@@ -2196,8 +2204,12 @@ class OverlayController:
             lines = format_status_lines(
                 player_pos, map_id, scale_per_1000, mode_desc, target_info
             )
+            if not minimap:
+                lines[0] += '（最近一次大世界识别）'
+                if self._valid_player_pos(view_position):
+                    lines.append(f'视图中心：{view_position[0]:.1f}, {view_position[1]:.1f}')
             if self._chest_search_enabled():
-                lines.append(self._chest_status_info())
+                lines.append(self._chest_status_info(player_known=True))
                 route_line = self._chest_route_status_info()
                 if route_line:
                     lines.append(route_line)
@@ -2212,11 +2224,14 @@ class OverlayController:
             else target_info
         )
         lines = format_status_lines(
-            None, self._status_last_map_id, self._status_last_scale,
-            last_mode, last_target,
+            None, self._status_last_map_id if minimap else map_id,
+            self._status_last_scale if minimap else scale_per_1000,
+            last_mode if minimap else mode_desc, last_target if minimap else target_info,
         )
+        if not minimap and self._valid_player_pos(view_position):
+            lines.append(f'视图中心：{view_position[0]:.1f}, {view_position[1]:.1f}')
         if self._chest_search_enabled():
-            lines.append(self._chest_status_info())
+            lines.append(self._chest_status_info(player_known=False))
             route_line = self._chest_route_status_info()
             if route_line:
                 lines.append(route_line)
@@ -2664,6 +2679,9 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         }
         self._window = None
         self._last_valid = None
+        self._player_map_id = None
+        self._bigmap_position = None
+        self._bigmap_filter = BigMapViewFilter()
         self._consecutive_far = 0
         self._overlay = None
         self._overlay_registered = False
@@ -3061,6 +3079,8 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         self._minimap_match_scale = None
         self._last_minimap_scale_per_1000 = None
         self._last_match_scale = None
+        self._bigmap_position = None
+        self._bigmap_filter.reset()
         self._lock_ocr_pos = None
         self._second_check_done = False
 
@@ -3638,6 +3658,10 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
                         )
 
         if in_team or fallback_minimap:
+            self._bigmap_position = None
+            self._bigmap_filter.reset()
+            if self._view_est is not None and self._view_est.is_valid:
+                self._view_est.invalidate('进入大世界')
             self._fallback_failures = 0
             self._in_team_failures = 0
             self._last_match_scale = None
@@ -3711,6 +3735,7 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
                                 self._lock_ocr_pos = None
                                 self._second_check_done = False
 
+                    self._player_map_id = self._locked_map_id
                     if self.config.get('_Overlay enabled'):
                         self._overlay_ctl().on_minimap(result, self._locked_map_id)
                 else:
@@ -3765,7 +3790,7 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
                 # region 中心优先用推算值：拖动/缩放瞬态下它比"上次匹配结果"准得多，
                 # 实测 76~90% 的匹配失败都发生在鼠标操作 0.5s 内。
                 est_state = est.state() if est is not None else None
-                search_pos = self._last_valid
+                search_pos = self._bigmap_position or self._last_valid
                 if est_state is not None and est_state.source != 'match':
                     ex, ey = est_state.ocr_pos
                     z = self._last_valid[2] if len(self._last_valid) > 2 else 0
@@ -3780,10 +3805,10 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
                     # 匹配失败但推算状态还新鲜 -> 用推算值继续渲染，避免叠加层在
                     # 拖动/缩放瞬态里闪断（原有失败计数与兜底清理逻辑保持不变）
                     if est_state is not None and est_state.confidence >= 0.25:
-                        self._last_valid = (est_state.ocr_pos[0], est_state.ocr_pos[1],
+                        self._bigmap_position = (est_state.center[0] / 100, est_state.center[1] / 100,
                                             self._last_valid[2]
                                             if len(self._last_valid) > 2 else 0)
-                        self._overlay_ctl().on_bigmap(self._last_valid,
+                        self._overlay_ctl().on_bigmap(self._bigmap_position,
                                                       est_state.game_scale)
                     self._fallback_failures += 1
                     logger.warning(
@@ -3798,24 +3823,28 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
                 else:
                     self._last_match_scale = result.map_scale
                     self._fallback_failures = 0
-                    if result.game_center:
-                        new_x = int(result.game_center[0] / 100)
-                        new_y = int(result.game_center[1] / 100)
-                        new_z = self._last_valid[2] if len(self._last_valid) > 2 else 0
-                        self._last_valid = (new_x, new_y, new_z)
                     game_scale = self._compute_game_scale(result)
                     if self._view_probe is not None:
                         self._view_probe.log_match(
                             map_id=self._locked_map_id, result=result,
                             game_scale=game_scale, crop_size=crop_size,
                             full_map=use_full_map)
-                    # 匹配成功即吸附推算状态（残差用于观察推算精度）
+                    if result.game_center and game_scale:
+                        center, game_scale = self._bigmap_filter.update(
+                            result.game_center, game_scale, self._locked_map_id,
+                            (self.screen_width, self.screen_height),
+                            interacting=est.recently_interacting() if est is not None else False,
+                        )
+                        self._bigmap_position = (center[0] / 100, center[1] / 100,
+                                                self._last_valid[2] if len(self._last_valid) > 2 else 0)
+                    # 视图推算、投影和比例面板共用稳定后的匹配状态。
                     if est is not None and result.game_center and game_scale:
-                        resid = est.on_match(result.game_center, game_scale)
+                        resid = est.on_match(center, game_scale)
                         if resid is not None and verbose:
                             logger.info(f'[ViewEst] 推算残差 {resid:.1f}px, '
                                         f'{est.summary()}')
-                    self._overlay_ctl().on_bigmap(self._last_valid, game_scale)
+                    if self._bigmap_position is not None:
+                        self._overlay_ctl().on_bigmap(self._bigmap_position, game_scale)
 
                 if self._fallback_failures >= FALLBACK_MAX_FAILURES:
                     logger.warning("[MapFallback] max failures reached, sleeping 2s then resetting")
@@ -3850,6 +3879,12 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
             return
         db_path = os.path.join(MAP_DIR, 'map_items.db')
         self._overlay = MapItemOverlay(db_path)
+
+    def player_position_for_map(self):
+        if (self._last_valid is None or self._player_map_id is None
+                or self._player_map_id != self._locked_map_id):
+            return None
+        return self._last_valid
 
     def _overlay_ctl(self):
         """Lazily build the three-state OverlayController collaborator."""

@@ -92,6 +92,7 @@ class ViewStateEstimator:
         self._t = 0.0
         self._conf = 0.0
         self._source = 'none'
+        self._last_input_t = float('-inf')
         # 快甩滑行
         self._coast_v = (0.0, 0.0)     # 游戏单位/秒
         self._coast_until = 0.0
@@ -113,6 +114,11 @@ class ViewStateEstimator:
         """设置游戏窗口客户区中心对应的屏幕绝对坐标（缩放锚点计算要用）。"""
         with self._lock:
             self._screen_center = (float(sx), float(sy))
+
+    def recently_interacting(self, now=None):
+        now = time.perf_counter() if now is None else now
+        with self._lock:
+            return now - self._last_input_t < 0.7 or self._coast_until > now
 
     def state(self, now: Optional[float] = None) -> Optional[ViewState]:
         """返回当前状态快照（会先推进快甩滑行）。"""
@@ -164,6 +170,7 @@ class ViewStateEstimator:
     # ------------------------------------------------------------------ 鼠标事件
     def on_mouse_press(self, x, y, button, t) -> None:
         with self._lock:
+            self._last_input_t = t
             self._coast_until = 0.0   # 重新按下即打断滑行
             self._drag_hist.clear()
 
@@ -172,6 +179,7 @@ class ViewStateEstimator:
         if not dx and not dy:
             return
         with self._lock:
+            self._last_input_t = t
             self._drag_hist.append((t, x, y))
             if self._center is None or not self._gs:
                 return
@@ -190,6 +198,7 @@ class ViewStateEstimator:
         ≈ ``v_release × FLING_TAU``（惯性只由松手速度决定，与拖了多远无关）。
         """
         with self._lock:
+            self._last_input_t = t
             self._coast_until = 0.0
             hist = [h for h in self._drag_hist
                     if t - h[0] <= self.FLING_SAMPLE_WINDOW]
@@ -217,6 +226,7 @@ class ViewStateEstimator:
         if not dy:
             return
         with self._lock:
+            self._last_input_t = t
             if self._center is None or not self._gs:
                 return
             gs_old = self._gs

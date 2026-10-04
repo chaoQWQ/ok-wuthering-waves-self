@@ -11,7 +11,7 @@ from ok.util.GlobalConfig import GlobalConfig
 from ok.util.handler import ExitEvent
 
 from config import config
-from src.task.MapOverlayTask import MapOverlayTask
+from src.task.MapOverlayTask import ChestTarget, MapOverlayTask, OverlayController
 from src.utils.TaskConfigRefresh import refresh_task_config_widgets
 
 
@@ -27,6 +27,7 @@ class TestTaskConfigRefresh(unittest.TestCase):
             executor = None
             parent = QWidget()
             card = None
+            controller = None
             try:
                 global_config = GlobalConfig(config['global_configs'])
                 manager = DeviceManager({}, exit_event, global_config)
@@ -67,7 +68,31 @@ class TestTaskConfigRefresh(unittest.TestCase):
                 self.assertEqual(int(card.winId()), handle)
                 restored = Config('refresh-test', task.default_config, folder=directory)
                 self.assertEqual(restored['Collection account'], 'account-b')
+                task.config['Kuro route navigation'] = False
+                task.config['Chest search'] = True
+                task._last_valid = (-831, 327, 0)
+                task._player_map_id = 8
+                task._locked_map_id = 8
+                controller = OverlayController(task)
+                controller._chest_target = ChestTarget('1287514641007132672', '基准奇藏箱',
+                                                       'qzx_02', -81100, 32700, 2000)
+                role = task.player_position_for_map()
+                lines = controller.compute_status_lines((-831, 327, 0), minimap=False, game_scale=55)
+                moved_view = controller.compute_status_lines((-600, 200, 0), minimap=False, game_scale=55)
+                self.assertEqual(role, task.player_position_for_map())
+                self.assertEqual(lines[0], moved_view[0])
+                self.assertEqual(lines[-1], moved_view[-1])
+                self.assertNotEqual(lines[-2], moved_view[-2])
+                self.assertIn('最近一次大世界识别', lines[0])
+                self.assertIn('视图中心', lines[-2])
+                task._locked_map_id = 912
+                self.assertIsNone(task.player_position_for_map())
+                unknown = controller.compute_status_lines((-600, 200, 0), minimap=False, game_scale=55)
+                self.assertIn('未知', unknown[0])
+                self.assertIn('距离未知', unknown[-1])
             finally:
+                if controller is not None:
+                    controller.close()
                 parent.close()
                 if card is not None:
                     card.dispose()
