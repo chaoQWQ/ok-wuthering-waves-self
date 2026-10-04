@@ -227,6 +227,34 @@ def detect_quest_beacon(
     )
 
 
+def detect_flower_guidance(frame: np.ndarray) -> BeaconResult:
+    if frame is None or frame.size == 0:
+        raise ValueError("花朵指引画面不能为空")
+    height, width = frame.shape[:2]
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    mask = cv2.inRange(hsv, (80, 70, 205), (112, 255, 255))
+    mask[:int(height * 0.18)] = 0
+    mask[int(height * 0.76):] = 0
+    mask[:, :int(width * 0.16)] = 0
+    mask[:, int(width * 0.86):] = 0
+    scale = width / 1920.0
+    count, _, stats, _ = cv2.connectedComponentsWithStats(mask)
+    candidates = []
+    for index in range(1, count):
+        x, y, w, h, area = stats[index]
+        if not (12 * scale * scale <= area <= 450 * scale * scale):
+            continue
+        if not (5 * scale <= w <= 45 * scale and 5 * scale <= h <= 45 * scale):
+            continue
+        if not 0.4 <= w / h <= 2.5:
+            continue
+        candidates.append((int(area), int(x), int(y), int(w), int(h)))
+    if not candidates:
+        return BeaconResult(False, 0, 0, 0, 0, 0.0)
+    _, x, y, w, h = max(candidates)
+    return BeaconResult(True, x, y, w, h, 1.0)
+
+
 _DISTANCE_REGEX = re.compile(r"(\d+(?:\.\d+)?)\s*(?:米|m|M)")
 
 

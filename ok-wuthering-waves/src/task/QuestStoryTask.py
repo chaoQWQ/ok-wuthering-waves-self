@@ -13,6 +13,7 @@ from src.utils.QuestNavigator import calculate_camera_turn, compute_movement_act
 from src.utils.QuestOcrPrivacy import prepare_quest_ocr_frame, sanitize_quest_text
 from src.utils.QuestProgressTracker import QuestProgressTracker
 from src.utils.QuestBackgroundMotion import detect_background_motion
+from src.utils.QuestTargetSearch import QuestTargetSearch
 from src.utils.QuestVision import (
     BeaconResult,
     ClimbStateResult,
@@ -22,6 +23,7 @@ from src.utils.QuestVision import (
     detect_letterbox,
     detect_minimap_quest_arrow,
     detect_quest_beacon,
+    detect_flower_guidance,
     detect_screen_freeze,
     detect_top_left_skip_button,
     parse_distance_text,
@@ -72,6 +74,9 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.climbing_start_time: float = 0.0
         self.navigation_progress = QuestProgressTracker()
         self.climbing_progress = QuestProgressTracker(require_distance=False)
+        self.target_search = QuestTargetSearch()
+        self.guidance_text = ""
+        self.guidance_last_read = 0.0
         self.last_teleport_attempt_time: float = 0.0
         self.jev_call_count: int = 0
         self.jev_total_tokens: int = 0
@@ -114,6 +119,9 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.climbing_start_time = 0.0
         self.navigation_progress = QuestProgressTracker()
         self.climbing_progress = QuestProgressTracker(require_distance=False)
+        self.target_search = QuestTargetSearch()
+        self.guidance_text = ""
+        self.guidance_last_read = 0.0
         self.jev_call_count = 0
         self.jev_total_tokens = 0
         self.jev_cost_estimate = 0.0
@@ -264,6 +272,15 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         # 2. 提取任务信标与目标距离
         beacon_result = detect_quest_beacon(frame)
         current_distance = self._extract_quest_distance(frame, beacon_result)
+        if current_distance is None and not beacon_result.found:
+            if time.time() - self.guidance_last_read >= 2.0:
+                self.guidance_text = " ".join(box.name for box in self.ocr(0.01, 0.20, 0.28, 0.43, frame=frame) if box.name)
+                self.guidance_last_read = time.time()
+            if re.search(r"跟随.*花朵|Follow.*flower", self.guidance_text, re.IGNORECASE):
+                beacon_result = detect_flower_guidance(frame)
+                self.navigation_progress.require_distance = False
+            else:
+                self.navigation_progress.require_distance = True
         self.navigation_progress.observe(current_distance)
 
         # 3. 若任务目标距离超过 200 米，尝试打开地图定位并传送到附近传送点
@@ -334,6 +351,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
         # 8. 视野中存在任务信标
         if beacon_result.found:
+            self.target_search.reset()
             beacon_cx = beacon_result.x + beacon_result.width // 2
             diff_x = beacon_cx - width / 2.0
             angle_error_deg = (diff_x / (width / 2.0)) * 45.0
@@ -374,6 +392,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         # 9. 视野无信标，依据小地图指示箭头旋转镜头并移动
         arrow_result = detect_minimap_quest_arrow(frame)
         if arrow_result.found:
+            self.target_search.reset()
             norm_deg = arrow_result.bearing_deg % 360.0
             angle_diff = norm_deg - 360.0 if norm_deg > 180.0 else norm_deg
 
@@ -403,7 +422,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         if now - self.last_search_log_time > 2.0:
             self.last_search_log_time = now
             self.log_info("视野暂未发现任务信标，正在原地水平旋转视角搜寻目标方位...")
-        self._apply_camera_turn(120)
+        self._apply_camera_turn(self.target_search.next_turn())
         self.sleep(0.2)
 
     def _handle_climbing_state(self, frame: np.ndarray, climbing_duration: float = 0.0):
