@@ -182,45 +182,6 @@ def detect_quest_beacon(
                     confidence=best_score
                 )
 
-    # 备用方案：几何连通域筛选
-    masked_gold = cv2.bitwise_and(gold_mask, gold_mask, mask=spatial_mask)
-    contours, _ = cv2.findContours(masked_gold, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    best_candidate: Optional[Tuple[int, int, int, int, float]] = None
-
-    for cnt in contours:
-        x, y, w, h = cv2.boundingRect(cnt)
-        if not (6 <= w <= 65 and 6 <= h <= 65):
-            continue
-        aspect_ratio = float(w) / float(h)
-        if not (0.55 <= aspect_ratio <= 1.8):
-            continue
-
-        crop = frame[y:y + h, x:x + w]
-        center_h = max(1, h // 3)
-        center_w = max(1, w // 3)
-        center_crop = crop[center_h:h - center_h, center_w:w - center_w]
-        if center_crop.size == 0:
-            continue
-
-        center_brightness = float(np.mean(center_crop))
-        if center_brightness < 120.0:
-            continue
-
-        confidence = min(1.0, (center_brightness / 255.0) * (1.0 - abs(1.0 - aspect_ratio)))
-        if best_candidate is None or confidence > best_candidate[4]:
-            best_candidate = (x, y, w, h, confidence)
-
-    if best_candidate:
-        bx, by, bw, bh, bconf = best_candidate
-        return BeaconResult(
-            found=True,
-            x=bx,
-            y=by,
-            width=bw,
-            height=bh,
-            confidence=bconf
-        )
-
     return BeaconResult(
         found=False,
         x=0,
@@ -304,19 +265,24 @@ def detect_minimap_quest_arrow(
         & ((roi_r.astype(int) - roi_b.astype(int)) > 55)
     ).astype(np.uint8)
 
-    contours, _ = cv2.findContours(gold_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     center_map_x = mw * 0.48
     center_map_y = mh * 0.44
+
+    # 遮蔽小地图中心玩家自身黄色箭头，仅检测贴在小地图边缘的真实指引标记
+    player_radius = int(min(mw, mh) * 0.24)
+    cv2.circle(gold_mask, (int(center_map_x), int(center_map_y)), player_radius, 0, -1)
+
+    contours, _ = cv2.findContours(gold_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     best_arrow: Optional[Tuple[float, int, int]] = None
     max_area = 0.0
 
     for cnt in contours:
         area = cv2.contourArea(cnt)
-        if area < 15.0:
+        if area < 10.0:
             continue
         x, y, w, h = cv2.boundingRect(cnt)
-        if not (6 <= w <= 50 and 6 <= h <= 50):
+        if not (5 <= w <= 50 and 5 <= h <= 50):
             continue
 
         arrow_cx = x + w / 2.0
@@ -325,12 +291,11 @@ def detect_minimap_quest_arrow(
         dy = arrow_cy - center_map_y
         dist = float(np.hypot(dx, dy))
 
-        # 计算顺时针角度（正北上方为 0 度，正东为 90 度）
-        if dist >= 10.0:
-            angle_rad = np.arctan2(dx, -dy)
-            angle_deg = float(np.degrees(angle_rad)) % 360.0
-        else:
-            angle_deg = 0.0
+        if dist < player_radius:
+            continue
+
+        angle_rad = np.arctan2(dx, -dy)
+        angle_deg = float(np.degrees(angle_rad)) % 360.0
 
         if area > max_area:
             max_area = area
@@ -522,7 +487,7 @@ class TopLeftSkipResult:
 def detect_top_left_skip_button(
     frame: np.ndarray,
     template_path: Optional[str] = None,
-    threshold: float = 0.75
+    threshold: float = 0.70
 ) -> TopLeftSkipResult:
     if frame is None or frame.size == 0:
         raise ValueError("输入画面数组不能为空")
@@ -542,40 +507,41 @@ def detect_top_left_skip_button(
     tpl_h, tpl_w = template.shape[:2]
     frame_h, frame_w = frame.shape[:2]
 
-    # 截取屏幕左上角区域（横向 0~20%，纵向 0~20%）
-    ex = int(frame_w * 0.20)
-    ey = int(frame_h * 0.20)
+    # 截取屏幕左上角区域（横向 0~25%，纵向 0~22%）
+    ex = int(frame_w * 0.25)
+    ey = int(frame_h * 0.22)
 
     roi = frame[:ey, :ex]
     gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
 
-    scale = frame_w / 1024.0
-    scaled_w = max(5, int(tpl_w * scale))
-    scaled_h = max(5, int(tpl_h * scale))
+    scale_base = frame_w / 1024.0
+    best_score = -1.0
+    best_match = None
 
-    scaled_template = cv2.resize(template, (scaled_w, scaled_h), interpolation=cv2.INTER_AREA)
+    for factor in [0.8, 0.9, 1.0, 1.15, 1.3]:
+        scaled_w = max(5, int(tpl_w * scale_base * factor))
+        scaled_h = max(5, int(tpl_h * scale_base * factor))
 
-    if gray_roi.shape[0] < scaled_h or gray_roi.shape[1] < scaled_w:
-        return TopLeftSkipResult(
-            found=False,
-            x=0,
-            y=0,
-            width=0,
-            height=0,
-            confidence=0.0
-        )
+        if gray_roi.shape[0] < scaled_h or gray_roi.shape[1] < scaled_w:
+            continue
 
-    match_result = cv2.matchTemplate(gray_roi, scaled_template, cv2.TM_CCOEFF_NORMED)
-    _, max_val, _, max_loc = cv2.minMaxLoc(match_result)
+        scaled_template = cv2.resize(template, (scaled_w, scaled_h), interpolation=cv2.INTER_AREA)
+        match_result = cv2.matchTemplate(gray_roi, scaled_template, cv2.TM_CCOEFF_NORMED)
+        _, max_val, _, max_loc = cv2.minMaxLoc(match_result)
 
-    if max_val >= threshold:
+        if max_val > best_score:
+            best_score = float(max_val)
+            best_match = (max_loc[0], max_loc[1], scaled_w, scaled_h)
+
+    if best_match and best_score >= threshold:
+        bx, by, bw, bh = best_match
         return TopLeftSkipResult(
             found=True,
-            x=max_loc[0],
-            y=max_loc[1],
-            width=scaled_w,
-            height=scaled_h,
-            confidence=float(max_val)
+            x=bx,
+            y=by,
+            width=bw,
+            height=bh,
+            confidence=best_score
         )
 
     return TopLeftSkipResult(
@@ -584,5 +550,5 @@ def detect_top_left_skip_button(
         y=0,
         width=0,
         height=0,
-        confidence=float(max_val)
+        confidence=best_score if best_score > 0 else 0.0
     )

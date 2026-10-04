@@ -63,6 +63,10 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.last_action_time: float = 0.0
         self.last_search_log_time: float = 0.0
         self.last_char_switch_time: float = 0.0
+        self.last_nav_frame: Optional[np.ndarray] = None
+        self.stuck_start_time: float = 0.0
+        self.last_observed_distance: Optional[float] = None
+        self.stuck_count: int = 0
 
     def run(self):
         try:
@@ -98,9 +102,11 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                     self.log_info(
                         f"检测到左上角剧情跳过按钮 (置信度 {top_left_skip.confidence:.2f})，点击执行跳过"
                     )
-                    skip_box = Box(top_left_skip.x, top_left_skip.y, top_left_skip.width, top_left_skip.height)
-                    self.click_box(skip_box, after_sleep=0.2)
-                    self.wait_until(self.skip_confirm, time_out=3, raise_if_not_found=False)
+                    fh, fw = frame.shape[:2]
+                    rx = (top_left_skip.x + top_left_skip.width / 2.0) / fw
+                    ry = (top_left_skip.y + top_left_skip.height / 2.0) / fh
+                    self.click(rx, ry, after_sleep=0.3)
+                    self.wait_until(self.skip_confirm, time_out=2.5, raise_if_not_found=False)
                     self.sleep(0.2)
                     continue
 
@@ -206,6 +212,10 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         beacon_result = detect_quest_beacon(frame)
         current_distance = self._extract_quest_distance(frame, beacon_result)
 
+        # 检查并处理撞墙受阻卡滞
+        if self._check_and_handle_stuck(frame, current_distance):
+            return
+
         # 到达 1 至 2 米范围内停止移动并等待交互
         if current_distance is not None and current_distance <= 2.0:
             self._stop_all_movement()
@@ -245,7 +255,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
             # 角度误差较大时原地校准视角，严禁边转向边移动以避免环绕画圈
             if move_cmd.mode == "wait":
-                self.log_info(f"正在原地校准视角朝向信标 (角度偏差 {angle_error_deg:.1f}°)")
+                self.log_info(f"正在原地校准视角朝向信标 (角度误差 {angle_error_deg:.1f}°)")
                 self.sleep(0.1)
                 return
 
@@ -274,7 +284,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             if turn_cmd.need_turn:
                 self._apply_camera_turn(turn_cmd.delta_x_pixels)
 
-            # 若角度偏差超过 20 度，原地旋转镜头，严禁边转向边移动以避免环绕画圈
+            # 若角度误差超过 20 度，原地旋转镜头，严禁边转向边移动以避免环绕画圈
             if abs(angle_diff) > 20.0:
                 self.log_info(f"依据小地图指引原地调整朝向 (方位角 {arrow_result.bearing_deg:.1f}°)")
                 self.sleep(0.1)
@@ -284,12 +294,77 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self._apply_movement(["w"], 0.25)
             return
 
-        # 视野与小地图暂无目标标识，周期性输出状态并慢速探索
+        # 视野与小地图暂无目标标识，原地水平旋转视角搜寻信标，避免盲目前冲撞击墙体
         now = time.time()
-        if now - self.last_search_log_time > 3.0:
+        if now - self.last_search_log_time > 2.0:
             self.last_search_log_time = now
-            self.log_info("正在巡视场景搜索任务信标与小地图指引...")
-        self._apply_movement(["w"], 0.25)
+            self.log_info("视野暂未发现任务信标，正在原地水平旋转视角搜寻目标方位...")
+        self._apply_camera_turn(120)
+        self.sleep(0.2)
+
+    def _check_and_handle_stuck(self, frame: np.ndarray, current_distance: Optional[float]) -> bool:
+        now = time.time()
+        is_stuck = False
+        last_nav = getattr(self, "last_nav_frame", None)
+        stuck_start = getattr(self, "stuck_start_time", 0.0)
+        last_dist = getattr(self, "last_observed_distance", None)
+
+        if last_nav is not None and last_nav.shape == frame.shape:
+            ch, cw = frame.shape[:2]
+            center_crop_curr = frame[int(ch * 0.25):int(ch * 0.75), int(cw * 0.25):int(cw * 0.75)]
+            center_crop_prev = last_nav[int(ch * 0.25):int(ch * 0.75), int(cw * 0.25):int(cw * 0.75)]
+            diff_val = float(np.mean(np.abs(center_crop_curr.astype(float) - center_crop_prev.astype(float))))
+
+            distance_not_reduced = True
+            if current_distance is not None and last_dist is not None:
+                if current_distance < last_dist - 0.2:
+                    distance_not_reduced = False
+
+            if diff_val < 3.0 and distance_not_reduced:
+                if stuck_start == 0.0:
+                    self.stuck_start_time = now
+                elif now - stuck_start >= 1.2:
+                    is_stuck = True
+            else:
+                self.stuck_start_time = 0.0
+        else:
+            self.stuck_start_time = 0.0
+
+        self.last_nav_frame = frame.copy()
+        if current_distance is not None:
+            self.last_observed_distance = current_distance
+
+        if is_stuck:
+            self._handle_stuck_recovery(frame)
+            self.stuck_start_time = 0.0
+            return True
+
+        return False
+
+    def _handle_stuck_recovery(self, frame: np.ndarray):
+        self._stop_all_movement()
+        count = getattr(self, "stuck_count", 0) + 1
+        self.stuck_count = count
+        self.log_info(f"检测到角色前进受阻卡滞 (第 {count} 次)，执行后撤与转向脱困避障")
+        # 1. 后退拉开与阻碍物距离
+        self.send_key_down("s")
+        self.sleep(0.4)
+        self.send_key_up("s")
+        self.sleep(0.1)
+
+        # 2. 交替侧向转向绕行
+        turn_angle_delta = 160 if (count % 2 == 1) else -160
+        self._apply_camera_turn(turn_angle_delta)
+        self.sleep(0.1)
+
+        # 3. 短暂侧向小步推进绕过阻隔边缘
+        side_key = "d" if (count % 2 == 1) else "a"
+        self.send_key_down("w")
+        self.send_key_down(side_key)
+        self.sleep(0.4)
+        self.send_key_up(side_key)
+        self.send_key_up("w")
+        self.sleep(0.1)
 
     def _stop_all_movement(self):
         for key in ["w", "a", "s", "d", "shift"]:

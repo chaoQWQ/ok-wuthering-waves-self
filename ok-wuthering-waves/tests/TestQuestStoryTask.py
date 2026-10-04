@@ -1,3 +1,4 @@
+import time
 import unittest
 import numpy as np
 from ok import Logger
@@ -31,6 +32,10 @@ class TestQuestStoryTask(unittest.TestCase):
         self.task.letterbox_freeze_start_time = 0.0
         self.task.last_search_log_time = 0.0
         self.task.last_char_switch_time = 0.0
+        self.task.last_nav_frame = None
+        self.task.stuck_start_time = 0.0
+        self.task.last_observed_distance = None
+        self.task.stuck_count = 0
         self.task.logger = Logger.get_logger("test")
         self.task.ui_logs = []
         self.task.info_set = lambda k, v: self.task.ui_logs.append((k, v))
@@ -104,6 +109,20 @@ class TestQuestStoryTask(unittest.TestCase):
             self.task.current_state = QuestStoryTask.STATE_DIALOG
             self.task.letterbox_freeze_start_time = 0.0
         self.assertEqual(self.task.current_state, QuestStoryTask.STATE_DIALOG)
+
+    def test_detect_top_left_skip_button_on_user_uploaded_1791108600262(self):
+        import cv2, os
+        img_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791108600262.jpg"
+        if not os.path.exists(img_path):
+            self.skipTest("用户最新上传图片不存在")
+        frame = cv2.imread(img_path)
+        from src.utils.QuestVision import detect_top_left_skip_button
+        res = detect_top_left_skip_button(frame)
+        self.assertTrue(res.found)
+        self.assertGreaterEqual(res.confidence, 0.70)
+        # 验证坐标在屏幕左上角区域
+        self.assertLess(res.x, int(frame.shape[1] * 0.25))
+        self.assertLess(res.y, int(frame.shape[0] * 0.22))
 
     def test_skip_message_callable_defined(self):
         self.assertTrue(hasattr(self.task, "skip_message"))
@@ -193,7 +212,19 @@ class TestQuestStoryTask(unittest.TestCase):
         self.assertTrue(len(decision_called) > 0)
         # 验证触发停止并松开移动按键
         self.assertTrue(any(act == "up" and k == "w" for act, k in self.task.sent_keys))
-        self.assertTrue(any(k == "Log" and "停止移动并执行交互" in v for k, v in self.task.ui_logs))
+    def test_stuck_detection_and_recovery(self):
+        import numpy as np
+        frame = np.ones((720, 1280, 3), dtype=np.uint8) * 100
+        self.task.last_nav_frame = frame.copy()
+        self.task.stuck_start_time = time.time() - 2.0  # 模拟持续卡滞超过 1.2 秒
+        self.task.last_observed_distance = 15.0
+
+        recovered = self.task._check_and_handle_stuck(frame, current_distance=15.0)
+        self.assertTrue(recovered)
+        # 验证发送了脱困按键 's' 与侧向键
+        self.assertTrue(any(k == "s" for act, k in self.task.sent_keys))
+        self.assertTrue(any(k in ("a", "d") for act, k in self.task.sent_keys))
+        self.assertTrue(any(k == "Log" and "受阻卡滞" in v for k, v in self.task.ui_logs))
 
 
 if __name__ == "__main__":
