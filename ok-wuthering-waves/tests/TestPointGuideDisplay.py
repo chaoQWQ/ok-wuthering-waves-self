@@ -1,0 +1,149 @@
+import os
+import tempfile
+import time
+import unittest
+from pathlib import Path
+
+from PySide6.QtCore import QThread, Qt
+from PySide6.QtGui import QImage, QPainter
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication
+
+from config import config
+from ok import Config
+from ok.device.DeviceManager import DeviceManager
+from ok.task.TaskExecutor import TaskExecutor
+from ok.util.GlobalConfig import GlobalConfig
+from ok.util.handler import ExitEvent
+
+from src.task.MapOverlayTask import ClickTarget, MapOverlayTask, OverlayController
+from src.utils.GuideImageCache import GuideImageCache
+from src.utils.InteractionOverlayWindow import InteractionOverlayWindow
+from src.utils.KuroRoutes import KuroRoutesClient
+from src.utils.MapItemOverlay import MapItemOverlay
+
+
+ROOT = Path(__file__).resolve().parents[1]
+POINT_ID = '1287514641007132672'
+
+
+class TestPointGuideDisplay(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+        cls.detail = KuroRoutesClient(8).point_detail(POINT_ID)
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.previous_folder = Config.config_folder
+        Config.config_folder = self.directory.name
+        self.exit_event = ExitEvent()
+        global_config = GlobalConfig(config['global_configs'])
+        self.manager = DeviceManager({}, self.exit_event, global_config)
+        self.executor = TaskExecutor(self.manager, exit_event=self.exit_event,
+                                     global_config=global_config, config={'locale': 'zh_CN'})
+        self.task = MapOverlayTask(executor=self.executor, app=self.app)
+        self.task.config = Config('guide-test', self.task.default_config, folder=self.directory.name)
+        self.task._locked_map_id = '8'
+        self.task._overlay = MapItemOverlay(str(ROOT / 'assets/stitched/map_items.db'))
+        self.controller = OverlayController(self.task)
+        self.controller._guide_image_cache = GuideImageCache(self.directory.name)
+        self.window = InteractionOverlayWindow(0, 0, 800, 600)
+        self.controller._interaction_window = self.window
+        self.controller._connect_window_signals(self.window)
+        self.controller._click_targets = [
+            ClickTarget('item', POINT_ID, 100, 100, section_id=1, index=1, name='基准奇藏箱')]
+
+    def tearDown(self):
+        self.controller.close()
+        self.task._overlay.close()
+        self.manager.close()
+        self.executor.destroy()
+        self.exit_event.set()
+        Config.config_folder = self.previous_folder
+        self.directory.cleanup()
+
+    def wait_until(self, predicate):
+        deadline = time.monotonic() + 45
+        while not predicate() and time.monotonic() < deadline:
+            QTest.qWait(25)
+        self.assertTrue(predicate())
+
+    def open_point(self):
+        self.controller.on_left_click(0)
+        self.wait_until(lambda: self.controller._bubble.image_status in ('ready', 'failed', 'no_image'))
+        self.assertEqual(self.controller._bubble.image_status, 'ready')
+        self.app.processEvents()
+
+    def test_live_point_images_buttons_and_reopen(self):
+        self.task.config['Kuro route navigation'] = True
+        self.open_point()
+        bubble = self.controller._bubble
+        self.assertEqual(bubble.image_count, 2)
+        self.assertIn('完成能量矩阵解密获得', bubble.text)
+        self.assertFalse(bubble.pixmap.isNull())
+        first = bubble.pixmap.toImage()
+        self.window.show()
+        self.app.processEvents()
+        next_rect = self.window._bubble_navigation_rects()[1][1]
+        self.assertTrue(self.window.mask().contains(next_rect.center()))
+        QTest.mouseClick(self.window, Qt.LeftButton, pos=next_rect.center())
+        self.wait_until(lambda: self.controller._bubble.image_status == 'ready')
+        self.assertEqual(self.controller._bubble.image_index, 1)
+        self.assertNotEqual(first, self.controller._bubble.pixmap.toImage())
+        self.app.processEvents()
+        prev_rect = self.window._bubble_navigation_rects()[0][1]
+        QTest.mouseClick(self.window, Qt.LeftButton, pos=prev_rect.center())
+        self.assertEqual(self.controller._bubble.image_index, 0)
+        self.assertEqual(self.controller._bubble.pixmap.toImage(), first)
+        self.controller.close_bubble()
+        self.open_point()
+        self.assertEqual(self.controller._bubble.pixmap.toImage(), first)
+        canvas = QImage(800, 600, QImage.Format_ARGB32)
+        canvas.fill(0)
+        painter = QPainter(canvas)
+        self.window._paint_bubble(painter)
+        painter.end()
+        self.assertGreater(canvas.pixelColor(self.window._bubble_box_rect().center()).alpha(), 0)
+        screenshot = os.environ.get('POINT_GUIDE_SCREENSHOT')
+        if screenshot:
+            self.assertTrue(canvas.save(screenshot))
+
+    def test_normal_item_and_stale_request(self):
+        self.controller.on_left_click(0)
+        self.controller.close_bubble()
+        self.wait_until(lambda: bool(self.controller._guide_image_cache._details))
+        self.app.processEvents()
+        self.assertIsNone(self.controller._bubble)
+        self.open_point()
+        self.assertEqual(self.controller._bubble.image_count, 2)
+
+    def test_cache_callbacks_gui_thread_duplicate_and_disk(self):
+        cache = self.controller._guide_image_cache
+        url = self.detail['content']['picturesUrl'][0]
+        results = []
+
+        def ready(image, status):
+            results.append((status, QThread.currentThread(), image))
+
+        cache.request_image(POINT_ID, url, ready)
+        cache.request_image(POINT_ID, url, ready)
+        cache.request_image('another-node', url, ready)
+        self.wait_until(lambda: len(results) == 3)
+        self.assertTrue(all(status == 'ready' and thread == self.app.thread()
+                            for status, thread, image in results))
+        cache.request_image(POINT_ID, url, ready)
+        self.assertEqual(len(results), 4)
+        cache.stop()
+        disk_cache = GuideImageCache(self.directory.name)
+        try:
+            disk_cache.request_image(POINT_ID, url, ready)
+            self.wait_until(lambda: len(results) == 5)
+            self.assertEqual(results[-1][0], 'ready')
+            self.assertFalse(disk_cache.get_pixmap(POINT_ID, url).isNull())
+        finally:
+            disk_cache.stop()
+
+
+if __name__ == '__main__':
+    unittest.main()

@@ -380,6 +380,9 @@ class OverlayController:
         self._bubble = None
         self._bubble_ref_id = None
         self._guide_image_cache = None
+        self._guide_request_token = None
+        self._bubble_image_urls = ()
+        self._bubble_image_index = 0
         # Player position captured when the bubble was opened, so a subsequent
         # big-map pan/move can close it (Requirement 2.5).
         self._bubble_player_pos = None
@@ -574,14 +577,10 @@ class OverlayController:
         """Lazily initialize the guide image downloader and cache."""
         if self._guide_image_cache is not None:
             return self._guide_image_cache
-        try:
-            from src.utils.GuideImageCache import GuideImageCache
-            guide_dir = os.path.join(MAP_DIR, 'guide_image_cache')
-            self._guide_image_cache = GuideImageCache(cache_dir=guide_dir)
-            return self._guide_image_cache
-        except Exception as exc:
-            logger.warning("[Overlay] guide image cache create failed: %s", exc)
-            return None
+        from src.utils.GuideImageCache import GuideImageCache
+        guide_dir = os.path.join(MAP_DIR, 'guide_image_cache')
+        self._guide_image_cache = GuideImageCache(cache_dir=guide_dir)
+        return self._guide_image_cache
 
     def _find_route_node(self, section_id: int, index: int):
         """Find the corresponding PathNode from the active route by section and index."""
@@ -1318,69 +1317,67 @@ class OverlayController:
         return self._click_targets[idx]
 
     def on_left_click(self, idx) -> None:
-        """Left single click: show the clicked item/node Description_Bubble.
-
-        Switches the single allowed bubble to the clicked icon (Requirements
-        2.1, 2.2, 2.3, 6.6, 7.2). For a DB item the bubble text is the location's
-        ``description`` (with the empty-description placeholder applied); for a
-        route node it is the node's ``position_name``.
-        """
+        """单击点位，显示库街区说明和参考图片。"""
         target = self._click_target(idx)
         if target is None:
             return
-        if target.kind == 'item':
-            description = None
-            overlay = getattr(self.task, '_overlay', None)
-            if overlay is not None and target.ref_id is not None:
-                description = overlay.get_location_description(target.ref_id)
-            text = bubble_text(description)
-            title = target.name or "资源点详情"
-            self._set_bubble(target.sx, target.sy, text, title=title, pixmap=None, image_status="no_image", ref_id=target.ref_id)
-            self._rerender_bigmap()
-            return
-
-        node = self._find_route_node(target.section_id, target.index)
-        title = target.name or (node.position_name if node else "路线节点")
-        text = bubble_text(node.position_name if node else target.name)
-        img_rel = ""
-        if node:
-            img_rel = getattr(node, 'guide_img', '') or getattr(node, 'position_img', '')
-
-        if not img_rel:
-            logger.info("[GuideImage] 路线节点 %s 未包含攻略图片", target.ref_id)
-            self._set_bubble(target.sx, target.sy, text, title=title, pixmap=None, image_status="no_image", ref_id=target.ref_id)
-            self._rerender_bigmap()
-            return
-
-        from src.utils.GuideImageCache import build_kuro_image_url
-        url = build_kuro_image_url(img_rel)
-        if not url:
-            logger.warning("[GuideImage] 路线节点 %s 的图片 URL 不在可信域名内: %s", target.ref_id, img_rel)
-            self._set_bubble(target.sx, target.sy, text, title=title, pixmap=None, image_status="failed", ref_id=target.ref_id)
-            self._rerender_bigmap()
-            return
-
+        overlay = getattr(self.task, '_overlay', None)
+        description = overlay.get_location_description(target.ref_id) if overlay else None
+        self._guide_request_token = token = object()
+        self._bubble_image_urls = ()
+        self._bubble_image_index = 0
+        self._set_bubble(target.sx, target.sy, bubble_text(description),
+                         title=target.name or "点位详情", image_status="loading", ref_id=target.ref_id)
+        self._rerender_bigmap()
         cache = self._ensure_guide_image_cache()
-        if cache is None:
-            self._set_bubble(target.sx, target.sy, text, title=title, pixmap=None, image_status="failed", ref_id=target.ref_id)
+
+        def on_details_loaded(details, status):
+            if self._bubble is None or self._guide_request_token is not token:
+                return
+            if self._bubble_ref_id != target.ref_id:
+                return
+            if status == "failed":
+                self._bubble = self._bubble._replace(image_status="failed")
+                self._rerender_bigmap()
+                return
+            content = details['content']
+            self._bubble_image_urls = tuple(content.get('picturesUrl') or ())
+            self._bubble = self._bubble._replace(
+                title=details['name'], text=wrap_text(bubble_text(content.get('description')), 25),
+                image_count=len(self._bubble_image_urls), image_index=0)
+            self._show_guide_image()
+
+        cache.request_details(self._context_state_id(), target.ref_id, on_details_loaded)
+
+    def on_image_step(self, step):
+        if self._bubble is None or not self._bubble_image_urls:
+            return
+        self._bubble_image_index = (self._bubble_image_index + step) % len(self._bubble_image_urls)
+        self._show_guide_image()
+
+    def _show_guide_image(self):
+        if not self._bubble_image_urls:
+            self._bubble = self._bubble._replace(pixmap=None, image_status="no_image")
             self._rerender_bigmap()
             return
+        cache = self._ensure_guide_image_cache()
+        node_id = self._bubble_ref_id
+        index = self._bubble_image_index
+        url = self._bubble_image_urls[index]
+        token = self._guide_request_token
+        self._bubble = self._bubble._replace(pixmap=None, image_status="loading", image_index=index)
+        self._rerender_bigmap()
 
-        pixmap = cache.get_pixmap(target.ref_id, url)
-        if pixmap is not None:
-            self._set_bubble(target.sx, target.sy, text, title=title, pixmap=pixmap, image_status="ready", ref_id=target.ref_id)
+        def on_image_loaded(_image, status):
+            if (self._bubble is None or self._guide_request_token is not token
+                    or self._bubble_ref_id != node_id or self._bubble_image_index != index):
+                return
+            self._bubble = self._bubble._replace(
+                pixmap=cache.get_pixmap(node_id, url) if status == "ready" else None,
+                image_status=status)
             self._rerender_bigmap()
-        else:
-            self._set_bubble(target.sx, target.sy, text, title=title, pixmap=None, image_status="loading", ref_id=target.ref_id)
-            self._rerender_bigmap()
 
-            def on_guide_loaded(_img, status):
-                if self._bubble is not None and self._bubble_ref_id == target.ref_id:
-                    pm = cache.get_pixmap(target.ref_id, url)
-                    self._set_bubble(target.sx, target.sy, text, title=title, pixmap=pm, image_status=status, ref_id=target.ref_id)
-                    self._rerender_bigmap()
-
-            cache.request_image(target.ref_id, url, on_ready=on_guide_loaded)
+        cache.request_image(node_id, url, on_image_loaded)
 
 
 
@@ -2465,6 +2462,7 @@ class OverlayController:
             window.leftDoubleClicked.connect(self.on_double_click)
             window.rightClicked.connect(self.on_right_click)
             window.emptyClicked.connect(self.close_bubble)
+            window.imageStepClicked.connect(self.on_image_step)
         except Exception as exc:  # pragma: no cover - Qt runtime specific
             logger.warning(f"[Overlay] failed to connect window signals: {exc}")
             return

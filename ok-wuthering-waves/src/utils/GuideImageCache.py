@@ -1,13 +1,3 @@
-"""Guide and reference image downloader and cache for Kuro routes and map items.
-
-Pure-logic helpers (URL validation, cache filename generation) are free of Qt,
-networking, and threads, allowing safe import and testing in isolated test runners.
-Network requests and image decoding are processed asynchronously on a background
-worker thread without blocking the detection loop or user interface.
-
-Feature: map-overlay-interaction
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -17,6 +7,9 @@ import posixpath
 import re
 from typing import Callable, Optional
 from urllib.parse import urlparse
+
+from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
+from src.utils.KuroRoutes import KuroRoutesClient
 
 logger = logging.getLogger(__name__)
 
@@ -121,22 +114,22 @@ def guide_cache_filename(node_id: str, url: str) -> str:
     return f"{safe_id}_{url_hash}{ext}"
 
 
-class GuideImageCache:
+class GuideImageCache(QObject):
     """Asynchronous downloader and local on-disk cache for point guide images.
 
     Worker operations run on a background daemon thread so map detection and UI
     responsiveness are never interrupted.
     """
 
+    _ready = Signal(object, object, str)
+
     def __init__(self, cache_dir: str = DEFAULT_GUIDE_CACHE_DIR) -> None:
+        super().__init__()
         import queue
         import threading
 
         self._cache_dir = cache_dir
-        try:
-            os.makedirs(self._cache_dir, exist_ok=True)
-        except OSError:
-            logger.exception("Failed to create guide image cache dir: %s", self._cache_dir)
+        os.makedirs(self._cache_dir, exist_ok=True)
 
         self._lock = threading.Lock()
         # cache_filename -> QImage
@@ -148,6 +141,8 @@ class GuideImageCache:
         self._queue = queue.Queue()
         self._stop_event = threading.Event()
         self._callbacks: dict[str, list[Callable]] = {}
+        self._details = {}
+        self._ready.connect(self._deliver, Qt.QueuedConnection)
 
         self._worker = threading.Thread(
             target=self._worker_loop, name="GuideImageCacheWorker", daemon=True
@@ -161,6 +156,8 @@ class GuideImageCache:
 
     def get_pixmap(self, node_id: str, url: str):
         """Return the loaded QPixmap if ready; None otherwise."""
+        if QThread.currentThread() != self.thread():
+            raise RuntimeError("参考图片必须在 GUI 线程转换为 QPixmap")
         valid_url = validate_image_url(url)
         if not valid_url:
             return None
@@ -213,22 +210,34 @@ class GuideImageCache:
 
         fname = guide_cache_filename(node_id, valid_url)
         with self._lock:
-            if fname in self._pixmaps or fname in self._images:
-                pm = self.get_pixmap(node_id, valid_url)
-                if on_ready:
-                    on_ready(pm, "ready")
-                return
-
-            if self._statuses.get(valid_url) == "loading":
+            cached = fname in self._pixmaps or fname in self._images
+            if not cached and fname in self._callbacks:
                 if on_ready:
                     self._callbacks.setdefault(fname, []).append(on_ready)
                 return
-
-            self._statuses[valid_url] = "loading"
+            if not cached:
+                self._statuses[valid_url] = "loading"
+                self._callbacks[fname] = [on_ready] if on_ready else []
+        if cached:
             if on_ready:
-                self._callbacks.setdefault(fname, []).append(on_ready)
-
+                on_ready(self.get_pixmap(node_id, valid_url), "ready")
+            return
         self._queue.put((node_id, valid_url, fname))
+
+    def request_details(self, state_id, node_id, on_ready):
+        key = (int(state_id), str(node_id))
+        with self._lock:
+            details = self._details.get(key)
+        if details is not None:
+            on_ready(details, "ready")
+        else:
+            self._queue.put((None, key, on_ready))
+
+    @Slot(object, object, str)
+    def _deliver(self, callbacks, result, status):
+        if not self._stop_event.is_set():
+            for callback in callbacks:
+                callback(result, status)
 
     def _worker_loop(self) -> None:
         import queue
@@ -244,12 +253,21 @@ class GuideImageCache:
 
             node_id, url, fname = task
             try:
-                self._process_download(node_id, url, fname)
+                if node_id is None:
+                    details = KuroRoutesClient(url[0]).point_detail(url[1])
+                    with self._lock:
+                        self._details[url] = details
+                    self._ready.emit([fname], details, "ready")
+                else:
+                    self._process_download(node_id, url, fname)
             except Exception:
                 logger.exception("Guide image processing error for %s (%s)", node_id, url)
-                with self._lock:
-                    self._statuses[url] = "failed"
-                self._dispatch_callbacks(fname, None, "failed")
+                if node_id is None:
+                    self._ready.emit([fname], None, "failed")
+                else:
+                    with self._lock:
+                        self._statuses[url] = "failed"
+                    self._dispatch_callbacks(fname, None, "failed")
             finally:
                 self._queue.task_done()
 
@@ -293,18 +311,14 @@ class GuideImageCache:
         self._dispatch_callbacks(fname, image, "ready")
 
     def _download_bytes(self, url: str) -> Optional[bytes]:
-        try:
-            import requests
-
-            resp = requests.get(url, timeout=DOWNLOAD_TIMEOUT, stream=True)
-            if resp.status_code != 200:
-                logger.warning("Guide image HTTP %d for %s", resp.status_code, url)
-                return None
-
+        import requests
+        with requests.get(url, timeout=DOWNLOAD_TIMEOUT, stream=True) as resp:
+            resp.raise_for_status()
+            if not validate_image_url(resp.url):
+                raise ValueError("参考图片地址不属于库街区")
             ctype = resp.headers.get("Content-Type", "").lower()
             if not ctype.startswith("image/"):
-                logger.warning("Guide image invalid Content-Type %s for %s", ctype, url)
-                return None
+                raise ValueError("参考图片 Content-Type 无效")
 
             content = bytearray()
             for chunk in resp.iter_content(chunk_size=16384):
@@ -312,64 +326,25 @@ class GuideImageCache:
                     return None
                 content.extend(chunk)
                 if len(content) > MAX_IMAGE_BYTES:
-                    logger.warning("Guide image exceeded maximum size (%d bytes) for %s", len(content), url)
-                    return None
+                    raise ValueError("参考图片超过 5MB")
             return bytes(content)
-        except Exception as exc:
-            logger.warning("Guide image download failed for %s: %s", url, exc)
-            return None
 
     def _decode_and_scale(self, data: bytes):
-        try:
-            from PySide6.QtCore import Qt
-            from PySide6.QtGui import QImage
-
-            image = QImage()
-            if image.loadFromData(data) and not image.isNull():
-                if image.width() > MAX_BUBBLE_IMAGE_WIDTH or image.height() > MAX_BUBBLE_IMAGE_HEIGHT:
-                    return image.scaled(
-                        MAX_BUBBLE_IMAGE_WIDTH,
-                        MAX_BUBBLE_IMAGE_HEIGHT,
-                        Qt.KeepAspectRatio,
-                        Qt.SmoothTransformation,
-                    )
-                return image
-        except Exception:
-            pass
-
-        # Fallback to Pillow if Qt imageplugins webp is unavailable
-        try:
-            import io
-            from PIL import Image
-            from PySide6.QtCore import Qt
-            from PySide6.QtGui import QImage
-
-            with Image.open(io.BytesIO(data)) as pil_img:
-                rgba = pil_img.convert("RGBA")
-            width, height = rgba.size
-            raw = rgba.tobytes("raw", "RGBA")
-            image = QImage(raw, width, height, QImage.Format_RGBA8888).copy()
-            if not image.isNull():
-                if image.width() > MAX_BUBBLE_IMAGE_WIDTH or image.height() > MAX_BUBBLE_IMAGE_HEIGHT:
-                    return image.scaled(
-                        MAX_BUBBLE_IMAGE_WIDTH,
-                        MAX_BUBBLE_IMAGE_HEIGHT,
-                        Qt.KeepAspectRatio,
-                        Qt.SmoothTransformation,
-                    )
-                return image
-        except Exception:
-            logger.exception("Pillow decode failed for guide image")
-        return None
+        from PySide6.QtGui import QImage
+        if len(data) > MAX_IMAGE_BYTES:
+            raise ValueError("参考图片超过 5MB")
+        image = QImage.fromData(data)
+        if image.isNull():
+            raise ValueError("参考图片解码失败")
+        if image.width() > MAX_BUBBLE_IMAGE_WIDTH or image.height() > MAX_BUBBLE_IMAGE_HEIGHT:
+            image = image.scaled(MAX_BUBBLE_IMAGE_WIDTH, MAX_BUBBLE_IMAGE_HEIGHT,
+                                 Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        return image
 
     def _dispatch_callbacks(self, fname: str, image, status: str) -> None:
         with self._lock:
             cbs = self._callbacks.pop(fname, [])
-        for cb in cbs:
-            try:
-                cb(image, status)
-            except Exception:
-                logger.exception("Guide image callback execution error")
+        self._ready.emit(cbs, image, status)
 
     def stop(self) -> None:
         self._stop_event.set()

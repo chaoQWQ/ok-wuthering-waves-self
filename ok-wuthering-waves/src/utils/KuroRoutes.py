@@ -40,6 +40,17 @@ class KuroRoutesClient:
         KuroRoute.from_data(data)
         return data
 
+    def point_detail(self, position_id):
+        data = self._post('/map/core/position/getDetailOnline', {'id': str(position_id)})
+        content = data['content']
+        if isinstance(content, str):
+            import json
+            content = json.loads(content)
+            data['content'] = content
+        if not isinstance(content, dict) or not isinstance(content.get('picturesUrl', []), list):
+            raise ValueError('点位详情格式无效')
+        return data
+
 
 @dataclass(frozen=True)
 class KuroRoute:

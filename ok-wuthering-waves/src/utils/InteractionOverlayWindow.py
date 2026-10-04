@@ -96,6 +96,8 @@ class BubbleSpec(NamedTuple):
     title: str = ""
     pixmap: Optional[Any] = None
     image_status: str = ""
+    image_index: int = 0
+    image_count: int = 0
 
 
 # A Hit_Box entry accepted by ``update_mask``: either a bare ``Rect`` (z order
@@ -121,6 +123,8 @@ def _normalize_bubble(bubble) -> Optional[BubbleSpec]:
                 str(bubble[3]),
                 bubble[4] if len(bubble) > 4 else None,
                 str(bubble[5]) if len(bubble) > 5 else "",
+                int(bubble[6]) if len(bubble) > 6 else 0,
+                int(bubble[7]) if len(bubble) > 7 else 0,
             )
     return None
 
@@ -150,6 +154,7 @@ class InteractionOverlayWindow(QWidget):
     leftDoubleClicked = Signal(int)
     rightClicked = Signal(int)
     emptyClicked = Signal()
+    imageStepClicked = Signal(int)
 
     # Internal cross-thread marshalling signals: public methods may be called
     # from the ok task thread, but the actual Qt work must run on the GUI
@@ -472,6 +477,17 @@ class InteractionOverlayWindow(QWidget):
 
     def mousePressEvent(self, event) -> None:
         px, py = self._event_point(event)
+        for step, rect in self._bubble_navigation_rects():
+            if rect.contains(px, py):
+                self._cancel_pending_click()
+                if event.button() == Qt.LeftButton:
+                    self.imageStepClicked.emit(step)
+                event.accept()
+                return
+        bubble_rect = self._bubble_box_rect()
+        if bubble_rect is not None and bubble_rect.contains(px, py):
+            event.accept()
+            return
         index = self._hit_index(px, py)
 
         # The mask should keep events outside hit-boxes from reaching us, but be
@@ -514,6 +530,10 @@ class InteractionOverlayWindow(QWidget):
         # 仍保留，但因本事件会先 _cancel_pending_click，不会重复触发。
         if event.button() == Qt.LeftButton:
             px, py = self._event_point(event)
+            bubble_rect = self._bubble_box_rect()
+            if bubble_rect is not None and bubble_rect.contains(px, py):
+                event.accept()
+                return
             index = self._hit_index(px, py)
             if index is not None:
                 self._cancel_pending_click()
@@ -687,6 +707,9 @@ class InteractionOverlayWindow(QWidget):
         content_w = max(title_w, text_w, img_w, status_w, 140)
         box_w = content_w + pad * 2
         box_h = title_h + text_h + img_box_h + status_box_h + pad * 2
+        if bubble.image_count > 1:
+            box_w = max(box_w, 240)
+            box_h += 32
 
         bx = bubble.x
         by = bubble.y
@@ -695,6 +718,13 @@ class InteractionOverlayWindow(QWidget):
         if by + box_h > self.height():
             by = max(0, self.height() - box_h)
         return QRect(int(bx), int(by), int(box_w), int(box_h))
+
+    def _bubble_navigation_rects(self):
+        if self._bubble is None or self._bubble.image_count < 2:
+            return ()
+        rect = self._bubble_box_rect()
+        return ((-1, QRect(rect.x() + 6, rect.bottom() - 27, 64, 24)),
+                (1, QRect(rect.right() - 69, rect.bottom() - 27, 64, 24)))
 
     @staticmethod
     def _bubble_status_text(status: str) -> str:
@@ -749,7 +779,6 @@ class InteractionOverlayWindow(QWidget):
             target_w = min(280, pixmap.width())
             target_h = min(180, pixmap.height())
             if pixmap.width() != target_w or pixmap.height() != target_h:
-                from PySide6.QtCore import Qt
                 scaled_pm = pixmap.scaled(target_w, target_h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             else:
                 scaled_pm = pixmap
@@ -762,6 +791,16 @@ class InteractionOverlayWindow(QWidget):
             curr_y += 2
             painter.setPen(QPen(QColor(180, 180, 180), 1))
             painter.drawText(rect.x() + pad, curr_y + metrics.ascent(), status_text)
+
+        for step, button_rect in self._bubble_navigation_rects():
+            painter.setPen(QPen(QColor(220, 200, 150), 1))
+            painter.setBrush(QBrush(QColor(60, 60, 60)))
+            painter.drawRoundedRect(button_rect, 4, 4)
+            painter.drawText(button_rect, Qt.AlignCenter, "上一张" if step < 0 else "下一张")
+        if bubble.image_count > 1:
+            counter_rect = QRect(rect.x() + 72, rect.bottom() - 27, rect.width() - 144, 24)
+            painter.drawText(counter_rect, Qt.AlignCenter,
+                             f"{bubble.image_index + 1} / {bubble.image_count}")
 
 
 __all__ = [
