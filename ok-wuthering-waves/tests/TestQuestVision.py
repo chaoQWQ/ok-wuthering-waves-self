@@ -5,7 +5,9 @@ import numpy as np
 
 from src.utils.QuestVision import (
     BeaconResult,
+    ClimbStateResult,
     LetterboxResult,
+    detect_climbing_state,
     detect_dialog_advance_indicator,
     detect_edge_turn_hint,
     detect_interact_action,
@@ -170,6 +172,34 @@ class TestQuestVision(unittest.TestCase):
             frame = np.zeros((100, 100, 3), dtype=np.uint8)
             detect_top_left_skip_button(frame, template_path="non_existent.png")
 
+    def test_detect_climbing_state_positive(self):
+        img_climb_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791109409398.jpg"
+        if not os.path.exists(img_climb_path):
+            self.skipTest("攀爬状态样本图片不存在")
+        frame = cv2.imread(img_climb_path)
+        res = detect_climbing_state(frame)
+        self.assertTrue(res.is_climbing)
+        self.assertGreaterEqual(res.confidence, 0.75)
+        self.assertGreater(res.x, int(frame.shape[1] * 0.75))
+        self.assertGreater(res.y, int(frame.shape[0] * 0.80))
+
+    def test_detect_climbing_state_negative(self):
+        img_stand_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791109804023.jpg"
+        if not os.path.exists(img_stand_path):
+            self.skipTest("站立状态样本图片不存在")
+        frame = cv2.imread(img_stand_path)
+        res = detect_climbing_state(frame)
+        self.assertFalse(res.is_climbing)
+        self.assertLess(res.confidence, 0.60)
+
+    def test_detect_climbing_state_invalid_input(self):
+        with self.assertRaises(ValueError):
+            detect_climbing_state(None)
+        with self.assertRaises(FileNotFoundError):
+            frame = np.zeros((100, 100, 3), dtype=np.uint8)
+            detect_climbing_state(frame, template_path="non_existent.png")
+
 
 if __name__ == "__main__":
     unittest.main()
+

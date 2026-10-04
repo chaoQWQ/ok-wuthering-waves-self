@@ -552,3 +552,85 @@ def detect_top_left_skip_button(
         height=0,
         confidence=best_score if best_score > 0 else 0.0
     )
+
+
+@dataclass
+class ClimbStateResult:
+    is_climbing: bool
+    confidence: float
+    x: int = 0
+    y: int = 0
+    width: int = 0
+    height: int = 0
+
+
+def detect_climbing_state(
+    frame: np.ndarray,
+    template_path: Optional[str] = None,
+    threshold: float = 0.75
+) -> ClimbStateResult:
+    if frame is None or frame.size == 0:
+        raise ValueError("输入画面数组不能为空")
+
+    if template_path is None:
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(current_dir))
+        template_path = os.path.join(project_root, "assets", "climb_drop_icon.png")
+
+    if not os.path.exists(template_path):
+        raise FileNotFoundError(f"脱离攀爬按键图标模板文件不存在: {template_path}")
+
+    template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
+    if template is None:
+        raise RuntimeError(f"无法读取脱离攀爬图标模板: {template_path}")
+
+    tpl_h, tpl_w = template.shape[:2]
+    frame_h, frame_w = frame.shape[:2]
+
+    sx = int(frame_w * 0.75)
+    ex = int(frame_w * 0.96)
+    sy = int(frame_h * 0.80)
+    ey = int(frame_h * 0.98)
+
+    roi = frame[sy:ey, sx:ex]
+    gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+
+    scale_base = frame_w / 1024.0
+    best_score = -1.0
+    best_match: Optional[Tuple[int, int, int, int]] = None
+
+    for factor in [0.8, 0.9, 1.0, 1.15, 1.3]:
+        scaled_w = max(5, int(tpl_w * scale_base * factor))
+        scaled_h = max(5, int(tpl_h * scale_base * factor))
+
+        if gray_roi.shape[0] < scaled_h or gray_roi.shape[1] < scaled_w:
+            continue
+
+        scaled_template = cv2.resize(template, (scaled_w, scaled_h), interpolation=cv2.INTER_AREA)
+        match_result = cv2.matchTemplate(gray_roi, scaled_template, cv2.TM_CCOEFF_NORMED)
+        _, max_val, _, max_loc = cv2.minMaxLoc(match_result)
+
+        if max_val > best_score:
+            best_score = float(max_val)
+            best_match = (max_loc[0], max_loc[1], scaled_w, scaled_h)
+
+    if best_match and best_score >= threshold:
+        match_x, match_y, match_w, match_h = best_match
+        return ClimbStateResult(
+            is_climbing=True,
+            confidence=best_score,
+            x=sx + match_x,
+            y=sy + match_y,
+            width=match_w,
+            height=match_h
+        )
+
+    return ClimbStateResult(
+        is_climbing=False,
+        confidence=best_score if best_score > 0 else 0.0,
+        x=0,
+        y=0,
+        width=0,
+        height=0
+    )
+

@@ -36,6 +36,9 @@ class TestQuestStoryTask(unittest.TestCase):
         self.task.stuck_start_time = 0.0
         self.task.last_observed_distance = None
         self.task.stuck_count = 0
+        self.task.tracked_quest_distance = None
+        self.task.distance_last_changed_time = 0.0
+        self.task.last_teleport_attempt_time = 0.0
         self.task.logger = Logger.get_logger("test")
         self.task.ui_logs = []
         self.task.info_set = lambda k, v: self.task.ui_logs.append((k, v))
@@ -45,6 +48,7 @@ class TestQuestStoryTask(unittest.TestCase):
         self.task.send_key_up = lambda k: self.task.sent_keys.append(("up", k))
         self.task.in_team = lambda: (True, 0, 3)
         self.task.sleep = lambda s: None
+        self.task.is_game_window_active = lambda: True
 
     def test_task_states_definition(self):
         self.assertEqual(QuestStoryTask.STATE_IDLE, "IDLE")
@@ -226,7 +230,90 @@ class TestQuestStoryTask(unittest.TestCase):
         self.assertTrue(any(k in ("a", "d") for act, k in self.task.sent_keys))
         self.assertTrue(any(k == "Log" and "受阻卡滞" in v for k, v in self.task.ui_logs))
 
+    def test_is_game_window_active_blocks_actions_when_inactive(self):
+        self.task.is_game_window_active = lambda: False
+        dummy_frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        self.task._apply_camera_turn(100)
+        self.task._apply_movement(["w"], 0.5)
+        self.task._handle_world_navigation_and_interaction(dummy_frame)
+        # 验证处于后台时不产生任何按键下发动作
+        self.assertFalse(any(act == "down" for act, k in self.task.sent_keys))
+        self.assertEqual(self.task.current_state, QuestStoryTask.STATE_IDLE)
+
+    def test_climbing_state_detected_triggers_detachment_and_retreat(self):
+        import cv2, os
+        img_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791109409398.jpg"
+        if not os.path.exists(img_path):
+            self.skipTest("攀爬样本图片不存在")
+        frame = cv2.imread(img_path)
+        self.task._handle_world_navigation_and_interaction(frame)
+        # 验证触发脱离攀爬按键 'x' 与后退拉开距离 's'
+        self.assertTrue(any(act == "send" and k == "x" for act, k in self.task.sent_keys))
+        self.assertTrue(any(k == "s" for act, k in self.task.sent_keys))
+        self.assertTrue(any(k == "Log" and "脱离攀爬" in v for k, v in self.task.ui_logs))
+
+    def test_passing_by_interaction_ignored_when_distance_over_three_meters(self):
+        import cv2, os
+        img_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791091183192.jpg"
+        if not os.path.exists(img_path):
+            self.skipTest("大世界信标样本图片不存在")
+        frame = cv2.imread(img_path)
+        self.task._extract_quest_distance = lambda f, b: 62.0
+        # 注入路过出现 F 键状态
+        self.task.find_f_with_text = lambda: True
+        self.task._handle_world_navigation_and_interaction(frame)
+        # 验证未进入交互状态，保持寻路导航并忽略路过交互
+        self.assertEqual(self.task.current_state, QuestStoryTask.STATE_NAVIGATE)
+        self.assertTrue(any(k == "Log" and "忽略路过交互" in v for k, v in self.task.ui_logs))
+
+    def test_stagnant_distance_for_ten_seconds_triggers_ai_navigation(self):
+        import cv2, os
+        img_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791109804023.jpg"
+        if not os.path.exists(img_path):
+            self.skipTest("用户最新上传图片不存在")
+        frame = cv2.imread(img_path)
+        self.task.tracked_quest_distance = 62.0
+        self.task.distance_last_changed_time = time.time() - 11.0  # 模拟持续11秒未见缩减
+        self.task._extract_quest_distance = lambda f, b: 62.0
+
+        ai_called = []
+        self.task._trigger_navigation_ai_or_turn = lambda f, **kw: ai_called.append(True)
+        self.task._handle_world_navigation_and_interaction(frame)
+
+        self.assertTrue(len(ai_called) > 0)
+        self.assertTrue(any(k == "Log" and "未见缩减" in v for k, v in self.task.ui_logs))
+
+    def test_teleport_triggered_when_distance_over_two_hundred_meters(self):
+        import cv2, os
+        img_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791109804023.jpg"
+        if not os.path.exists(img_path):
+            self.skipTest("用户最新上传图片不存在")
+        frame = cv2.imread(img_path)
+        self.task._extract_quest_distance = lambda f, b: 245.0
+
+        teleport_called = []
+        self.task._try_teleport_to_nearest_waypoint = lambda dist: (teleport_called.append(dist) or True)
+        self.task._handle_world_navigation_and_interaction(frame)
+
+        self.assertEqual(len(teleport_called), 1)
+        self.assertEqual(teleport_called[0], 245.0)
+
+    def test_try_teleport_to_nearest_waypoint_flow(self):
+        self.task.in_team_and_world = lambda: False
+        self.task.clicked_cords = []
+        self.task.click = lambda x, y, **kw: self.task.clicked_cords.append((x, y))
+        self.task.wait_in_team_and_world = lambda **kw: True
+        self.task.click_traval_button = lambda: True
+
+        res = self.task._try_teleport_to_nearest_waypoint(current_distance=280.0)
+        self.assertTrue(res)
+        self.assertTrue(any(act == "send" and k == "j" for act, k in self.task.sent_keys))
+        self.assertTrue(any(x == 0.89 and y == 0.92 for x, y in self.task.clicked_cords))
+        self.assertTrue(any(k == "Log" and "超过 200 米" in v for k, v in self.task.ui_logs))
+
 
 if __name__ == "__main__":
     unittest.main()
+
+
 

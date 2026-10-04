@@ -11,10 +11,11 @@ import numpy as np
 
 @dataclass
 class QuestAction:
-    action_type: str  # 'interact', 'attack', 'skill', 'click', 'wait'
-    key: Optional[str]  # 'f', 'e', 'space', None
+    action_type: str  # 'interact', 'attack', 'skill', 'click', 'wait', 'climb_drop', 'turn', 'walk'
+    key: Optional[str]  # 'f', 'e', 'x', 'w', 'space', None
     description: str
     wait_seconds: float
+    turn_pixels: int = 0
 
 
 def decide_local(
@@ -36,7 +37,8 @@ def decide_local(
 def build_jev_payload(
     frame: np.ndarray,
     quest_goal_text: str,
-    is_frozen_letterbox: bool = False
+    is_frozen_letterbox: bool = False,
+    is_navigation_guidance: bool = False
 ) -> dict:
     if frame is None or frame.size == 0:
         raise ValueError("输入画面数组不能为空")
@@ -62,17 +64,25 @@ def build_jev_payload(
             "检测到当前处于黑边剧情动画状态，且画面持续静止超过30秒无变化，"
             "判断可能正在等待交互输入以推进剧情。\n"
         )
+    elif is_navigation_guidance:
+        prompt_context += (
+            "角色当前正在寻找路线前进。请观察画面中的地形、地面道路、走廊、大门与障碍物：\n"
+            "如果角色正在贴墙或爬墙受阻，请指示脱离攀爬或后撤；\n"
+            "如果道路在左侧或右侧开阔处，请指示镜头旋转朝向道路；\n"
+            "指示走向平坦通路的合适动作。\n"
+        )
     else:
         prompt_context += "角色已移动到达目标任务位置，需要判定接下来的具体操作。\n"
 
     system_instruction = (
         "请根据提供的游戏画面与任务描述，输出下一步执行操作。\n"
         "返回结果必须为严格的 JSON 格式，包含以下字段：\n"
-        "- action: 操作类型，可选 'interact', 'attack', 'skill', 'click', 'wait'\n"
-        "- key: 按键名称，例如 'f', 'e', 'space'，无按键则为 null\n"
+        "- action: 操作类型，可选 'interact', 'attack', 'skill', 'click', 'wait', 'climb_drop', 'turn', 'walk'\n"
+        "- key: 按键名称，例如 'f', 'e', 'x', 'w', 's'，无按键则为 null\n"
         "- description: 简要中文动作说明\n"
         "- wait_seconds: 操作执行后等待秒数，浮点数\n"
-        "示例：{\"action\": \"interact\", \"key\": \"f\", \"description\": \"推进对话\", \"wait_seconds\": 1.5}"
+        "- turn_pixels: 镜头横向旋转像素估计值，向右为正向左为负，无需旋转为 0\n"
+        "示例：{\"action\": \"turn\", \"key\": null, \"description\": \"向左旋转视角走向石板路\", \"wait_seconds\": 0.2, \"turn_pixels\": -120}"
     )
 
     return {
@@ -107,7 +117,6 @@ def parse_jev_response(response_json: dict) -> QuestAction:
     if not content:
         raise ValueError("模型返回内容为空")
 
-    # 提取 JSON 块
     content_clean = content.strip()
     if content_clean.startswith("```json"):
         content_clean = content_clean[7:]
@@ -119,18 +128,21 @@ def parse_jev_response(response_json: dict) -> QuestAction:
 
     data = json.loads(content_clean)
     action_type = data.get("action")
-    if not action_type or action_type not in ("interact", "attack", "skill", "click", "wait"):
+    valid_actions = ("interact", "attack", "skill", "click", "wait", "climb_drop", "turn", "walk")
+    if not action_type or action_type not in valid_actions:
         raise ValueError(f"未知的动作类型: {action_type}")
 
     key = data.get("key")
     description = data.get("description", "执行决策操作")
     wait_seconds = float(data.get("wait_seconds", 1.0))
+    turn_pixels = int(data.get("turn_pixels", 0))
 
     return QuestAction(
         action_type=action_type,
         key=key,
         description=description,
-        wait_seconds=wait_seconds
+        wait_seconds=wait_seconds,
+        turn_pixels=turn_pixels
     )
 
 
@@ -143,6 +155,7 @@ def decide_via_jev(
     api_url: str,
     api_key: str,
     is_frozen_letterbox: bool = False,
+    is_navigation_guidance: bool = False,
     timeout_seconds: float = 12.0
 ) -> QuestAction:
     endpoint = api_url.strip() if api_url and api_url.strip() else DEFAULT_JEV_API_URL
@@ -151,7 +164,12 @@ def decide_via_jev(
     if not api_key:
         raise ValueError("API Key 密钥不能为空")
 
-    payload = build_jev_payload(frame, quest_goal_text, is_frozen_letterbox=is_frozen_letterbox)
+    payload = build_jev_payload(
+        frame,
+        quest_goal_text,
+        is_frozen_letterbox=is_frozen_letterbox,
+        is_navigation_guidance=is_navigation_guidance
+    )
     req_body = json.dumps(payload).encode("utf-8")
 
     headers = {
@@ -173,24 +191,25 @@ def decide_via_jev(
 
 def decide_quest_action(
     frame: np.ndarray,
-    has_f_button: bool,
+    has_f_button: bool = False,
     action_text: str = "",
     quest_goal_text: str = "",
     is_frozen_letterbox: bool = False,
+    is_navigation_guidance: bool = False,
     api_url: str = "",
     api_key: str = ""
 ) -> QuestAction:
-    # 优先本地快速匹配明确的交互按钮
-    if not is_frozen_letterbox:
+    if not is_frozen_letterbox and not is_navigation_guidance:
         local_action = decide_local(has_f_button, action_text, quest_goal_text)
         if local_action is not None:
             return local_action
 
-    # 无交互按键或黑边静止超时状态下使用 jev 视觉模型 API
     return decide_via_jev(
         frame=frame,
         quest_goal_text=quest_goal_text,
         api_url=api_url,
         api_key=api_key,
-        is_frozen_letterbox=is_frozen_letterbox
+        is_frozen_letterbox=is_frozen_letterbox,
+        is_navigation_guidance=is_navigation_guidance
     )
+

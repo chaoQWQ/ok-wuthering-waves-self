@@ -11,6 +11,8 @@ from src.utils.QuestDecisionEngine import QuestAction, decide_quest_action
 from src.utils.QuestNavigator import calculate_camera_turn, compute_movement_action
 from src.utils.QuestVision import (
     BeaconResult,
+    ClimbStateResult,
+    detect_climbing_state,
     detect_dialog_advance_indicator,
     detect_interact_action,
     detect_letterbox,
@@ -67,6 +69,32 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.stuck_start_time: float = 0.0
         self.last_observed_distance: Optional[float] = None
         self.stuck_count: int = 0
+        self.tracked_quest_distance: Optional[float] = None
+        self.distance_last_changed_time: float = 0.0
+        self.last_teleport_attempt_time: float = 0.0
+
+    def is_game_window_active(self) -> bool:
+        try:
+            import win32gui
+            fg_hwnd = win32gui.GetForegroundWindow()
+            if not fg_hwnd:
+                return False
+
+            hwnd_obj = getattr(self, "hwnd", None)
+            if hwnd_obj is not None:
+                if hasattr(hwnd_obj, "is_foreground") and hwnd_obj.is_foreground():
+                    return True
+                target_hwnd = getattr(hwnd_obj, "hwnd", 0)
+                if target_hwnd and fg_hwnd == target_hwnd:
+                    return True
+
+            fg_title = win32gui.GetWindowText(fg_hwnd)
+            if any(game_name in fg_title for game_name in ("鸣潮", "Wuthering Waves", "鳴潮")):
+                return True
+
+            return False
+        except Exception:
+            return True
 
     def run(self):
         try:
@@ -79,9 +107,16 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.last_frame = None
         self.letterbox_freeze_start_time = 0.0
         self.last_search_log_time = 0.0
+        self.tracked_quest_distance = None
+        self.distance_last_changed_time = time.time()
 
         while not self.executor.paused:
             self.sleep(0.05)
+            if not self.is_game_window_active():
+                self._stop_all_movement()
+                self.sleep(0.2)
+                continue
+
             frame = self.frame
             if frame is None:
                 continue
@@ -172,9 +207,19 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.last_frame = frame.copy()
 
     def _handle_world_navigation_and_interaction(self, frame: np.ndarray):
+        if not self.is_game_window_active():
+            self._stop_all_movement()
+            return
+
         height, width = frame.shape[:2]
 
-        # 检查交互按键
+        # 0. 优先检测是否处于攀爬状态
+        climb_result = detect_climbing_state(frame)
+        if climb_result.is_climbing:
+            self._handle_climbing_escape(frame)
+            return
+
+        # 1. 检查是否存在 F 键交互
         has_f = False
         action_text = ""
         try:
@@ -189,34 +234,50 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 has_f = True
                 action_text = interact_result.action_text
 
-        # 出现 F 键交互立即停止全部移动并执行交互
-        if has_f:
-            self._stop_all_movement()
-            self.current_state = self.STATE_DECIDE_INTERACT
-            self.log_info(f"检测到交互按键 [F]，停止移动并执行交互")
-            self._trigger_ai_decision(
-                frame,
-                has_f_button=True,
-                action_text=action_text
-            )
-            self.sleep(1.2)
-            return
+        # 2. 提取任务信标与目标距离
+        beacon_result = detect_quest_beacon(frame)
+        current_distance = self._extract_quest_distance(frame, beacon_result)
 
-        # 寻路导航状态
+        # 3. 若任务目标距离超过 200 米，尝试打开地图定位并传送到附近传送点
+        if current_distance is not None and current_distance > 200.0:
+            if self._try_teleport_to_nearest_waypoint(current_distance):
+                return
+
+        # 4. 判定是否属于已到达任务点附近的交互
+        arrow_result = detect_minimap_quest_arrow(frame)
+        is_near_goal = False
+
+        if current_distance is not None:
+            if current_distance <= 3.0:
+                is_near_goal = True
+        else:
+            if not arrow_result.found:
+                is_near_goal = True
+
+        if has_f:
+            if is_near_goal:
+                self._stop_all_movement()
+                self.current_state = self.STATE_DECIDE_INTERACT
+                self.log_info("已到达任务目标附近且出现交互按键 [F]，执行交互推进")
+                self._trigger_ai_decision(
+                    frame,
+                    has_f_button=True,
+                    action_text=action_text
+                )
+                self.sleep(1.2)
+                return
+            else:
+                dist_info = f"当前距离任务目标还有 {current_distance:.1f} 米" if current_distance is not None else "任务目标仍在远方"
+                self.log_info(f"检测到路过交互 [F] ({dist_info})，忽略路过交互继续前进寻路")
+
+        # 4. 寻路导航状态
         self.current_state = self.STATE_NAVIGATE
         sensitivity = float(self.config.get("Camera Sensitivity", 1.0))
 
         if self.config.get("Switch to First Character for Movement", True):
             self._ensure_first_character()
 
-        beacon_result = detect_quest_beacon(frame)
-        current_distance = self._extract_quest_distance(frame, beacon_result)
-
-        # 检查并处理撞墙受阻卡滞
-        if self._check_and_handle_stuck(frame, current_distance):
-            return
-
-        # 到达 1 至 2 米范围内停止移动并等待交互
+        # 5. 到达 1 至 2 米范围内停止移动并等待交互
         if current_distance is not None and current_distance <= 2.0:
             self._stop_all_movement()
             self.log_info(f"已到达任务目标附近 (距离 {current_distance:.1f} 米)，停止移动，等待交互触发")
@@ -233,6 +294,32 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.sleep(0.4)
             return
 
+        # 6. 持续跟踪任务距离：若持续 10 秒无缩减，调用 AI 模型判断行进方向与方式
+        now = time.time()
+        if current_distance is not None:
+            tracked_dist = getattr(self, "tracked_quest_distance", None)
+            last_changed = getattr(self, "distance_last_changed_time", 0.0)
+            if tracked_dist is None:
+                self.tracked_quest_distance = current_distance
+                self.distance_last_changed_time = now
+            elif current_distance < tracked_dist - 0.5:
+                self.tracked_quest_distance = current_distance
+                self.distance_last_changed_time = now
+            else:
+                stagnant_duration = now - last_changed
+                if stagnant_duration >= 10.0:
+                    self.log_info(
+                        f"任务目标距离持续 {stagnant_duration:.1f} 秒未见缩减 (当前 {current_distance:.1f} 米)，调用 AI 分析行进路线与方式"
+                    )
+                    self._trigger_navigation_ai_or_turn(frame, default_turn_pixels=160)
+                    self.distance_last_changed_time = now
+                    return
+
+        # 7. 检查短时间贴墙受阻卡滞
+        if self._check_and_handle_stuck(frame, current_distance):
+            return
+
+        # 8. 视野中存在任务信标
         if beacon_result.found:
             beacon_cx = beacon_result.x + beacon_result.width // 2
             diff_x = beacon_cx - width / 2.0
@@ -269,7 +356,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self._apply_movement(move_cmd.keys, move_cmd.press_duration)
             return
 
-        # 视野无信标，依据小地图指示箭头旋转镜头并移动
+        # 9. 视野无信标，依据小地图指示箭头旋转镜头并移动
         arrow_result = detect_minimap_quest_arrow(frame)
         if arrow_result.found:
             norm_deg = arrow_result.bearing_deg % 360.0
@@ -290,17 +377,136 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 self.sleep(0.1)
                 return
 
-            self.log_info(f"朝向小地图指引方向对齐完成，向前慢步推进")
+            self.log_info("朝向小地图指引方向对齐完成，向前慢步推进")
             self._apply_movement(["w"], 0.25)
             return
 
-        # 视野与小地图暂无目标标识，原地水平旋转视角搜寻信标，避免盲目前冲撞击墙体
+        # 10. 视野与小地图暂无目标标识，原地水平旋转视角搜寻信标，避免盲目前冲撞击墙体
         now = time.time()
         if now - self.last_search_log_time > 2.0:
             self.last_search_log_time = now
             self.log_info("视野暂未发现任务信标，正在原地水平旋转视角搜寻目标方位...")
         self._apply_camera_turn(120)
         self.sleep(0.2)
+
+    def _handle_climbing_escape(self, frame: np.ndarray):
+        self._stop_all_movement()
+        self.log_info("检测到角色处于攀爬状态，发送 [X] 键脱离攀爬并后撤调整路线")
+        self.send_key("x", down_time=0.1)
+        self.sleep(0.35)
+        self.send_key_down("s")
+        self.sleep(0.4)
+        self.send_key_up("s")
+        self.sleep(0.1)
+        self._trigger_navigation_ai_or_turn(frame, default_turn_pixels=160)
+
+    def _trigger_navigation_ai_or_turn(self, frame: np.ndarray, default_turn_pixels: int = 160):
+        self._stop_all_movement()
+        api_url = str(self.config.get("API URL") or os.environ.get("JEV_API_URL") or "")
+        api_key = str(self.config.get("API Key") or os.environ.get("JEV_API_KEY") or "")
+
+        if api_key:
+            action = decide_quest_action(
+                frame=frame,
+                quest_goal_text="观察地形道路与障碍物，规划可行进路线避让障碍物",
+                is_navigation_guidance=True,
+                api_url=api_url,
+                api_key=api_key
+            )
+            self.log_info(f"AI 寻路决策建议: {action.action_type}, 详情: {action.description}")
+            if action.action_type == "climb_drop":
+                self.send_key("x", down_time=0.1)
+                self.sleep(0.3)
+                self._apply_movement(["s"], 0.4)
+            elif action.action_type == "turn":
+                turn_pix = action.turn_pixels if action.turn_pixels != 0 else default_turn_pixels
+                self._apply_camera_turn(turn_pix)
+                self.sleep(0.1)
+                self._apply_movement(["w"], 0.4)
+            elif action.action_type in ("walk", "sprint"):
+                keys = ["w"]
+                if action.action_type == "sprint":
+                    keys.append("shift")
+                self._apply_movement(keys, max(0.3, action.wait_seconds))
+            elif action.key:
+                self.send_key(action.key, down_time=0.1)
+        else:
+            self._apply_camera_turn(default_turn_pixels)
+            self.sleep(0.1)
+            self._apply_movement(["w"], 0.4)
+
+    def _try_teleport_to_nearest_waypoint(self, current_distance: float) -> bool:
+        now = time.time()
+        last_attempt = getattr(self, "last_teleport_attempt_time", 0.0)
+        if now - last_attempt < 30.0:
+            return False
+
+        self.last_teleport_attempt_time = now
+        self._stop_all_movement()
+        self.log_info(
+            f"任务目标距离超过 200 米 (当前 {current_distance:.1f} 米)，尝试打开地图定位并传送到附近传送点"
+        )
+
+        # 1. 发送快捷键 J 打开任务日志界面
+        self.send_key("j")
+        self.sleep(1.5)
+
+        # 2. 若进入任务日志界面，点击右下角定位按钮
+        if not self.in_team_and_world():
+            self.click(0.89, 0.92)
+            self.sleep(1.5)
+        else:
+            # 若未打开任务日志界面，发送快捷键 M 打开大地图
+            self.send_key("m")
+            self.sleep(2.0)
+
+        # 3. 检查地图界面是否已打开
+        if self.in_team_and_world():
+            self.log_info("地图界面未能成功打开，继续执行常规地面寻路")
+            return False
+
+        # 4. 在地图中检测前往/快速旅行按钮或寻找附近传送信标
+        travel_clicked = False
+        try:
+            if hasattr(self, "click_traval_button") and self.click_traval_button():
+                travel_clicked = True
+        except Exception:
+            pass
+
+        if not travel_clicked:
+            teleport_point = self.find_best_match_in_box(
+                self.box_of_screen(0.15, 0.15, 0.85, 0.85),
+                ["map_way_point", "map_way_point_big"],
+                0.6
+            )
+            if teleport_point:
+                self.click(teleport_point)
+                self.sleep(1.2)
+                try:
+                    if hasattr(self, "click_traval_button") and self.click_traval_button():
+                        travel_clicked = True
+                except Exception:
+                    pass
+
+        if not travel_clicked:
+            self.click(0.89, 0.92)
+            self.sleep(1.0)
+            if hasattr(self, "click_confirm"):
+                self.click_confirm()
+
+        # 5. 等待传送加载完成并返回大世界
+        self.log_info("正在执行传送，等待加载完成并返回大世界")
+        self.wait_in_team_and_world(time_out=60, raise_if_not_found=False)
+        self.sleep(2.0)
+
+        # 若依然停留在菜单或地图界面，发送 ESC 键退出
+        if not self.in_team_and_world():
+            self.send_key("esc")
+            self.sleep(1.5)
+
+        self.tracked_quest_distance = None
+        self.distance_last_changed_time = time.time()
+        return True
 
     def _check_and_handle_stuck(self, frame: np.ndarray, current_distance: Optional[float]) -> bool:
         now = time.time()
@@ -403,6 +609,10 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         return None
 
     def _apply_camera_turn(self, delta_x: int):
+        if not self.is_game_window_active():
+            return
+        if delta_x == 0:
+            return
         try:
             import win32api
             import win32con
@@ -413,6 +623,9 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             controller.move(delta_x, 0)
 
     def _apply_movement(self, keys: list, duration: float):
+        if not self.is_game_window_active():
+            self._stop_all_movement()
+            return
         if not keys:
             return
         for key in keys:
