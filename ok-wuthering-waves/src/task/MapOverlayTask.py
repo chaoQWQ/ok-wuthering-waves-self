@@ -2772,10 +2772,7 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
             self.config['_Kuro route revision'] = self.config.get('_Kuro route revision', 0) + 1
             self.config['Kuro route navigation'] = True
             self.info_set('Kuro route navigation', dialog.route_data['name'])
-            from PySide6.QtCore import QTimer
-            from ok.core.events import communicate
-
-            QTimer.singleShot(0, communicate.task_list_updated.emit)
+            self._refresh_config_widgets()
 
     def choose_collection_types(self, *args):
         from src.utils.CollectionCatalog import load_collection_maps
@@ -2830,7 +2827,7 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         return accounts
 
     def add_collection_account(self, *args):
-        """Prompt for a profile, persist it, select it, and rebuild the card."""
+        """添加账号并更新当前任务的配置控件。"""
         from src.utils.CollectionAccountDialog import prompt_collection_account
 
         parent = getattr(og, 'main_window', None)
@@ -2842,16 +2839,12 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         self.config['Collection account'] = account_id
         self.info_set('Collection account', account_id)
 
-        # Task cards copy dropdown options when they are built.  Rebuild on the
-        # next GUI turn so the new option is visible immediately and the button
-        # that invoked this callback is not deleted while its signal runs.
-        try:
-            from PySide6.QtCore import QTimer
-            from ok.core.events import communicate
+        self._refresh_config_widgets()
 
-            QTimer.singleShot(0, communicate.task_list_updated.emit)
-        except Exception as exc:  # pragma: no cover - headless compatibility
-            logger.warning(f'[Overlay] refresh account dropdown failed: {exc}')
+    def _refresh_config_widgets(self):
+        from src.utils.TaskConfigRefresh import refresh_task_config_widgets
+
+        refresh_task_config_widgets(self, og.main_window, self.tr)
 
     def _on_executor_paused(self, paused):
         """暂停时关闭覆盖层；恢复且地图任务启用时再创建。"""
