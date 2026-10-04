@@ -243,17 +243,37 @@ class TestQuestStoryTask(unittest.TestCase):
         self.assertFalse(any(act == "down" for act, k in self.task.sent_keys))
         self.assertEqual(self.task.current_state, QuestStoryTask.STATE_IDLE)
 
-    def test_climbing_state_detected_triggers_detachment_and_retreat(self):
+    def test_climbing_state_detected_under_5s_only_local_escape(self):
         import cv2, os
         img_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791109409398.jpg"
         if not os.path.exists(img_path):
             self.skipTest("攀爬样本图片不存在")
         frame = cv2.imread(img_path)
+        ai_called = []
+        self.task._trigger_navigation_ai_or_turn = lambda f, **kw: ai_called.append(True)
+        # 初始攀爬，持续时间 0 秒（小于 5 秒）
+        self.task.climbing_start_time = 0.0
         self.task._handle_world_navigation_and_interaction(frame)
-        # 验证触发脱离攀爬按键 'x' 与后退拉开距离 's'
+        # 验证触发脱离攀爬按键 'x' 与后退 's'
         self.assertTrue(any(act == "send" and k == "x" for act, k in self.task.sent_keys))
         self.assertTrue(any(k == "s" for act, k in self.task.sent_keys))
-        self.assertTrue(any(k == "Log" and "脱离攀爬" in v for k, v in self.task.ui_logs))
+        # 持续未满 5 秒，绝对不调用 AI 决策
+        self.assertEqual(len(ai_called), 0)
+
+    def test_climbing_state_over_5s_triggers_ai_navigation(self):
+        import cv2, os
+        img_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791109409398.jpg"
+        if not os.path.exists(img_path):
+            self.skipTest("攀爬样本图片不存在")
+        frame = cv2.imread(img_path)
+        ai_called = []
+        self.task._trigger_navigation_ai_or_turn = lambda f, **kw: ai_called.append(True)
+        # 模拟攀爬已持续 5.5 秒
+        self.task.climbing_start_time = time.time() - 5.5
+        self.task._handle_world_navigation_and_interaction(frame)
+        # 验证超过 5 秒触发 AI 决策
+        self.assertEqual(len(ai_called), 1)
+        self.assertTrue(any(k == "Log" and "超过 5 秒" in v for k, v in self.task.ui_logs))
 
     def test_passing_by_interaction_ignored_when_distance_over_three_meters(self):
         import cv2, os
@@ -331,6 +351,24 @@ class TestQuestStoryTask(unittest.TestCase):
         self.assertAlmostEqual(self.task.jev_cost_estimate, 0.0018, places=4)
         self.assertTrue(any(k == "JEV 调用次数" and "1 次" in v for k, v in self.task.ui_logs))
         self.assertTrue(any(k == "JEV 额度消耗" and "$0.0018" in v for k, v in self.task.ui_logs))
+
+    def test_extract_quest_distance_with_regex_matching_box(self):
+        from src.utils.QuestVision import BeaconResult
+        dummy_frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        # 模拟 OCR 返回包含 "62米" 的框
+        class MockBox:
+            def __init__(self, name):
+                self.name = name
+        self.task.ocr = lambda *args, **kwargs: [MockBox("前往目标地点 62米")]
+        dist = self.task._extract_quest_distance(dummy_frame, BeaconResult(found=False, x=0, y=0, width=0, height=0, confidence=0.0))
+        self.assertEqual(dist, 62.0)
+
+    def test_camera_turn_large_minimap_angle_increases_pulse(self):
+        from src.utils.QuestNavigator import calculate_camera_turn
+        # 验证方位角 180 度（正后方）时单次旋转脉冲扩大到 500
+        cmd = calculate_camera_turn(screen_width=1280, minimap_bearing_deg=180.0, camera_sensitivity=1.0)
+        self.assertTrue(cmd.need_turn)
+        self.assertEqual(cmd.delta_x_pixels, 500)
 
 
 if __name__ == "__main__":

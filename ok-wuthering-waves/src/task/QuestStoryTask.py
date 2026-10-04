@@ -1,4 +1,5 @@
 import os
+import re
 import time
 from typing import Optional
 
@@ -65,6 +66,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.last_action_time: float = 0.0
         self.last_search_log_time: float = 0.0
         self.last_char_switch_time: float = 0.0
+        self.climbing_start_time: float = 0.0
         self.last_nav_frame: Optional[np.ndarray] = None
         self.stuck_start_time: float = 0.0
         self.last_observed_distance: Optional[float] = None
@@ -110,6 +112,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.last_frame = None
         self.letterbox_freeze_start_time = 0.0
         self.last_search_log_time = 0.0
+        self.climbing_start_time = 0.0
         self.tracked_quest_distance = None
         self.distance_last_changed_time = time.time()
         self.jev_call_count = 0
@@ -224,8 +227,14 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         # 0. 优先检测是否处于攀爬状态
         climb_result = detect_climbing_state(frame)
         if climb_result.is_climbing:
-            self._handle_climbing_escape(frame)
+            now = time.time()
+            if self.climbing_start_time == 0.0:
+                self.climbing_start_time = now
+            climbing_duration = now - self.climbing_start_time
+            self._handle_climbing_escape(frame, climbing_duration)
             return
+        else:
+            self.climbing_start_time = 0.0
 
         # 1. 检查是否存在 F 键交互
         has_f = False
@@ -397,16 +406,29 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self._apply_camera_turn(120)
         self.sleep(0.2)
 
-    def _handle_climbing_escape(self, frame: np.ndarray):
+    def _handle_climbing_escape(self, frame: np.ndarray, climbing_duration: float = 0.0):
         self._stop_all_movement()
-        self.log_info("检测到角色处于攀爬状态，发送 [X] 键脱离攀爬并后撤调整路线")
+        self.log_info(
+            f"检测到角色处于攀爬状态 (持续 {climbing_duration:.1f} 秒)，发送 [X] 键脱离攀爬并后撤调整路线"
+        )
         self.send_key("x", down_time=0.1)
         self.sleep(0.35)
         self.send_key_down("s")
         self.sleep(0.4)
         self.send_key_up("s")
         self.sleep(0.1)
-        self._trigger_navigation_ai_or_turn(frame, default_turn_pixels=160)
+
+        # 仅在攀爬状态持续超过 5 秒时才允许调用 AI 模型进行路线分析
+        if climbing_duration >= 5.0:
+            self.log_info(
+                f"角色处于攀爬状态已超过 5 秒 (当前 {climbing_duration:.1f} 秒)，调用 AI 分析避障与绕行路线"
+            )
+            self._trigger_navigation_ai_or_turn(frame, default_turn_pixels=160)
+        else:
+            # 持续未满 5 秒时优先执行本地转向与后退脱困，避免频繁调用模型
+            self._apply_camera_turn(160)
+            self.sleep(0.1)
+            self._apply_movement(["w"], 0.3)
 
     def _trigger_navigation_ai_or_turn(self, frame: np.ndarray, default_turn_pixels: int = 160):
         self._stop_all_movement()
@@ -589,16 +611,23 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 pass
 
     def _extract_quest_distance(self, frame: np.ndarray, beacon_result: BeaconResult) -> Optional[float]:
+        dist_regex = re.compile(r"(\d+(?:\.\d+)?)\s*(?:米|m|M)?")
+        # 1. 优先扫描左侧任务提示区域
         try:
-            boxes = self.ocr(0.01, 0.18, 0.28, 0.48, match=r"(\d+(?:\.\d+)?)\s*(?:米|m|M)", frame=frame)
+            boxes = self.ocr(0.01, 0.18, 0.28, 0.48, match=dist_regex, frame=frame)
+            if not boxes:
+                # 传入 match 未匹配到时直接全量识别该区域框
+                boxes = self.ocr(0.01, 0.18, 0.28, 0.48, frame=frame)
             if boxes:
-                text = boxes[0].name or ""
-                dist = parse_distance_text(text)
-                if dist is not None:
-                    return dist
+                for box in boxes:
+                    text = box.name or ""
+                    dist = parse_distance_text(text)
+                    if dist is not None:
+                        return dist
         except Exception:
             pass
 
+        # 2. 检查信标周围文字区域
         if beacon_result.found:
             try:
                 fh, fw = frame.shape[:2]
@@ -606,12 +635,15 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 ry = min(1.0, (beacon_result.y + beacon_result.height) / fh)
                 r_to_x = min(1.0, (beacon_result.x + beacon_result.width * 2) / fw)
                 r_to_y = min(1.0, (beacon_result.y + beacon_result.height * 3) / fh)
-                boxes = self.ocr(rx, ry, r_to_x, r_to_y, match=r"(\d+(?:\.\d+)?)\s*(?:米|m|M)?", frame=frame)
+                boxes = self.ocr(rx, ry, r_to_x, r_to_y, match=dist_regex, frame=frame)
+                if not boxes:
+                    boxes = self.ocr(rx, ry, r_to_x, r_to_y, frame=frame)
                 if boxes:
-                    text = boxes[0].name or ""
-                    dist = parse_distance_text(text)
-                    if dist is not None:
-                        return dist
+                    for box in boxes:
+                        text = box.name or ""
+                        dist = parse_distance_text(text)
+                        if dist is not None:
+                            return dist
             except Exception:
                 pass
 

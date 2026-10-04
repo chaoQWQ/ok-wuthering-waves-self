@@ -62,49 +62,58 @@ def build_jev_payload(
 
     base64_img = base64.b64encode(buffer).decode("ascii")
 
-    prompt_context = f"当前任务指引目标：{quest_goal_text}。\n"
+    prompt_context = f"当前任务指引目标：{quest_goal_text}。"
     if is_frozen_letterbox:
         prompt_context += (
             "检测到当前处于黑边剧情动画状态，且画面持续静止超过30秒无变化，"
-            "判断可能正在等待交互输入以推进剧情。\n"
+            "判断可能正在等待交互输入以推进剧情。"
         )
+        questions = {
+            "action": {
+                "type": "choice",
+                "instructions": "选择当前推进剧情的最佳操作",
+                "criteria": {
+                    "interact": "按下交互按键 F 触发场景或人物对话推进",
+                    "click": "点击画面中央或跳过对白进入下一阶段",
+                    "wait": "等待过场动画自然播放完毕"
+                }
+            }
+        }
     elif is_navigation_guidance:
         prompt_context += (
-            "角色当前正在寻找路线前进。请观察画面中的地形、地面道路、走廊、大门与障碍物：\n"
-            "如果角色正在贴墙或爬墙受阻，请指示脱离攀爬或后撤；\n"
-            "如果道路在左侧或右侧开阔处，请指示镜头旋转朝向道路；\n"
-            "指示走向平坦通路的合适动作。\n"
+            "角色当前正在寻找路线前进。请根据地形、道路、墙体与障碍物选择动作："
+            "若贴墙爬墙受阻则脱离攀爬；道路在开阔侧则转向道路；平坦通路则向前推进。"
         )
+        questions = {
+            "action": {
+                "type": "choice",
+                "instructions": "选择避让障碍物并继续前进的最佳操作",
+                "criteria": {
+                    "turn_left": "向左旋转视角朝向开阔通道",
+                    "turn_right": "向右旋转视角朝向开阔通道",
+                    "climb_drop": "松开墙体并后撤脱离攀爬状态",
+                    "walk_forward": "沿平坦道路向前行进"
+                }
+            }
+        }
     else:
-        prompt_context += "角色已移动到达目标任务位置，需要判定接下来的具体操作。\n"
-
-    system_instruction = (
-        "请根据提供的游戏画面与任务描述，输出下一步执行操作。\n"
-        "返回结果必须为严格的 JSON 格式，包含以下字段：\n"
-        "- action: 操作类型，可选 'interact', 'attack', 'skill', 'click', 'wait', 'climb_drop', 'turn', 'walk'\n"
-        "- key: 按键名称，例如 'f', 'e', 'x', 'w', 's'，无按键则为 null\n"
-        "- description: 简要中文动作说明\n"
-        "- wait_seconds: 操作执行后等待秒数，浮点数\n"
-        "- turn_pixels: 镜头横向旋转像素估计值，向右为正向左为负，无需旋转为 0\n"
-        "示例：{\"action\": \"turn\", \"key\": null, \"description\": \"向左旋转视角走向石板路\", \"wait_seconds\": 0.2, \"turn_pixels\": -120}"
-    )
+        prompt_context += "角色已移动到达目标任务位置，需要判定接下来的具体操作。"
+        questions = {
+            "action": {
+                "type": "choice",
+                "instructions": "选择到达目标位置后的操作",
+                "criteria": {
+                    "interact": "按下交互按键 F 触发场景交互推进",
+                    "attack": "普通攻击破坏目标障碍物",
+                    "wait": "原地等待目标状态刷新"
+                }
+            }
+        }
 
     return {
-        "model": "jev-vision",
-        "messages": [
-            {"role": "system", "content": system_instruction},
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt_context},
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{base64_img}"}
-                    }
-                ]
-            }
-        ],
-        "temperature": 0.1
+        "model": "jev-latest",
+        "state": prompt_context,
+        "questions": questions
     }
 
 
@@ -112,9 +121,59 @@ def parse_jev_response(response_json: dict) -> QuestAction:
     if not isinstance(response_json, dict):
         raise ValueError("模型返回数据必须为字典格式")
 
+    # 1. 兼容 TypeSafe Jev System One 规范
+    if "answers" in response_json:
+        answers = response_json["answers"]
+        if not isinstance(answers, dict):
+            raise ValueError("answers 字段必须为字典格式")
+        action_item = answers.get("action")
+        if not isinstance(action_item, dict):
+            raise ValueError("answers 缺少 action 字段")
+        choice = action_item.get("choice")
+        if not choice or not isinstance(choice, str):
+            raise ValueError("action 缺少有效的 choice 字段")
+
+        # 映射 System One 决策动作
+        action_mapping = {
+            "turn_left": ("turn", None, "向左旋转视角朝向开阔通路", 0.2, -180),
+            "turn_right": ("turn", None, "向右旋转视角朝向开阔通路", 0.2, 180),
+            "climb_drop": ("climb_drop", "x", "松开墙体并后撤脱离攀爬", 0.4, 0),
+            "walk_forward": ("walk", "w", "沿平坦通道向前行进", 0.4, 0),
+            "interact": ("interact", "f", "触发交互推进剧情", 1.5, 0),
+            "click": ("click", None, "点击画面推进剧情", 0.5, 0),
+            "attack": ("attack", "j", "执行攻击破坏目标", 0.5, 0),
+            "wait": ("wait", None, "原地等待状态推进", 1.0, 0),
+        }
+
+        if choice not in action_mapping:
+            raise ValueError(f"未知的选择动作: {choice}")
+
+        act_type, act_key, act_desc, act_wait, act_turn = action_mapping[choice]
+        usage = response_json.get("usage", {}) if isinstance(response_json, dict) else {}
+        input_tokens = int(usage.get("input_tokens", 0) or usage.get("prompt_tokens", 0) or 0)
+        output_tokens = int(usage.get("output_tokens", 0) or usage.get("completion_tokens", 0) or 0)
+        total_tokens = int(usage.get("total_tokens", input_tokens + output_tokens) or 0)
+        cost = float(response_json.get("cost", 0.0) or usage.get("cost", 0.0) or 0.0)
+
+        if total_tokens == 0:
+            total_tokens = input_tokens + output_tokens if (input_tokens or output_tokens) else 433
+
+        return QuestAction(
+            action_type=act_type,
+            key=act_key,
+            description=act_desc,
+            wait_seconds=act_wait,
+            turn_pixels=act_turn,
+            prompt_tokens=input_tokens,
+            completion_tokens=output_tokens,
+            total_tokens=total_tokens,
+            cost=cost
+        )
+
+    # 2. 兼容通用聊天补全格式
     choices = response_json.get("choices")
     if not choices or not isinstance(choices, list):
-        raise ValueError("模型返回缺少 choices 字段")
+        raise ValueError("模型返回缺少 choices 或 answers 字段")
 
     message = choices[0].get("message", {})
     content = message.get("content", "")
@@ -142,8 +201,8 @@ def parse_jev_response(response_json: dict) -> QuestAction:
     turn_pixels = int(data.get("turn_pixels", 0))
 
     usage = response_json.get("usage", {}) if isinstance(response_json, dict) else {}
-    prompt_tokens = int(usage.get("prompt_tokens", 0) or 0)
-    completion_tokens = int(usage.get("completion_tokens", 0) or 0)
+    prompt_tokens = int(usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0) or 0)
+    completion_tokens = int(usage.get("completion_tokens", 0) or usage.get("output_tokens", 0) or 0)
     total_tokens = int(usage.get("total_tokens", prompt_tokens + completion_tokens) or 0)
     cost = float(response_json.get("cost", 0.0) or usage.get("cost", 0.0) or 0.0)
 

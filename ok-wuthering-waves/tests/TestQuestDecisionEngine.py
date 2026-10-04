@@ -37,16 +37,15 @@ class TestQuestDecisionEngine(unittest.TestCase):
         payload = build_jev_payload(
             frame=frame,
             quest_goal_text="击碎发光晶体",
-            is_frozen_letterbox=False
+            is_frozen_letterbox=False,
+            is_navigation_guidance=True
         )
-        self.assertEqual(payload["model"], "jev-vision")
-        messages = payload["messages"]
-        self.assertEqual(len(messages), 2)
-        user_content = messages[1]["content"]
-        self.assertEqual(user_content[0]["type"], "text")
-        self.assertIn("击碎发光晶体", user_content[0]["text"])
-        self.assertEqual(user_content[1]["type"], "image_url")
-        self.assertTrue(user_content[1]["image_url"]["url"].startswith("data:image/jpeg;base64,"))
+        self.assertEqual(payload["model"], "jev-latest")
+        self.assertIn("击碎发光晶体", payload["state"])
+        self.assertIn("action", payload["questions"])
+        criteria = payload["questions"]["action"]["criteria"]
+        self.assertIn("turn_left", criteria)
+        self.assertIn("climb_drop", criteria)
 
     def test_build_jev_payload_with_frozen_letterbox(self):
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
@@ -55,13 +54,54 @@ class TestQuestDecisionEngine(unittest.TestCase):
             quest_goal_text="推进剧情",
             is_frozen_letterbox=True
         )
-        user_text = payload["messages"][1]["content"][0]["text"]
-        self.assertIn("黑边剧情动画", user_text)
-        self.assertIn("持续静止超过30秒", user_text)
+        self.assertEqual(payload["model"], "jev-latest")
+        self.assertIn("黑边剧情动画", payload["state"])
+        self.assertIn("持续静止超过30秒", payload["state"])
+        self.assertIn("interact", payload["questions"]["action"]["criteria"])
 
     def test_build_jev_payload_empty_frame_raises(self):
         with self.assertRaises(ValueError):
             build_jev_payload(None, "推进剧情")
+
+    def test_parse_jev_response_systemone_action(self):
+        raw = {
+            "answers": {
+                "action": {
+                    "type": "choice",
+                    "choice": "turn_left",
+                    "confidence": 0.85
+                }
+            },
+            "usage": {
+                "input_tokens": 382,
+                "output_tokens": 51
+            }
+        }
+        action = parse_jev_response(raw)
+        self.assertEqual(action.action_type, "turn")
+        self.assertEqual(action.turn_pixels, -180)
+        self.assertEqual(action.prompt_tokens, 382)
+        self.assertEqual(action.completion_tokens, 51)
+        self.assertEqual(action.total_tokens, 433)
+
+    def test_parse_jev_response_systemone_climb_drop(self):
+        raw = {
+            "answers": {
+                "action": {
+                    "type": "choice",
+                    "choice": "climb_drop",
+                    "confidence": 0.92
+                }
+            },
+            "usage": {
+                "input_tokens": 400,
+                "output_tokens": 40
+            }
+        }
+        action = parse_jev_response(raw)
+        self.assertEqual(action.action_type, "climb_drop")
+        self.assertEqual(action.key, "x")
+        self.assertEqual(action.total_tokens, 440)
 
     def test_parse_jev_response_clean_json(self):
         raw = {
@@ -101,7 +141,9 @@ class TestQuestDecisionEngine(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_jev_response({"choices": []})
         with self.assertRaises(ValueError):
-            parse_jev_response({"choices": [{"message": {"content": '{"action": "unknown_action"}'}}]})
+            parse_jev_response({"answers": {}})
+        with self.assertRaises(ValueError):
+            parse_jev_response({"answers": {"action": {"choice": "invalid_choice"}}})
 
     def test_decide_via_jev_fast_fail_invalid_url_or_key(self):
         frame = np.zeros((100, 100, 3), dtype=np.uint8)
