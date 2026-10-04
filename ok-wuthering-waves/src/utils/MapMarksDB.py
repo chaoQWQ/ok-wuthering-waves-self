@@ -109,13 +109,14 @@ class MapMarksDB:
             "account_id TEXT PRIMARY KEY)"
         )
         self._conn.execute(
-            "INSERT OR IGNORE INTO collection_accounts(account_id) VALUES (?)",
-            (DEFAULT_ACCOUNT_ID,),
-        )
-        self._conn.execute(
             "INSERT OR IGNORE INTO collection_accounts(account_id) "
             "SELECT DISTINCT account_id FROM completed_marks"
         )
+        if self._conn.execute("SELECT 1 FROM collection_accounts LIMIT 1").fetchone() is None:
+            self._conn.execute(
+                "INSERT INTO collection_accounts(account_id) VALUES (?)",
+                (DEFAULT_ACCOUNT_ID,),
+            )
         self._conn.commit()
 
     def list_accounts(self) -> list[str]:
@@ -162,8 +163,6 @@ class MapMarksDB:
         return value
 
     def _require_editable_account(self, account_id):
-        if account_id == DEFAULT_ACCOUNT_ID:
-            raise ValueError('默认档案需要保留')
         if account_id not in self.list_accounts():
             raise ValueError('账号档案不存在')
 
@@ -200,6 +199,10 @@ class MapMarksDB:
         with self._conn:
             self._conn.execute("DELETE FROM completed_marks WHERE account_id=?", (account_id,))
             self._conn.execute("DELETE FROM collection_accounts WHERE account_id=?", (account_id,))
+            if self._conn.execute("SELECT 1 FROM collection_accounts LIMIT 1").fetchone() is None:
+                self._conn.execute(
+                    "INSERT INTO collection_accounts(account_id) VALUES (?)", (DEFAULT_ACCOUNT_ID,)
+                )
         return backup_path
 
     def load_completed(self, account_id=DEFAULT_ACCOUNT_ID) -> set:

@@ -49,7 +49,7 @@ class TestCollectionAccountManager(unittest.TestCase):
             finally:
                 reopened.close()
 
-    def test_invalid_names_and_default_protection(self):
+    def test_invalid_names_and_duplicates(self):
         with tempfile.TemporaryDirectory() as directory:
             db = MapMarksDB(str(Path(directory) / 'marks.db'))
             try:
@@ -63,10 +63,6 @@ class TestCollectionAccountManager(unittest.TestCase):
                     db.create_account('one')
                 with self.assertRaises(ValueError):
                     db.rename_account('one', 'two', directory)
-                with self.assertRaises(ValueError):
-                    db.rename_account('default', 'new', directory)
-                with self.assertRaises(ValueError):
-                    db.delete_account('default', directory)
                 self.assertEqual(db.load_completed('one'), {'mark'})
             finally:
                 db.close()
@@ -135,7 +131,7 @@ class TestCollectionAccountManager(unittest.TestCase):
                 QTest.mouseClick(dialog.delete_button, Qt.LeftButton)
                 self.assertEqual(changes[-1], 'default')
                 self.assertEqual(dialog.current_account, 'default')
-                self.assertFalse(dialog.delete_button.isEnabled())
+                self.assertTrue(dialog.delete_button.isEnabled())
                 self.assertFalse(dialog.rename_button.isEnabled())
                 self.assertTrue(dialog.status_label.text())
                 db = MapMarksDB(path)
@@ -165,6 +161,80 @@ class TestCollectionAccountManager(unittest.TestCase):
                 self.assertEqual(db.load_completed('one'), {'chest'})
             finally:
                 db.close()
+
+    def test_default_rename_delete_and_reopen(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / 'marks.db')
+            db = MapMarksDB(path)
+            db.add('legacy')
+            db.create_account('second')
+            db.rename_account('default', 'main', directory)
+            db.close()
+            db = MapMarksDB(path)
+            try:
+                self.assertEqual(db.list_accounts(), ['main', 'second'])
+                self.assertEqual(db.load_completed('main'), {'legacy'})
+                db.rename_account('main', 'default', directory)
+                backup = db.delete_account('default', directory)
+                self.assertEqual(db.list_accounts(), ['second'])
+                restored = MapMarksDB(backup)
+                try:
+                    self.assertEqual(restored.load_completed(), {'legacy'})
+                finally:
+                    restored.close()
+            finally:
+                db.close()
+            db = MapMarksDB(path)
+            try:
+                self.assertEqual(db.list_accounts(), ['second'])
+                db.delete_account('second', directory)
+                self.assertEqual(db.list_accounts(), ['default'])
+                self.assertEqual(db.load_completed(), set())
+            finally:
+                db.close()
+
+    def test_default_dialog_edit_and_delete(self):
+        app = QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / 'marks.db')
+            db = MapMarksDB(path)
+            db.add('legacy')
+            db.create_account('second')
+            db.close()
+            parent = QWidget()
+            parent.resize(900, 850)
+            parent.show()
+            changes = []
+            dialog = CollectionAccountManager(path, 'default', app.tr, changes.append, parent)
+            dialog.show()
+            QTest.qWait(100)
+            try:
+                self.assertTrue(dialog.delete_button.isEnabled())
+                dialog.name_edit.setText('main')
+                self.assertTrue(dialog.rename_button.isEnabled())
+                QTest.mouseClick(dialog.rename_button, Qt.LeftButton)
+                self.assertEqual(changes[-1], 'main')
+                self.assertNotIn('default', dialog.accounts)
+                dialog.name_edit.setText('default')
+                QTest.mouseClick(dialog.rename_button, Qt.LeftButton)
+                self.assertEqual(changes[-1], 'default')
+
+                def accept_confirmation():
+                    message = next(child for child in dialog.findChildren(MessageBox)
+                                   if child is not dialog and child.isVisible())
+                    message.yesButton.click()
+
+                QTimer.singleShot(50, accept_confirmation)
+                QTest.mouseClick(dialog.delete_button, Qt.LeftButton)
+                self.assertEqual(changes[-1], 'second')
+                self.assertEqual(dialog.accounts, ['second'])
+                self.assertEqual(dialog.current_account, 'second')
+            finally:
+                dialog.close()
+                parent.close()
+                dialog.deleteLater()
+                parent.deleteLater()
+                app.processEvents()
 
 
 if __name__ == '__main__':

@@ -97,7 +97,7 @@ class CollectionAccountManager(MessageBoxBase):
         self.add_button.setEnabled(bool(name) and not exists)
         item = self.account_list.currentItem()
         visible = item is not None and not item.isHidden()
-        editable = visible and selected != DEFAULT_ACCOUNT_ID
+        editable = visible
         self.rename_button.setEnabled(editable and bool(name) and not exists)
         self.delete_button.setEnabled(editable)
         self.yesButton.setEnabled(visible)
@@ -137,9 +137,10 @@ class CollectionAccountManager(MessageBoxBase):
         db = self.database()
         try:
             backup_path = db.delete_account(account, self.backup_directory)
+            remaining = db.list_accounts()
         finally:
             db.close()
-        self.apply_current(DEFAULT_ACCOUNT_ID if self.current_account == account else self.current_account)
+        self.apply_current(remaining[0] if self.current_account == account else self.current_account)
         self.reload(self.current_account)
         self.status_label.setText(self.translate('Backup saved') + ': ' + backup_path)
 
