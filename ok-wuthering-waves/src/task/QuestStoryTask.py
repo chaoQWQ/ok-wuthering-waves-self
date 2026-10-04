@@ -10,6 +10,7 @@ from src.task.SkipBaseTask import SkipBaseTask
 from src.task.WWOneTimeTask import WWOneTimeTask
 from src.utils.QuestDecisionEngine import QuestAction, decide_quest_action
 from src.utils.QuestNavigator import calculate_camera_turn, compute_movement_action
+from src.utils.QuestOcrPrivacy import prepare_quest_ocr_frame, sanitize_quest_text
 from src.utils.QuestProgressTracker import QuestProgressTracker
 from src.utils.QuestVision import (
     BeaconResult,
@@ -651,6 +652,11 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         api_url = str(self.config.get("API URL") or os.environ.get("JEV_API_URL") or "")
         api_key = str(self.config.get("API Key") or os.environ.get("JEV_API_KEY") or "")
 
+        ocr_text = ""
+        if is_frozen_letterbox or not has_f_button:
+            boxes = self.ocr(frame=prepare_quest_ocr_frame(frame))
+            ocr_text = sanitize_quest_text("\n".join(box.name for box in boxes if box.name))
+
         action: QuestAction = decide_quest_action(
             frame=frame,
             has_f_button=has_f_button,
@@ -658,7 +664,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             quest_goal_text="跟随任务引导推进剧情",
             is_frozen_letterbox=is_frozen_letterbox,
             api_url=api_url,
-            api_key=api_key
+            api_key=api_key,
+            ocr_text=ocr_text,
         )
         self._record_jev_usage(action)
 

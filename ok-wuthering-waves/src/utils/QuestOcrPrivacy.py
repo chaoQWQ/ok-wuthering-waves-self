@@ -1,0 +1,30 @@
+import re
+import unicodedata
+
+import numpy as np
+
+
+_IDENTITY_LABEL = re.compile(r"特\s*征\s*[码碼]|(?<![A-Za-z])U\s*I\s*D(?![A-Za-z])", re.IGNORECASE)
+_IDENTITY_NUMBER = re.compile(r"(?<![A-Za-z0-9])[0-9OoIl](?:[ \t-]*[0-9OoIl]){7,}(?![A-Za-z0-9])")
+_NUMBER_ONLY = re.compile(r"[0-9OoIl \t-]{4,}")
+
+
+def prepare_quest_ocr_frame(frame: np.ndarray) -> np.ndarray:
+    if frame is None or frame.size == 0:
+        raise ValueError("OCR 画面不能为空")
+    protected_frame = frame.copy()
+    height, width = protected_frame.shape[:2]
+    # 在 OCR 识别之前遮蔽右下角特征码区域。
+    protected_frame[int(height * 0.90):, int(width * 0.70):] = 0
+    return protected_frame
+
+
+def sanitize_quest_text(text: str) -> str:
+    clean_lines = []
+    for line in unicodedata.normalize("NFKC", text).splitlines():
+        if _IDENTITY_LABEL.search(line):
+            continue
+        line = _IDENTITY_NUMBER.sub("", line).strip()
+        if line and not _NUMBER_ONLY.fullmatch(line):
+            clean_lines.append(line)
+    return "\n".join(clean_lines)

@@ -6,6 +6,8 @@ from typing import Optional
 
 import numpy as np
 
+from src.utils.QuestOcrPrivacy import sanitize_quest_text
+
 
 @dataclass
 class QuestAction:
@@ -40,12 +42,16 @@ def build_jev_payload(
     frame: np.ndarray,
     quest_goal_text: str,
     is_frozen_letterbox: bool = False,
-    is_navigation_guidance: bool = False
+    is_navigation_guidance: bool = False,
+    ocr_text: str = "",
 ) -> dict:
     if frame is None or frame.size == 0:
         raise ValueError("输入画面数组不能为空")
 
-    prompt_context = f"当前任务指引目标：{quest_goal_text}。"
+    prompt_context = f"当前任务指引目标：{sanitize_quest_text(quest_goal_text)}。"
+    clean_ocr_text = sanitize_quest_text(ocr_text)
+    if clean_ocr_text:
+        prompt_context += f"\n画面 OCR 文字：\n{clean_ocr_text}\n"
     if is_frozen_letterbox:
         prompt_context += (
             "检测到当前处于黑边剧情动画状态，且画面持续静止超过30秒无变化，"
@@ -216,7 +222,8 @@ def decide_via_jev(
     api_key: str,
     is_frozen_letterbox: bool = False,
     is_navigation_guidance: bool = False,
-    timeout_seconds: float = 12.0
+    timeout_seconds: float = 12.0,
+    ocr_text: str = "",
 ) -> QuestAction:
     endpoint = api_url.strip() if api_url and api_url.strip() else DEFAULT_JEV_API_URL
     if not endpoint.startswith("http"):
@@ -228,7 +235,8 @@ def decide_via_jev(
         frame,
         quest_goal_text,
         is_frozen_letterbox=is_frozen_letterbox,
-        is_navigation_guidance=is_navigation_guidance
+        is_navigation_guidance=is_navigation_guidance,
+        ocr_text=ocr_text,
     )
     req_body = json.dumps(payload).encode("utf-8")
 
@@ -257,7 +265,8 @@ def decide_quest_action(
     is_frozen_letterbox: bool = False,
     is_navigation_guidance: bool = False,
     api_url: str = "",
-    api_key: str = ""
+    api_key: str = "",
+    ocr_text: str = "",
 ) -> QuestAction:
     if not is_frozen_letterbox and not is_navigation_guidance:
         local_action = decide_local(has_f_button, action_text, quest_goal_text)
@@ -270,5 +279,6 @@ def decide_quest_action(
         api_url=api_url,
         api_key=api_key,
         is_frozen_letterbox=is_frozen_letterbox,
-        is_navigation_guidance=is_navigation_guidance
+        is_navigation_guidance=is_navigation_guidance,
+        ocr_text=ocr_text,
     )
