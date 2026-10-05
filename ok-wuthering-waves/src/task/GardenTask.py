@@ -97,7 +97,8 @@ class GardenTask(WWOneTimeTask, BaseWWTask):
 
         self.log_info('将游园速度设置为 MAX')
         self.click(self.get_box_by_name('the_garden_max'), after_sleep=0.3)
-        self.wait_until(self._advance_garden_speed, time_out=10, raise_if_not_found=True)
+        if not self.wait_until(self._advance_garden_speed, time_out=10, raise_if_not_found=False):
+            self.log_warning('游园速度切换 MAX 超时，继续执行任务')
 
     def _advance_garden_speed(self):
         speed = self.find_garden_speed()
