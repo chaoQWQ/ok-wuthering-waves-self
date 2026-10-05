@@ -499,9 +499,6 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         self._email_results = []
         status = '异常中断'
         try:
-            self._raise_if_game_window_disconnected()
-            if self.next_frame() is None:
-                raise RuntimeError('无法取得游戏画面，多账号日常任务已终止')
             self._run_accounts()
             status = '完成'
             if any(result['status'] != '成功' for result in self._email_results):
@@ -510,8 +507,6 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             status = '已停止'
             raise
         finally:
-            # 关闭本轮任务并移除等待队列，通知结束后需要手动重新启动。
-            self.disable()
             try:
                 if send_daily_report(self._email_results, started, datetime.now().astimezone(), status,
                                      config=self.config):
