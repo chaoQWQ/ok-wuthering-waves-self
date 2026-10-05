@@ -22,7 +22,7 @@ from src.utils.QuestAreaSearch import minimap_box
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--expect", choices=("area", "movement", "jump"), default="area")
+parser.add_argument("--expect", choices=("area", "movement", "jump", "combat"), default="area")
 parser.add_argument("--seconds", type=int, default=90)
 parser.add_argument("--keep-front", action="store_true")
 arguments = parser.parse_args()
@@ -47,12 +47,14 @@ frame_path = Path(__file__).resolve().parent.parent / "screenshots" / "quest-ver
 frame_path.parent.mkdir(exist_ok=True)
 capture_directory = frame_path.parent / "quest-area-capture" / time.strftime("%Y%m%d-%H%M%S")
 capture_directory.mkdir(parents=True, exist_ok=True)
-observations = {"initial_distance": None, "closest_distance": None, "movement_observed": False, "jump_attempted": False, "foreground_error": None}
+observations = {"initial_distance": None, "closest_distance": None, "movement_observed": False, "jump_attempted": False, "combat_completed": False, "resumed_after_combat": False, "foreground_error": None}
 
 
 def record_frames():
     index = 0
     while not runtime.exit_event.wait(.2):
+        if runtime.task_executor.current_task is not task:
+            continue
         if arguments.keep_front and not task.is_game_window_active():
             task.ensure_in_front()
             time.sleep(.08)
@@ -63,6 +65,8 @@ def record_frames():
         frame = runtime.task_executor._frame
         if frame is not None:
             cv2.imwrite(str(frame_path), frame.copy())
+            if index == 0 or index % 20 == 0:
+                cv2.imwrite(str(capture_directory / f"scene-{index:04}.png"), frame.copy())
             x, y, w, h = minimap_box(frame)
             sample_path = capture_directory / f"sample-{index:04}.png"
             cv2.imwrite(str(sample_path), frame[y:y + h, x:x + w].copy())
@@ -75,6 +79,9 @@ def record_frames():
                 if observations["initial_distance"] - distance >= .5:
                     observations["movement_observed"] = True
             observations["jump_attempted"] |= task.navigation_progress.jump_attempts > 0
+            observations["combat_completed"] |= task.quest_combat_count > 0
+            if observations["combat_completed"] and task.current_state in (task.STATE_NAVIGATE, task.STATE_DIALOG, task.STATE_LETTERBOX_CUTSCENE):
+                observations["resumed_after_combat"] = True
             sample_path.with_suffix(".json").write_text(json.dumps({
                 "time": time.time(),
                 "context": area.context() if area is not None and area.observation is not None else None,
@@ -86,6 +93,8 @@ def record_frames():
             if arguments.expect == "movement" and observations["movement_observed"]:
                 runtime.exit_event.set()
             elif arguments.expect == "jump" and observations["jump_attempted"] and observations["movement_observed"]:
+                runtime.exit_event.set()
+            elif arguments.expect == "combat" and observations["resumed_after_combat"]:
                 runtime.exit_event.set()
     print("已记录运行画面数量", index, flush=True)
 
@@ -107,6 +116,8 @@ try:
         raise AssertionError("限时运行没有确认目标距离缩减")
     elif arguments.expect == "jump" and (not observations["movement_observed"] or not observations["jump_attempted"]):
         raise AssertionError("限时运行没有确认跳跃尝试及目标距离缩减")
+    elif arguments.expect == "combat" and not observations["resumed_after_combat"]:
+        raise AssertionError("限时运行尚未确认战斗结束后继续剧情或导航")
 finally:
     timer.cancel()
     if runtime.task_executor._frame is not None:

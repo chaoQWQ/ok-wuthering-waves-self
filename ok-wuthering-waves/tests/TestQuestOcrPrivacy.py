@@ -8,6 +8,7 @@ from onnxocr.onnx_paddleocr import ONNXPaddleOcr
 
 from src.utils.QuestDecisionEngine import build_jev_payload
 from src.utils.QuestOcrPrivacy import prepare_quest_ocr_frame, quest_goal_from_lines, sanitize_quest_text
+from src.utils.QuestVision import parse_distance_text
 
 
 class TestQuestOcrPrivacy(unittest.TestCase):
@@ -52,6 +53,36 @@ class TestQuestOcrPrivacy(unittest.TestCase):
         goal = quest_goal_from_lines(lines)
         self.assertIn("跟随花朵的指引", goal)
         self.assertNotIn("70", goal)
+
+    def test_recorded_objective_symbols_keep_task_identity(self):
+        lines = (Path(__file__).parent / "data" / "quest_objective_ocr_log.txt").read_text(encoding="utf-8-sig").splitlines()
+        goals = [line.split("任务要求已经更新：", 1)[1] for line in lines if "寻找音源" in line]
+        self.assertGreaterEqual(len(goals), 4)
+        for goal in goals:
+            with self.subTest(goal=goal):
+                self.assertEqual(quest_goal_from_lines(goal.split()), "欲知天将雨 寻找音源")
+
+    def test_actual_post_combat_task_panel(self):
+        frame = cv2.imread(str(Path(__file__).parent / "images" / "quest_after_story_combat.png"))
+        self.assertIsNotNone(frame)
+        height, width = frame.shape[:2]
+        engine = ONNXPaddleOcr(use_angle_cls=False, use_openvino=True, use_npu=True)
+        panel = frame[int(height * .23):int(height * .39), int(width * .01):int(width * .25)]
+        lines = [entry[1][0] for entry in engine.ocr(panel, cls=False)[0]
+                 if min(point[0] for point in entry[0]) + width * .01 <= width * .05]
+        goal = quest_goal_from_lines(lines)
+        self.assertIn("欲知天将雨", goal)
+        self.assertIn("引出跟踪者", goal)
+        self.assertNotIn("93", goal)
+        distances = [parse_distance_text(line, require_unit=True) for line in lines]
+        self.assertEqual([value for value in distances if value is not None], [93])
+
+    def test_actual_hud_numbers_are_excluded_from_quest_distance(self):
+        lines = self.protected_text.splitlines()
+        numeric_lines = [line for line in lines if re.fullmatch(r"[\d/ ]+", line)]
+        self.assertTrue(numeric_lines)
+        for line in numeric_lines:
+            self.assertIsNone(parse_distance_text(line, require_unit=True))
 
 
 if __name__ == "__main__":

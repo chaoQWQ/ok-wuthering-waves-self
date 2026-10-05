@@ -118,8 +118,10 @@ def detect_quest_beacon(
     spatial_mask = np.ones((frame_height, frame_width), dtype=np.uint8) * 255
     # 排除顶部信息栏
     spatial_mask[:int(frame_height * 0.08), :] = 0
-    # 排除底部技能按键区域
-    spatial_mask[int(frame_height * 0.80):, :] = 0
+    # 保留角色前下方的任务信标，遮蔽底部状态栏与两侧技能区域。
+    spatial_mask[int(frame_height * 0.90):, :] = 0
+    spatial_mask[int(frame_height * 0.72):, :int(frame_width * 0.20)] = 0
+    spatial_mask[int(frame_height * 0.72):, int(frame_width * 0.72):] = 0
     # 排除左上角小地图区域
     spatial_mask[:int(frame_height * 0.25), :int(frame_width * 0.16)] = 0
     # 排除左侧固定任务描述栏
@@ -256,11 +258,15 @@ def detect_flower_guidance(frame: np.ndarray) -> BeaconResult:
 
 
 _DISTANCE_REGEX = re.compile(r"(\d+(?:\.\d+)?)\s*(?:米|m|M)")
+_QUEST_DISTANCE_LINE = re.compile(r"\s*(\d+(?:\.\d+)?)\s*(?:米|m|M)\s*[▲△▼▽↑↓]*\s*")
 
 
-def parse_distance_text(text: str) -> Optional[float]:
+def parse_distance_text(text: str, *, require_unit: bool = False) -> Optional[float]:
     if not text:
         return None
+    if require_unit:
+        match = _QUEST_DISTANCE_LINE.fullmatch(text)
+        return float(match.group(1)) if match else None
     match = _DISTANCE_REGEX.search(text)
     if match:
         return float(match.group(1))

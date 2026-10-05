@@ -32,4 +32,10 @@ def sanitize_quest_text(text: str) -> str:
 
 def quest_goal_from_lines(lines: list[str]) -> str:
     distance = re.compile(r"\s*\d+(?:\.\d+)?\s*(?:米|m|M)\s*[▲△▼▽↑↓]*\s*")
-    return sanitize_quest_text(" ".join(line for line in lines if line and not distance.fullmatch(line))).strip()
+    goal_lines = []
+    for line in lines:
+        line = sanitize_quest_text(line or "").strip(" -—•·▲△▼▽↑↓")
+        line = re.sub(r"^[A-Za-z]\s+(?=[\u4e00-\u9fff])", "", line)
+        if len(line) >= 2 and not distance.fullmatch(line):
+            goal_lines.append(line)
+    return " ".join(goal_lines)

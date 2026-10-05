@@ -23,7 +23,8 @@ def calculate_camera_turn(
     minimap_bearing_deg: Optional[float] = None,
     camera_sensitivity: float = 1.0,
     tolerance_ratio: float = 0.02,
-    max_delta_x: int = 100
+    max_delta_x: int = 100,
+    minimap_tolerance_deg: float = 6.0,
 ) -> CameraTurnCommand:
     if screen_width <= 0:
         raise ValueError("屏幕宽度必须大于零")
@@ -57,7 +58,7 @@ def calculate_camera_turn(
         else:
             angle_diff = norm_deg
 
-        if abs(angle_diff) <= 6.0:
+        if abs(angle_diff) <= minimap_tolerance_deg:
             return CameraTurnCommand(
                 delta_x_pixels=0,
                 need_turn=False,

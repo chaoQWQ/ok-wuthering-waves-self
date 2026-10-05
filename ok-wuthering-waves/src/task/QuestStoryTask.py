@@ -5,7 +5,7 @@ from typing import Optional
 
 import numpy as np
 from ok import Box, Logger
-from src.task.BaseCombatTask import BaseCombatTask
+from src.task.BaseCombatTask import BaseCombatTask, CharDeadException, NotInCombatException
 from src.task.SkipBaseTask import SkipBaseTask
 from src.task.WWOneTimeTask import WWOneTimeTask
 from src.utils.QuestDecisionEngine import QuestAction, decide_quest_action
@@ -84,6 +84,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.last_motion = None
         self.last_interaction_text = ""
         self.point_arrival_time = None
+        self.point_approach_seconds = 0.0
+        self.quest_combat_count = 0
         self.last_teleport_attempt_time: float = 0.0
         self.jev_call_count: int = 0
         self.jev_total_tokens: int = 0
@@ -139,6 +141,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.last_motion = None
         self.last_interaction_text = ""
         self.point_arrival_time = None
+        self.point_approach_seconds = 0.0
+        self.quest_combat_count = 0
         self.jev_call_count = 0
         self.jev_total_tokens = 0
         self.jev_cost_estimate = 0.0
@@ -214,7 +218,10 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                     self.current_state = self.STATE_COMBAT
                     self.letterbox_freeze_start_time = 0.0
                     self.log_info("检测到进入战斗状态，交由角色战斗执行器执行操作")
-                    self.get_current_char().perform()
+                    self._perform_quest_combat()
+                    continue
+                if self.current_state == self.STATE_COMBAT:
+                    self._finish_quest_combat()
                     continue
 
             # 3. 判定上下黑边剧情动画
@@ -228,15 +235,46 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 self.letterbox_freeze_start_time = 0.0
 
             # 4. 判定大世界任务导航与交互
+            if not self.in_team_and_world():
+                self._stop_all_movement()
+                self.sleep(.2)
+                continue
             self._handle_world_navigation_and_interaction(frame)
+
+    def _perform_quest_combat(self):
+        try:
+            self.get_current_char().perform()
+        except CharDeadException:
+            raise
+        except NotInCombatException as error:
+            if type(error) is not NotInCombatException:
+                raise
+            self._finish_quest_combat()
+
+    def _finish_quest_combat(self):
+        self._stop_all_movement()
+        self._mark_scene_transition("combat_completed", self.STATE_IDLE)
+        self.current_state = self.STATE_IDLE
+        self.next_frame()
 
     def _mark_scene_transition(self, outcome: str, state: str):
         if self.current_state != state:
+            if self.current_state == self.STATE_COMBAT:
+                self.combat_end()
+                self.quest_combat_count += 1
+                self.info_set("剧情战斗次数", self.quest_combat_count)
+                self.climbing_start_time = 0.0
+                self.climbing_progress = QuestProgressTracker(require_distance=False)
+                self.guidance_last_read = 0.0
+                self.last_frame = None
+                self.last_motion = None
+                self.log_info("剧情战斗结束，继续检查剧情与任务指引")
             self.decision_session.mark_transition(outcome)
             self.area_search = None
             self.navigation_progress = QuestProgressTracker()
             self.target_search.reset()
             self.point_arrival_time = None
+            self.point_approach_seconds = 0.0
 
     def _handle_letterbox_state(self, frame: np.ndarray):
         now = time.time()
@@ -301,6 +339,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.navigation_progress = QuestProgressTracker()
             self.target_search.reset()
             self.point_arrival_time = None
+            self.point_approach_seconds = 0.0
             self.log_info(f"任务要求已经更新：{self.guidance_text}")
 
         area = detect_quest_area(frame) if self.area_search is None else self.area_search.find_observation(frame)
@@ -329,6 +368,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 self.decision_session.mark_transition("movement_observed")
         if current_distance is None or current_distance > 2:
             self.point_arrival_time = None
+            self.point_approach_seconds = 0.0
 
         # 3. 若任务目标距离超过 200 米，尝试打开地图定位并传送到附近传送点
         if current_distance is not None and current_distance > 200.0:
@@ -372,6 +412,14 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
         # 5. 到达 1 至 2 米范围内停止移动并等待交互
         if current_distance is not None and current_distance <= 2.0:
+            if beacon_result.found:
+                beacon_cx = beacon_result.x + beacon_result.width / 2
+                beacon_cy = beacon_result.y + beacon_result.height / 2
+                if beacon_cy >= height * .60 and abs(beacon_cx - width / 2) <= width * .08 and self.point_approach_seconds < 1.2:
+                    self.log_info("任务信标位于角色前下方，向前短步检查剧情触发")
+                    self.point_approach_seconds += .15
+                    self._apply_movement(["w"], .15)
+                    return
             self._stop_all_movement()
             if self.point_arrival_time is None:
                 self.point_arrival_time = time.time()
@@ -400,15 +448,19 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 screen_width=width,
                 beacon_center_x=beacon_cx,
                 camera_sensitivity=sensitivity,
+                tolerance_ratio=.06 if current_distance is not None and current_distance <= 20 else .02,
                 max_delta_x=100
             )
             if turn_cmd.need_turn:
                 self.target_search.next_turn()
                 self._apply_camera_turn(turn_cmd.delta_x_pixels)
                 self.sleep(0.1)
+                if current_distance is not None and current_distance <= 20 and abs(angle_error_deg) <= 12:
+                    self._apply_movement(["w"], .12)
                 return
 
             self.target_search.reset()
+            self.target_search.remember_forward_target(current_distance)
 
             effective_distance = current_distance if current_distance is not None else 10.0
             move_cmd = compute_movement_action(
@@ -435,13 +487,11 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         # 9. 视野无信标，依据小地图指示箭头旋转镜头并移动
         arrow_result = detect_minimap_quest_arrow(frame)
         if arrow_result.found:
-            norm_deg = arrow_result.bearing_deg % 360.0
-            angle_diff = norm_deg - 360.0 if norm_deg > 180.0 else norm_deg
-
             turn_cmd = calculate_camera_turn(
                 screen_width=width,
                 minimap_bearing_deg=arrow_result.bearing_deg,
                 camera_sensitivity=sensitivity,
+                minimap_tolerance_deg=12 if current_distance is not None and current_distance <= 20 else 6,
                 max_delta_x=120
             )
             if turn_cmd.need_turn:
@@ -452,15 +502,16 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 self._apply_movement(["w"], .15)
                 return
 
-            # 若角度误差超过 20 度，原地旋转镜头，严禁边转向边移动以避免环绕画圈
-            if abs(angle_diff) > 20.0:
-                self.log_info(f"依据小地图指引原地调整朝向 (方位角 {arrow_result.bearing_deg:.1f}°)")
-                self.sleep(0.1)
-                return
-
             self.log_info("已朝向小地图任务目标，向前慢步推进")
             self.target_search.reset()
+            self.target_search.remember_forward_target(current_distance)
             self._apply_movement(["w"], 0.25)
+            return
+
+        forward_duration = self.target_search.next_forward_probe(current_distance)
+        if forward_duration:
+            self.log_info("任务图标暂时消失，沿刚确认的前方短步移动并检查距离")
+            self._apply_movement(["w"], forward_duration)
             return
 
         # 10. 视野与小地图暂无目标标识，原地水平旋转视角搜寻信标，避免盲目前冲撞击墙体
@@ -474,8 +525,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
     def _read_quest_goal(self, frame: np.ndarray, force: bool = False):
         if not force and time.time() - self.guidance_last_read < 2:
             return
-        boxes = self.ocr(.01, .20, .28, .43, frame=frame)
-        text = quest_goal_from_lines([box.name for box in boxes])
+        boxes = self.ocr(.01, .23, .25, .39, frame=frame)
+        text = quest_goal_from_lines([box.name for box in boxes if box.x <= frame.shape[1] * .05])
         if text:
             self.guidance_text = text
         self.guidance_last_read = time.time()
@@ -727,41 +778,24 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 pass
 
     def _extract_quest_distance(self, frame: np.ndarray, beacon_result: BeaconResult) -> Optional[float]:
-        dist_regex = re.compile(r"(\d+(?:\.\d+)?)\s*(?:米|m|M)?")
-        # 1. 优先扫描左侧任务提示区域
-        try:
-            boxes = self.ocr(0.01, 0.18, 0.28, 0.48, match=dist_regex, frame=frame)
-            if not boxes:
-                # 传入 match 未匹配到时直接全量识别该区域框
-                boxes = self.ocr(0.01, 0.18, 0.28, 0.48, frame=frame)
-            if boxes:
-                for box in boxes:
-                    text = box.name or ""
-                    dist = parse_distance_text(text)
-                    if dist is not None:
-                        return dist
-        except Exception:
-            pass
+        boxes = self.ocr(.01, .23, .20, .43, frame=frame)
+        for box in boxes:
+            if box.x <= frame.shape[1] * .05:
+                distance = parse_distance_text(box.name, require_unit=True)
+                if distance is not None:
+                    return distance
 
-        # 2. 检查信标周围文字区域
         if beacon_result.found:
-            try:
-                fh, fw = frame.shape[:2]
-                rx = max(0.0, (beacon_result.x - beacon_result.width) / fw)
-                ry = min(1.0, (beacon_result.y + beacon_result.height) / fh)
-                r_to_x = min(1.0, (beacon_result.x + beacon_result.width * 2) / fw)
-                r_to_y = min(1.0, (beacon_result.y + beacon_result.height * 3) / fh)
-                boxes = self.ocr(rx, ry, r_to_x, r_to_y, match=dist_regex, frame=frame)
-                if not boxes:
-                    boxes = self.ocr(rx, ry, r_to_x, r_to_y, frame=frame)
-                if boxes:
-                    for box in boxes:
-                        text = box.name or ""
-                        dist = parse_distance_text(text)
-                        if dist is not None:
-                            return dist
-            except Exception:
-                pass
+            fh, fw = frame.shape[:2]
+            rx = max(0.0, (beacon_result.x - beacon_result.width) / fw)
+            ry = min(.90, (beacon_result.y + beacon_result.height) / fh)
+            r_to_x = min(1.0, (beacon_result.x + beacon_result.width * 2) / fw)
+            r_to_y = min(.90, (beacon_result.y + beacon_result.height * 3) / fh)
+            if ry < r_to_y:
+                for box in self.ocr(rx, ry, r_to_x, r_to_y, frame=frame):
+                    distance = parse_distance_text(box.name, require_unit=True)
+                    if distance is not None:
+                        return distance
 
         return None
 

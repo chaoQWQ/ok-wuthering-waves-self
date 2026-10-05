@@ -10,10 +10,11 @@ from src.utils.QuestVision import detect_minimap_quest_arrow, detect_quest_beaco
 class TestQuestNavigationScreenshots(unittest.TestCase):
     def test_world_beacons_and_turns(self):
         samples = (
-            ("quest_navigation_start.png", (458, 315)),
-            ("quest_navigation_wrong_direction.png", (420, 626)),
+            ("quest_navigation_start.png", (458, 315), "left"),
+            ("quest_navigation_wrong_direction.png", (420, 626), "left"),
+            ("quest_after_story_combat.png", (1456, 309), "right"),
         )
-        for name, center in samples:
+        for name, center, direction in samples:
             original = cv2.imread(str(Path(__file__).parent / "images" / name))
             self.assertIsNotNone(original)
             for width in (1024, 1280, 1920):
@@ -28,7 +29,7 @@ class TestQuestNavigationScreenshots(unittest.TestCase):
                     self.assertAlmostEqual(cy, center[1] * scale, delta=5)
                     turn = calculate_camera_turn(width, beacon_center_x=cx)
                     self.assertTrue(turn.need_turn)
-                    self.assertEqual(turn.turn_direction, "left")
+                    self.assertEqual(turn.turn_direction, direction)
 
     def test_minimap_relative_bearings(self):
         samples = (
