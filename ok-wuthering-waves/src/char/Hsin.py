@@ -2,14 +2,30 @@ import time
 
 from src.Labels import Labels
 from src.char.BaseChar import BaseChar
+from src.char.HsinJinhsiShoreKeeper import get_team_rotation
 
 
 class Hsin(BaseChar):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.lib2_cast_this_turn = False
+        self._jinhsi_team_rotation = None
+
+    def reset_state(self):
+        super().reset_state()
+        self.lib2_cast_this_turn = False
+        self._jinhsi_team_rotation = None
+
+    def get_switch_priority(self, current_char=None, has_intro=False, target_low_con=False):
+        rotation = get_team_rotation(self)
+        if rotation is not None:
+            return rotation.priority(self)
+        return super().get_switch_priority(current_char, has_intro, target_low_con)
 
     def do_perform(self):
+        rotation = get_team_rotation(self)
+        if rotation is not None:
+            return rotation.perform(self)
         self.lib2_cast_this_turn = False
         self.logger.debug(f'Hsin perform start: has_intro={self.has_intro}')
         self.perform_everything()

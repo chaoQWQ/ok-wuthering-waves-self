@@ -1,6 +1,7 @@
 import time
 
 from src.char.BaseChar import BaseChar, SwitchPriority
+from src.char.HsinJinhsiShoreKeeper import get_team_rotation
 
 
 class Jinhsi(BaseChar):
@@ -14,6 +15,9 @@ class Jinhsi(BaseChar):
         self.last_fly_e_time = 0
 
     def do_perform(self):
+        rotation = get_team_rotation(self)
+        if rotation is not None:
+            return rotation.perform(self)
         if self.incarnation:
             self.handle_incarnation()
             return self.switch_next_char()
@@ -30,6 +34,9 @@ class Jinhsi(BaseChar):
         self.incarnation_cd = False
 
     def get_switch_priority(self, current_char=None, has_intro=False, target_low_con=False):
+        rotation = get_team_rotation(self)
+        if rotation is not None:
+            return rotation.priority(self)
         if has_intro or self.incarnation or self.incarnation_cd:
             self.logger.info(
                 f'switch priority max because has_intro {has_intro} incarnation {self.incarnation} incarnation_cd '

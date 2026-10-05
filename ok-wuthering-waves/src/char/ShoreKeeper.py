@@ -1,6 +1,7 @@
 import time
 
 from src.char.BaseChar import BaseChar, SwitchPriority
+from src.char.HsinJinhsiShoreKeeper import get_team_rotation
 
 
 class ShoreKeeper(BaseChar):
@@ -11,6 +12,9 @@ class ShoreKeeper(BaseChar):
         self.attribute = 0
 
     def get_switch_priority(self, current_char=None, has_intro=False, target_low_con=False):
+        rotation = get_team_rotation(self)
+        if rotation is not None:
+            return rotation.priority(self)
         self.decide_teammate()
         current_name = current_char.char_name if current_char else None
         if self.attribute == 2 and has_intro and current_name in {'Augusta', 'char_augusta'}:
@@ -19,6 +23,11 @@ class ShoreKeeper(BaseChar):
 
     def skip_combat_check(self):
         return self.has_intro or self.flying()
+
+    def healer_full_con_switch_locked(self):
+        if get_team_rotation(self) is not None:
+            return False
+        return super().healer_full_con_switch_locked()
 
     def decide_teammate(self):
         from src.char.Augusta import Augusta
@@ -30,6 +39,9 @@ class ShoreKeeper(BaseChar):
             self.attribute = 1
 
     def do_perform(self):
+        rotation = get_team_rotation(self)
+        if rotation is not None:
+            return rotation.perform(self)
         if self.has_intro:
             self.task.skip_combat_check = True
             try:
