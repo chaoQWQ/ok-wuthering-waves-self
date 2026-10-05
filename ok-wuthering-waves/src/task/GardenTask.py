@@ -37,7 +37,6 @@ class GardenTask(WWOneTimeTask, BaseWWTask):
         self.click(0.246, 0.486, after_sleep=1)
         while True:
             self.sleep(0.1)
-            self.ensure_garden_max_speed()
             target = self.find_best_garden_feature()
             self.sleep(0.2)
             if target:
@@ -61,6 +60,11 @@ class GardenTask(WWOneTimeTask, BaseWWTask):
                 elif target.name == 'garden_start_game':
                     # At Garden Entrance, choose blessing1
                     self._choose_first_blessing()
+                elif target.name == 'garden_next_day':
+                    self.ensure_garden_max_speed()
+                    target = self.find_best_garden_feature()
+                    if target is None or target.name != 'garden_next_day':
+                        continue
                 self.log_info(f"click {target.name} {target.confidence:.3f}")
                 self.click(target, after_sleep=1)
             else:
@@ -81,6 +85,8 @@ class GardenTask(WWOneTimeTask, BaseWWTask):
                         break
                     else:
                         self.click(garden_restart, after_sleep=1)
+                else:
+                    self.ensure_garden_max_speed()
                 self.sleep(0.2)
         self.log_info('乐园任务完成, 已达到上限', notify=True)
 
@@ -91,6 +97,8 @@ class GardenTask(WWOneTimeTask, BaseWWTask):
         return next(iter(speeds), None)
 
     def ensure_garden_max_speed(self):
+        if self.has_garden_popup():
+            return
         speed = self.find_garden_speed()
         if speed is None or speed.name == 'the_garden_max' or 'MAX' in speed.name.upper():
             return
@@ -101,6 +109,8 @@ class GardenTask(WWOneTimeTask, BaseWWTask):
             self.log_warning('游园速度切换 MAX 超时，继续执行任务')
 
     def _advance_garden_speed(self):
+        if self.has_garden_popup():
+            return True
         speed = self.find_garden_speed()
         if speed is None:
             return False
@@ -108,6 +118,16 @@ class GardenTask(WWOneTimeTask, BaseWWTask):
             return True
         self.click(self.get_box_by_name('the_garden_max'), after_sleep=0.3)
         return False
+
+    def has_garden_popup(self):
+        popup_features = [name for name in self.garden_features if name != 'garden_next_day']
+        popup_features.extend(('a_garden_restart', 'a_garden_back'))
+        return any(
+            self.feature_exists(name) and self.find_one(
+                name, vertical_variance=0.4 if name == 'garden_not_interested' else 0,
+            )
+            for name in popup_features
+        )
 
     def open_garden_weekly_page(self):
         self.openF2Book('gray_book_quest')
