@@ -12,6 +12,7 @@ logger = Logger.get_logger(__name__)
 
 class GardenTask(WWOneTimeTask, BaseWWTask):
     GARDEN_TARGET_POINTS = re.compile('6000')
+    GARDEN_SPEED_PATTERN = re.compile(r'MAX|\d+[.,]\d+', re.IGNORECASE)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -36,6 +37,7 @@ class GardenTask(WWOneTimeTask, BaseWWTask):
         self.click(0.246, 0.486, after_sleep=1)
         while True:
             self.sleep(0.1)
+            self.ensure_garden_max_speed()
             target = self.find_best_garden_feature()
             self.sleep(0.2)
             if target:
@@ -81,6 +83,30 @@ class GardenTask(WWOneTimeTask, BaseWWTask):
                         self.click(garden_restart, after_sleep=1)
                 self.sleep(0.2)
         self.log_info('乐园任务完成, 已达到上限', notify=True)
+
+    def find_garden_speed(self):
+        if maximum := self.find_one('the_garden_max'):
+            return maximum
+        speeds = self.ocr(0.63, 0.03, 0.707, 0.09, match=self.GARDEN_SPEED_PATTERN)
+        return next(iter(speeds), None)
+
+    def ensure_garden_max_speed(self):
+        speed = self.find_garden_speed()
+        if speed is None or speed.name == 'the_garden_max' or 'MAX' in speed.name.upper():
+            return
+
+        self.log_info('将游园速度设置为 MAX')
+        self.click(self.get_box_by_name('the_garden_max'), after_sleep=0.3)
+        self.wait_until(self._advance_garden_speed, time_out=10, raise_if_not_found=True)
+
+    def _advance_garden_speed(self):
+        speed = self.find_garden_speed()
+        if speed is None:
+            return False
+        if speed.name == 'the_garden_max' or 'MAX' in speed.name.upper():
+            return True
+        self.click(self.get_box_by_name('the_garden_max'), after_sleep=0.3)
+        return False
 
     def open_garden_weekly_page(self):
         self.openF2Book('gray_book_quest')
