@@ -46,6 +46,16 @@ class InteractActionResult:
     box: Optional[Tuple[int, int, int, int]]
 
 
+def resize_quest_text_frame(frame: np.ndarray) -> Tuple[np.ndarray, float]:
+    if frame is None or frame.size == 0:
+        raise ValueError("任务文字画面不能为空")
+    height, width = frame.shape[:2]
+    scale = max(1.0, 1080 / height)
+    if scale == 1.0:
+        return frame, scale
+    return cv2.resize(frame, (round(width * scale), 1080), interpolation=cv2.INTER_CUBIC), scale
+
+
 def detect_letterbox(
     frame: np.ndarray,
     margin_ratio: float = 0.08,
@@ -436,12 +446,43 @@ def detect_interact_action(
     frame: np.ndarray,
     search_box: Optional[Tuple[int, int, int, int]] = None,
     template_path: Optional[str] = None,
-    threshold: float = 0.85
+    threshold: float = 0.85,
+    ocr_boxes=None,
+    key_box: Optional[Tuple[int, int, int, int]] = None,
 ) -> InteractActionResult:
     if frame is None or frame.size == 0:
         raise ValueError("输入画面数组不能为空")
 
     height, width = frame.shape[:2]
+
+    def interaction_at_key(key):
+        kx, ky, kw, kh = key
+        labels = [] if ocr_boxes is None else [box for box in ocr_boxes
+                  if box.x >= kx + kw and box.x - kx <= width * .18
+                  and abs(box.y + box.height / 2 - ky - kh / 2) <= max(kh, box.height) * .6
+                  and (box.name or "").strip().upper() not in ("F", "[F]")]
+        text = " ".join(box.name for box in sorted(labels, key=lambda box: box.x) if box.name)
+        return InteractActionResult(True, text, key)
+
+    if ocr_boxes is not None:
+        candidates = []
+        if key_box is not None:
+            candidates.append(key_box)
+        for box in ocr_boxes:
+            if (box.name or "").strip().upper() not in ("F", "[F]", "［F］") or box.confidence < threshold:
+                continue
+            if not (width * .55 <= box.x <= width * .92 and height * .38 <= box.y <= height * .70):
+                continue
+            key_pixels = frame[box.y:box.y + box.height, box.x:box.x + box.width]
+            if key_pixels.size and np.mean(np.min(key_pixels, axis=2) >= 200) >= .20:
+                candidates.append((box.x, box.y, box.width, box.height))
+        for kx, ky, kw, kh in candidates:
+            result = interaction_at_key((kx, ky, kw, kh))
+            if result.action_text:
+                return result
+        if candidates:
+            return InteractActionResult(True, "", candidates[0])
+
     if search_box:
         sx, sy, sw, sh = search_box
     else:
@@ -463,21 +504,18 @@ def detect_interact_action(
         template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
         if template is not None:
             th, tw = template.shape[:2]
-            scale = width / 1024.0
-            stw = max(5, int(tw * scale))
-            sth = max(5, int(th * scale))
-            scaled_tpl = cv2.resize(template, (stw, sth), interpolation=cv2.INTER_AREA)
-
-            if gray.shape[0] >= sth and gray.shape[1] >= stw:
-                res = cv2.matchTemplate(gray, scaled_tpl, cv2.TM_CCOEFF_NORMED)
-                _, max_val, _, max_loc = cv2.minMaxLoc(res)
-                if max_val >= threshold:
-                    found_f_box = (sx + max_loc[0], sy + max_loc[1], stw, sth)
-                    return InteractActionResult(
-                        has_f=True,
-                        action_text="",
-                        box=found_f_box
-                    )
+            candidates = []
+            for factor in (.8, 1.0, 1.05, 1.2):
+                scale = width / 1920.0 * factor
+                stw, sth = max(5, round(tw * scale)), max(5, round(th * scale))
+                scaled_tpl = cv2.resize(template, (stw, sth), interpolation=cv2.INTER_AREA)
+                if gray.shape[0] >= sth and gray.shape[1] >= stw:
+                    res = cv2.matchTemplate(gray, scaled_tpl, cv2.TM_CCOEFF_NORMED)
+                    _, max_val, _, max_loc = cv2.minMaxLoc(res)
+                    if max_val >= threshold:
+                        candidates.append((max_val, (sx + max_loc[0], sy + max_loc[1], stw, sth)))
+            if candidates:
+                return interaction_at_key(max(candidates, key=lambda candidate: candidate[0])[1])
 
     return InteractActionResult(
         has_f=False,

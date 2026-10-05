@@ -39,7 +39,7 @@ class QuestAction:
 
 
 AREA_ACTIONS = {
-    "interact": "Press F for a visible interaction directly relevant to the current objective.",
+    "interact": "Press F for a visible interaction directly relevant to the current objective. At a destination, a named person's interaction advances objectives to meet, reunite with, or talk to that person, including travel objectives whose wording is still follow. Use the observed interaction label and destination distance to assess this.",
     "attack": "Perform one normal attack only when the objective explicitly asks to attack or destroy a nearby target.",
     "skill": "Press the observed skill key only when the objective explicitly requires that skill.",
     "search": "Approach the yellow quest area center when not there yet; otherwise continue the local search route inside the area to collect new observations. For a near but unrelated interaction, continue the existing quest navigation.",
