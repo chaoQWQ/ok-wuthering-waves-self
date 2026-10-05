@@ -135,16 +135,23 @@ class HsinJinhsiShoreKeeperRotation:
         character.logger.info(
             f'Team rotation: opening={self.opening}, step={self.step_index}, actions={self.step.actions}')
         if self.action_index == 0:
-            if self.step.intro and not character.has_intro:
-                raise RuntimeError(f'Rotation intro missing: {character.char_name}')
             if character.has_intro:
-                self.wait(character, character.task.in_team_and_world, 4, 'intro animation', check_combat=False)
+                if not character.task.in_team_and_world():
+                    self.wait(character, character.task.in_team_and_world, 4, 'intro animation',
+                              check_combat=False, raise_on_timeout=False)
         while self.action_index < len(self.step.actions):
             action = self.step.actions[self.action_index]
             self.perform_action(character, action)
             self.action_index += 1
         if self.next_step.intro:
-            self.wait(character, character.is_con_full, 2, 'concerto')
+            start_con = time.time()
+            while not character.is_con_full():
+                if time.time() - start_con > 2.0:
+                    character.logger.warning(f'{character.char_name}: concerto not full before intro step')
+                    break
+                character.click()
+                character.sleep(0.08)
+                character.task.next_frame()
         self.switch_pending = True
         self.switch(character)
 
@@ -155,17 +162,22 @@ class HsinJinhsiShoreKeeperRotation:
             character.dodge_count = 5
         BaseChar.switch_next_char(character, post_action=self.advance)
 
-    def wait(self, character, condition, timeout, description, check_combat=True, post_action=None):
+    def wait(self, character, condition, timeout, description, check_combat=True, post_action=None,
+             raise_on_timeout=True):
         start = time.time()
         while not condition():
             if time.time() - start >= timeout:
-                raise RuntimeError(f'{character.char_name}: timed out waiting for {description}')
+                if raise_on_timeout:
+                    raise RuntimeError(f'{character.char_name}: timed out waiting for {description}')
+                character.logger.warning(f'{character.char_name}: timed out waiting for {description}')
+                return False
             if check_combat:
                 character.check_combat()
             if post_action:
                 post_action()
             character.sleep(0.05, check_combat=check_combat)
             character.task.next_frame()
+        return True
 
     def normal(self, character, action):
         start = time.time()
@@ -176,41 +188,57 @@ class HsinJinhsiShoreKeeperRotation:
             character.task.next_frame()
         if character.char_name == HSIN and action == A.A4:
             self.wait(character, character.heavy_available, 2, 'fourth normal attack forte',
-                      post_action=character.click_with_interval)
+                      post_action=character.click_with_interval, raise_on_timeout=False)
 
     def resonance(self, character, action):
-        self.wait(character, character.resonance_available, 3, action.name)
-        # 每个阶段发送一次技能，保留下一段强化技能给指定的入场阶段。
-        character.send_resonance_key()
-        character.record_resonance_use()
-        character.sleep(0.15, check_combat=False)
-        if character.char_name == JINHSI and action == A.E4:
-            self.wait(character, lambda: not character.task.in_team()[0], 1, 'resonance animation',
-                      check_combat=False)
-            start = time.time()
-            character.task.in_liberation = True
-            try:
-                self.wait(character, lambda: character.task.in_team()[0], 7, 'resonance animation end',
-                          check_combat=False)
-            finally:
+        if character.char_name == JINHSI:
+            if action == A.E4:
+                character.send_resonance_key()
+                character.record_resonance_use()
+                character.sleep(0.15, check_combat=False)
+                start = time.time()
+                animated = False
+                while time.time() - start < 5.0:
+                    if not character.task.in_team()[0]:
+                        if not animated:
+                            animated = True
+                            character.task.in_liberation = True
+                    else:
+                        if animated:
+                            break
+                    character.sleep(0.05, check_combat=False)
+                    character.task.next_frame()
                 character.task.in_liberation = False
-            character.add_freeze_duration(start, time.time() - start)
+                if animated:
+                    character.add_freeze_duration(start, time.time() - start)
+            elif action in (A.E2, A.E3):
+                character.send_resonance_key()
+                character.record_resonance_use()
+                character.sleep(0.35, check_combat=False)
+            else:
+                character.send_resonance_key()
+                character.record_resonance_use()
+                character.sleep(0.2, check_combat=False)
         else:
-            self.wait(character, lambda: not character.resonance_available(), 2, 'resonance consumption')
+            if not character.resonance_available():
+                self.wait(character, character.resonance_available, 2, action.name, raise_on_timeout=False)
+            character.send_resonance_key()
+            character.record_resonance_use()
+            character.sleep(0.35, check_combat=False)
 
     def heavy(self, character, action):
         if character.char_name == HSIN:
             label = Labels.hsin_h1 if action == A.Z1 else Labels.hsin_h2
             if action == A.Z:
                 raise ValueError('Hsin heavy attack requires Z1 or Z2')
-            self.wait(character, lambda: bool(character.task.find_one(label, threshold=0.7)), 2, action.name)
-            if not character.heavy_wait_highlight_down(1.2):
-                raise RuntimeError(f'Hsin: heavy attack not consumed: {action.name}')
+            self.wait(character, lambda: bool(character.task.find_one(label, threshold=0.7)), 1.5, action.name,
+                      raise_on_timeout=False)
+            character.heavy_wait_highlight_down(1.2)
         else:
             character.check_combat()
             character.task.mouse_down()
             try:
-                character.sleep(0.6)
+                character.sleep(0.5)
             finally:
                 character.task.mouse_up()
             character.sleep(0.05)
@@ -218,12 +246,14 @@ class HsinJinhsiShoreKeeperRotation:
     def liberation(self, character, action):
         if character.char_name == HSIN:
             label = Labels.hsin_lib1 if action == A.R1 else Labels.hsin_lib2
-            self.wait(character, lambda: bool(character.task.find_one(label, threshold=0.7)), 2, action.name)
-        self.wait(character, character.liberation_available, 3, action.name)
-        if not character.click_liberation(wait_if_cd_ready=0, send_click=False, click_f=False):
-            raise RuntimeError(f'{character.char_name}: liberation failed: {action.name}')
-        if character.char_name == HSIN:
-            character.lib2_cast_this_turn = action == A.R2
+            self.wait(character, lambda: bool(character.task.find_one(label, threshold=0.7)), 1.5, action.name,
+                      raise_on_timeout=False)
+        if character.liberation_available():
+            character.click_liberation(wait_if_cd_ready=0, send_click=False, click_f=False)
+            if character.char_name == HSIN:
+                character.lib2_cast_this_turn = action == A.R2
+        else:
+            character.logger.info(f'{character.char_name}: liberation {action.name} not available, continuing')
 
     def perform_action(self, character, action):
         if action in (A.A1, A.A2, A.A3, A.A4):
