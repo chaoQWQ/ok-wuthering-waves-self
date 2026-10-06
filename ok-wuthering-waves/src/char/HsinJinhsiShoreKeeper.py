@@ -140,6 +140,7 @@ class HsinJinhsiShoreKeeperRotation:
                     self.wait(character, character.task.in_team_and_world, 4, 'intro animation',
                               check_combat=False, raise_on_timeout=False)
         while self.action_index < len(self.step.actions):
+            character.check_combat()
             action = self.step.actions[self.action_index]
             self.perform_action(character, action)
             self.action_index += 1
@@ -183,6 +184,7 @@ class HsinJinhsiShoreKeeperRotation:
         start = time.time()
         duration = NORMAL_WINDOWS[character.char_name][action]
         while character.time_elapsed_accounting_for_freeze(start) < duration:
+            character.check_combat()
             character.click()
             character.sleep(0.08)
             character.task.next_frame()
