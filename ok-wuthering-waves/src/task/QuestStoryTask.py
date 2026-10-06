@@ -287,7 +287,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 self._stop_all_movement()
                 # 剧情对话的跳过按钮等 UI 会在鼠标静止后自动隐藏，轻晃鼠标让其重新显示再识别。
                 self._reveal_hidden_ui()
-                self._log_wait_state("当前界面不在队伍大世界（可能处于对话、加载或菜单），暂停移动等待界面恢复")
+                self._log_wait_state(frame, "当前界面不在队伍大世界（可能处于对话、加载或菜单），暂停移动等待界面恢复")
                 self.sleep(.2)
                 continue
             try:
@@ -957,12 +957,19 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         else:
             self.log_info(message)
 
-    def _log_wait_state(self, message: str):
+    def _log_wait_state(self, frame: np.ndarray, message: str):
         now = time.time()
         if now - getattr(self, "last_wait_state_log_time", 0.0) < 10.0:
             return
         self.last_wait_state_log_time = now
-        self.log_info(message)
+        matches = sum(1 for name in ("char_1_text", "char_2_text", "char_3_text")
+                      if self.find_one(name, threshold=.8) is not None)
+        self.log_info(f"{message} (队伍栏角色位识别 {matches}/3)")
+        try:
+            import cv2
+            cv2.imwrite(os.path.join("logs", "wait_state_debug.png"), frame)
+        except Exception as error:
+            self.log_debug(f"保存等待状态诊断截图失败: {error}")
 
     def _recover_game_window_focus(self):
         now = time.time()
