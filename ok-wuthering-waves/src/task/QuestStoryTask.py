@@ -115,34 +115,41 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.navigation_error_times: list[float] = []
         self.last_ui_reveal_time: float = 0.0
 
-    def in_team_and_world(self) -> bool:
-        in_team, _, _ = self.in_team()
-        if in_team:
+    def in_team(self):
+        result = super().in_team()
+        if result[0]:
+            self.last_strict_team_time = time.time()
             self.last_world_seen_time = time.time()
-            return True
+            return result
         # 主线剧情使用试用角色时队伍可能只有一人，右侧换人栏为空，队伍栏模板全部缺失。
-        # 用左上角小地图（地图界面、传送加载、黑边过场中均不可见）兜底判断是否在大世界。
+        # 战斗引擎依赖 in_team 的翻转判定解放动画等状态，这里用左上角小地图兜底：
+        # 小地图同样在解放过场、地图界面、传送加载与黑边动画中不可见，语义一致。
         frame = self.frame
-        world_seen = (frame is not None and frame.size > 0
-                      and not detect_letterbox(frame).is_letterbox and minimap_visible(frame))
-        if world_seen:
+        if (frame is not None and frame.size > 0 and not detect_letterbox(frame).is_letterbox
+                and minimap_visible(frame)):
             self.last_world_seen_time = time.time()
-            return True
-        # 小地图在雾天或 HUD 渐隐动画期间偶发识别失败，3 秒内确认过大世界的仍视为在世界。
-        return time.time() - getattr(self, "last_world_seen_time", 0.0) < 3.0
+            return True, 0, 1
+        # 小地图偶发识别失败（雾天/HUD 渐隐动画）时的短滞回。
+        if time.time() - getattr(self, "last_world_seen_time", 0.0) < 1.0:
+            return True, 0, 1
+        return result
 
     def load_chars(self):
-        loaded = super().load_chars()
-        if loaded:
-            return loaded
-        # 队伍栏不可见时基础加载必然失败，战斗永远无法开始；
-        # 大世界可见时用通用角色占满队伍槽位，执行普攻/声骸/解放的通用循环。
         current = self.chars[0] if self.chars else None
         if getattr(current, "story_fallback", False):
-            return True
+            if time.time() - getattr(self, "last_strict_team_time", 0.0) < 1.0:
+                self.chars = [None, None, None]  # 真实队伍栏重新出现，交还基础加载流程
+            else:
+                return True
+        in_team, _, _ = super().in_team()
+        if in_team:
+            return super().load_chars()
         frame = self.frame
-        if frame is None or frame.size == 0 or detect_letterbox(frame).is_letterbox or not minimap_visible(frame):
-            return None
+        if (frame is None or frame.size == 0 or detect_letterbox(frame).is_letterbox
+                or not minimap_visible(frame)
+                or time.time() - getattr(self, "last_strict_team_time", 0.0) < 2.0):
+            return super().load_chars()
+        self.load_hotkey()
         fallback = BaseChar(self, 0)
         fallback.is_current_char = True
         fallback.story_fallback = True
