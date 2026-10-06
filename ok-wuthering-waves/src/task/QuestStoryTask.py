@@ -108,6 +108,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.quest_combat_count = 0
         self.interaction_decision_waits = 0
         self.last_teleport_attempt_time: float = 0.0
+        self.teleport_retry_delay: float = 30.0
         self.jev_call_count: int = 0
         self.jev_total_tokens: int = 0
         self.jev_cost_estimate: float = 0.0
@@ -956,10 +957,26 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.navigation_progress.begin_recovery(side_key=self._decide_detour_side(self.frame))
             return
 
+    def _detect_teleport_unreachable(self) -> bool:
+        """识别地图任务面板的"附近信标无法快速到达"红色提示。"""
+        for box in self.ocr(0.68, 0.82, 1.0, 0.92, frame=self.frame):
+            text = box.name or ""
+            if "无法" in text or ("信标" in text and "到达" in text):
+                return True
+        return False
+
+    def _close_map_overlays(self):
+        for _ in range(3):
+            self.send_key("esc", down_time=0.1)
+            self.sleep(1.2)
+            if self.in_team_and_world():
+                break
+        self.navigation_progress = QuestProgressTracker()
+
     def _try_teleport_to_nearest_waypoint(self, current_distance: float) -> bool:
         now = time.time()
         last_attempt = getattr(self, "last_teleport_attempt_time", 0.0)
-        if now - last_attempt < 30.0:
+        if now - last_attempt < getattr(self, "teleport_retry_delay", 30.0):
             return False
 
         self.last_teleport_attempt_time = now
@@ -986,6 +1003,13 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.log_info("地图界面未能成功打开，继续执行常规地面寻路")
             return False
 
+        # 3.5 出现"附近信标无法快速到达"提示时放弃传送，关闭界面改为步行
+        if self._detect_teleport_unreachable():
+            self.log_info("附近信标无法快速到达，放弃传送改为步行前往任务点")
+            self.teleport_retry_delay = 150.0
+            self._close_map_overlays()
+            return False
+
         # 4. 在地图中检测前往/快速旅行按钮或寻找附近传送信标
         travel_clicked = False
         try:
@@ -1010,6 +1034,12 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                     pass
 
         if not travel_clicked:
+            # 点击传送点后仍无法前往的，同样放弃传送改为步行
+            if self._detect_teleport_unreachable():
+                self.log_info("附近信标无法快速到达，放弃传送改为步行前往任务点")
+                self.teleport_retry_delay = 150.0
+                self._close_map_overlays()
+                return False
             self.click(0.89, 0.92)
             self.sleep(1.0)
             if hasattr(self, "click_confirm"):
@@ -1025,6 +1055,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.send_key("esc")
             self.sleep(1.5)
 
+        self.teleport_retry_delay = 30.0
         self.navigation_progress = QuestProgressTracker()
         return True
 
