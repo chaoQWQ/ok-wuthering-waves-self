@@ -326,7 +326,64 @@ class TestQuestStoryTask(unittest.TestCase):
         dist = self.task._extract_quest_distance(dummy_frame, BeaconResult(found=False, x=0, y=0, width=0, height=0, confidence=0.0))
         self.assertEqual(dist, 62.0)
 
+    def test_detect_closer_to_target_dialog_on_real_image(self):
+        import os
+        import cv2
+        from ok.feature.Box import Box
+        from onnxocr.onnx_paddleocr import ONNXPaddleOcr
+        img_path = os.path.join(os.path.dirname(__file__), "images", "quest_teleport_closer_dialog.png")
+        self.assertTrue(os.path.exists(img_path))
+        frame = cv2.imread(img_path)
+
+        ocr_engine = ONNXPaddleOcr(use_openvino=True, use_angle_cls=False)
+
+        def real_ocr(x=0, y=0, to_x=1, to_y=1, match=None, frame=None, **kwargs):
+            target = frame if frame is not None else self.task.frame
+            h, w = target.shape[:2]
+            crop = target[int(h * y):int(h * to_y), int(w * x):int(w * to_x)]
+            res = ocr_engine.ocr(crop)
+            boxes = []
+            if res and res[0]:
+                for item in res[0]:
+                    pos, (text, score) = item
+                    boxes.append(Box(pos[0][0], pos[0][1], pos[2][0] - pos[0][0], pos[2][1] - pos[0][1], name=text, confidence=score))
+            return boxes
+
+        self.task.ocr = real_ocr
+        self.assertTrue(self.task._detect_closer_to_target_dialog(frame))
+
+        normal_img = os.path.join(os.path.dirname(__file__), "images", "quest_navigation_aligned.png")
+        if os.path.exists(normal_img):
+            normal_frame = cv2.imread(normal_img)
+            self.assertFalse(self.task._detect_closer_to_target_dialog(normal_frame))
+
+    def test_try_teleport_aborts_when_closer_prompt_triggers(self):
+        clicks = []
+        self.task.click = lambda *args, **kwargs: clicks.append(args)
+        in_team_status = [False]  # 初始在地图界面
+        self.task.in_team_and_world = lambda: in_team_status[0]
+        def do_close():
+            in_team_status[0] = True
+        self.task._close_map_overlays = do_close
+        self.task._detect_teleport_unreachable = lambda: False
+        self.task.find_best_match_in_box = lambda *args, **kwargs: None
+        self.task.click_traval_button = lambda: False
+        self.task._find_proceed_button = lambda *args, **kwargs: None
+
+        # 触发更接近目标点弹窗
+        self.task._detect_closer_to_target_dialog = lambda *args, **kwargs: True
+
+        result = self.task._try_teleport_to_nearest_waypoint(260.0)
+
+        # 验证放弃传送直接走过去，返回 False
+        self.assertFalse(result)
+        # 验证设置了较长的重试间隔 300 秒
+        self.assertEqual(self.task.teleport_retry_delay, 300.0)
+        # 验证成功调用退出地图界面回到大世界
+        self.assertTrue(in_team_status[0])
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

@@ -1028,6 +1028,53 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             return False
         return False
 
+    def _detect_closer_to_target_dialog(self, frame: Optional[np.ndarray] = None) -> bool:
+        """识别地图快速旅行确认弹窗中的当前位置更接近目标点提示。"""
+        try:
+            target_frame = frame if frame is not None else self.frame
+            if target_frame is None or target_frame.size == 0:
+                return False
+            for box in self.ocr(0.20, 0.35, 0.80, 0.60, frame=target_frame):
+                text = getattr(box, "name", "") or ""
+                if ("更接近" in text and "目标点" in text) or "更接近目标点" in text or "当前位置更接近" in text:
+                    return True
+        except Exception:
+            return False
+        return False
+
+    def _cancel_and_abort_teleport_for_closer_target(self, frame: Optional[np.ndarray] = None):
+        """取消快速旅行确认弹窗，退出地图界面，保持地面步行前往目标。"""
+        self.log_info("当前位置更接近目标点，放弃传送，改为直接步行走过去")
+        target_frame = frame if frame is not None else self.frame
+        cancel_boxes = []
+        if target_frame is not None and target_frame.size > 0:
+            try:
+                cancel_boxes = self.ocr(0.20, 0.55, 0.45, 0.70, match="取消", frame=target_frame)
+            except Exception:
+                cancel_boxes = []
+
+        if cancel_boxes:
+            self.click(cancel_boxes[0])
+        else:
+            self.click(0.335, 0.628)
+        self.sleep(0.5)
+
+        self.teleport_retry_delay = 300.0
+        self._close_map_overlays()
+
+    def _find_proceed_button(self, frame: Optional[np.ndarray] = None):
+        """寻找任务面板右下角前往按钮。"""
+        target_frame = frame if frame is not None else self.frame
+        if target_frame is None or target_frame.size == 0:
+            return None
+        try:
+            boxes = self.ocr(0.75, 0.85, 0.98, 0.98, match=["前往", "Proceed"], frame=target_frame)
+            if boxes:
+                return boxes[0]
+        except Exception:
+            return None
+        return None
+
     def _close_map_overlays(self):
         for _ in range(3):
             self.send_key("esc", down_time=0.1)
@@ -1073,6 +1120,10 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self._close_map_overlays()
             return False
 
+        if self._detect_closer_to_target_dialog():
+            self._cancel_and_abort_teleport_for_closer_target()
+            return False
+
         # 4. 在地图中检测前往/快速旅行按钮或寻找附近传送信标
         travel_clicked = False
         try:
@@ -1080,6 +1131,12 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 travel_clicked = True
         except Exception:
             pass
+
+        if travel_clicked:
+            self.sleep(0.8)
+            if self._detect_closer_to_target_dialog():
+                self._cancel_and_abort_teleport_for_closer_target()
+                return False
 
         if not travel_clicked:
             teleport_point = self.find_best_match_in_box(
@@ -1095,6 +1152,11 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                         travel_clicked = True
                 except Exception:
                     pass
+                if travel_clicked:
+                    self.sleep(0.8)
+                    if self._detect_closer_to_target_dialog():
+                        self._cancel_and_abort_teleport_for_closer_target()
+                        return False
 
         if not travel_clicked:
             # 点击传送点后仍无法前往的，同样放弃传送改为步行
@@ -1103,8 +1165,19 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 self.teleport_retry_delay = 150.0
                 self._close_map_overlays()
                 return False
-            self.click(0.89, 0.92)
+
+            proceed_btn = self._find_proceed_button()
+            if proceed_btn:
+                self.click(proceed_btn)
+            else:
+                self.click(0.89, 0.92)
             self.sleep(1.0)
+
+            # 点击前往后，若触发"当前位置更接近目标点"提示，取消弹窗并退出，直接走过去
+            if self._detect_closer_to_target_dialog():
+                self._cancel_and_abort_teleport_for_closer_target()
+                return False
+
             if hasattr(self, "click_confirm"):
                 self.click_confirm()
 
