@@ -459,6 +459,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.point_arrival_time = None
             self.point_approach_seconds = 0.0
             self.interaction_decision_waits = 0
+            self.goal_first_seen_time = time.time()
+            self.goal_seen_beacon = False
             self.log_info(f"任务要求已经更新：{self.guidance_text}")
 
         if self.area_search is None:
@@ -487,6 +489,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         beacon_result = detect_quest_beacon(frame)
         if beacon_result.found:
             self.quest_area_goal = None
+            self.goal_seen_beacon = True
         current_distance = self._extract_quest_distance(frame, beacon_result)
         if current_distance is None and not beacon_result.found:
             if re.search(r"跟随.*花朵|Follow.*flower", self.guidance_text, re.IGNORECASE):
@@ -585,8 +588,11 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             return
 
         # 移动或调整视角前，若画面中没有带距离的任务指引点，先按 V 重新追踪任务。
-        # 范围圈类型的目标没有指引点，跳过此行为。
-        if not beacon_result.found and self.quest_area_goal != self.guidance_text:
+        # 两类目标跳过此行为：已确认的范围圈类型目标；目标更新 20 秒内从未出现
+        # 过指引点的无指引点目标（如"前往军营"等范围圈任务）。
+        area_suspect = (not getattr(self, "goal_seen_beacon", False)
+                        and time.time() - getattr(self, "goal_first_seen_time", 0.0) > 20.0)
+        if not beacon_result.found and self.quest_area_goal != self.guidance_text and not area_suspect:
             now_v = time.time()
             if now_v - getattr(self, "last_v_retrack_time", 0.0) > 12.0:
                 self.last_v_retrack_time = now_v
@@ -743,14 +749,20 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
         # 10. 视野与小地图暂无目标标识：先垂直扫寻（任务目标常在建筑上方，
         # 水平旋转找不到），扫不到再把镜头恢复原位后水平旋转搜寻信标。
-        # 范围圈类型的目标没有指引点，跳过垂直扫寻直接水平旋转，
+        # 范围圈类型/无指引点目标跳过垂直扫寻，直接水平旋转，
         # 让范围圈重新进入小地图识别范围。
-        if self.quest_area_goal != self.guidance_text and self._pitch_toward_quest_beacon():
+        if not area_suspect and self.quest_area_goal != self.guidance_text and self._pitch_toward_quest_beacon():
             return
         now = time.time()
         if now - self.last_search_log_time > 2.0:
             self.last_search_log_time = now
             self.log_info("视野暂未发现任务信标，正在原地水平旋转视角搜寻目标方位...")
+            # 定期保存当前画面用于诊断范围圈/信标识别失败原因
+            try:
+                import cv2 as _cv2
+                _cv2.imwrite(os.path.join("logs", "rotate_debug.png"), frame)
+            except Exception:
+                pass
         if self.target_search.turn_count == 10:
             self.log_info("长时间未发现目标，尝试按 V 键重新追踪任务指引")
             self.send_key("v", down_time=0.1)
