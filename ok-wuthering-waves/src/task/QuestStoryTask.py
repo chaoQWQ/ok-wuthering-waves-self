@@ -233,7 +233,11 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                     import win32api
                     import win32con
                     import win32gui
-                    hwnd = win32gui.FindWindow('UnrealWindow', '鸣潮')
+                    hwnd_window = getattr(self, "hwnd", None)
+                    hwnd = getattr(hwnd_window, "hwnd", 0) if hwnd_window is not None else 0
+                    if not hwnd:
+                        # 窗口标题含尾随空格，FindWindow 精确匹配会失败，按窗口类名兜底
+                        hwnd = win32gui.FindWindow('UnrealWindow', None)
                     if hwnd:
                         pt = win32gui.ClientToScreen(hwnd, (int(cx), int(cy)))
                         win32api.SetCursorPos(pt)
@@ -241,6 +245,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                         win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
                         self.sleep(0.15)
                         win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+                        self.log_debug(f"物理鼠标点击剧情跳过按钮 ({int(cx)}, {int(cy)})")
                     else:
                         self.click_box(skip_box, down_time=0.15, after_sleep=0.3)
                     self.sleep(0.3)
@@ -1377,6 +1382,23 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             cost_display = f"${cost:.4f}" if cost > 0 else f"{tokens} tokens"
             self.info_set("JEV 额度消耗", cost_display)
 
+
+    def skip_confirm(self) -> bool:
+        if self.click_skip_dialog_confirm():
+            self.confirm_dialog_checked = True
+            return True
+        if skip_button := self.find_one('skip_quest_confirm', threshold=0.8):
+            self.sleep(0.2)
+            self.click(skip_button)
+            return True
+        # 不用 in_team_and_world 判断：小地图兜底会让剧情对话状态误判为已回到大世界。
+        # 跳过完成的准据是所有跳过入口都已从画面上消失。
+        if self.find_skip() is not None:
+            return False
+        frame = self.frame
+        if frame is None or frame.size == 0:
+            return False
+        return not detect_top_left_skip_button(frame).found
 
     def skip_message(self) -> bool:
         if self.find_one("message", horizontal_variance=0.15):
