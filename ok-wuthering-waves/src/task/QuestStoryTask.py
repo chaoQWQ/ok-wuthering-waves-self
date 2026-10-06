@@ -111,6 +111,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.clef_call_count: int = 0
         self.clef_total_tokens: int = 0
         self.navigation_error_times: list[float] = []
+        self.last_ui_reveal_time: float = 0.0
 
     def is_game_window_active(self) -> bool:
         try:
@@ -171,6 +172,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.clef_call_count = 0
         self.clef_total_tokens = 0
         self.navigation_error_times = []
+        self.last_ui_reveal_time = 0.0
         self.info_set("JEV 调用次数", "0 次")
         self.info_set("JEV 额度消耗", "0 tokens")
         self.info_set("Clef 调用次数", "0 次")
@@ -282,6 +284,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             # 4. 判定大世界任务导航与交互
             if not self.in_team_and_world():
                 self._stop_all_movement()
+                # 剧情对话的跳过按钮等 UI 会在鼠标静止后自动隐藏，轻晃鼠标让其重新显示再识别。
+                self._reveal_hidden_ui()
                 self.sleep(.2)
                 continue
             try:
@@ -1076,6 +1080,36 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             from pynput import mouse
             controller = mouse.Controller()
             controller.move(delta_x, 0)
+
+    def _reveal_hidden_ui(self, interval: float = 1.5) -> bool:
+        """剧情界面按钮在鼠标静止数秒后自动淡出，轻晃鼠标（净位移为零）让 UI 重新显示。
+
+        返回本次调用是否执行了晃动；晃动后强制取新画面，下一轮循环即可识别恢复显示的按钮。
+        """
+        now = time.time()
+        if now - self.last_ui_reveal_time < interval:
+            return False
+        if not self.is_game_window_active():
+            return False
+        self.last_ui_reveal_time = now
+        try:
+            import win32api
+            import win32con
+            win32api.mouse_event(win32con.MOUSEEVENTF_MOVE, 6, 0, 0, 0)
+            self.sleep(0.05)
+            win32api.mouse_event(win32con.MOUSEEVENTF_MOVE, -6, 0, 0, 0)
+        except Exception:
+            try:
+                from pynput import mouse
+                controller = mouse.Controller()
+                controller.move(6, 0)
+                self.sleep(0.05)
+                controller.move(-6, 0)
+            except Exception:
+                return False
+        self.log_debug("鼠标静止导致剧情 UI 隐藏，轻晃鼠标刷新界面显示")
+        self.next_frame()
+        return True
 
     def _apply_movement(self, keys: list, duration: float, progress_tracker=None, jump=False):
         if jump and duration < .08:
