@@ -580,6 +580,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                     self._apply_movement(["w"], .15)
                     return
             self._stop_all_movement()
+            self.log_info(f"已到达任务目标附近 (距离 {current_distance:.1f} 米)，停止移动，等待交互触发")
             if self.point_arrival_time is None:
                 self.point_arrival_time = time.time()
             elif time.time() - self.point_arrival_time >= 10:
@@ -805,7 +806,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.sleep(0.2)
 
     def _read_quest_goal(self, frame: np.ndarray, force: bool = False):
-        if not force and time.time() - self.guidance_last_read < 2:
+        if not force and time.time() - getattr(self, "guidance_last_read", 0.0) < 2:
             return
         height, width = frame.shape[:2]
         region = Box(round(width * .01), round(height * .23), round(width * .24), round(height * .16))
@@ -1419,7 +1420,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
     def _extract_quest_distance(self, frame: np.ndarray, beacon_result: BeaconResult) -> Optional[float]:
         boxes = self.ocr(.01, .23, .20, .43, frame=frame)
         for box in boxes:
-            if box.x <= frame.shape[1] * .05:
+            if getattr(box, "x", 0) <= frame.shape[1] * .05:
                 distance = parse_distance_text(box.name, require_unit=True)
                 if distance is not None:
                     return distance
@@ -1773,7 +1774,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         return action.action_type
 
     def _record_jev_usage(self, action: QuestAction):
-        if action.called_model:
+        if action.called_model or getattr(action, "total_tokens", 0) > 0 or getattr(action, "cost", 0.0) > 0:
             count = getattr(self, "jev_call_count", 0) + 1
             tokens = getattr(self, "jev_total_tokens", 0) + getattr(action, "total_tokens", 0)
             cost = getattr(self, "jev_cost_estimate", 0.0) + getattr(action, "cost", 0.0)

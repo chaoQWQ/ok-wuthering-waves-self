@@ -134,6 +134,18 @@ class TestQuestVision(unittest.TestCase):
         self.assertGreater(res.x, 450)
         self.assertLess(res.x, 550)
 
+    def test_detect_dialog_advance_indicator_positive_1080p_debug(self):
+        debug_path = os.path.join(os.path.dirname(__file__), "..", "logs", "wait_state_debug.png")
+        if not os.path.exists(debug_path):
+            self.skipTest("1080p等待状态诊断图片不存在")
+        frame = cv2.imread(debug_path)
+        res = detect_dialog_advance_indicator(frame)
+        self.assertTrue(res.found)
+        self.assertGreaterEqual(res.confidence, 0.75)
+        self.assertGreater(res.x, 900)
+        self.assertLess(res.x, 1000)
+        self.assertGreater(res.y, 1000)
+
     def test_detect_dialog_advance_indicator_negative(self):
         if not os.path.exists(self.img_normal_path):
             self.skipTest("大世界样本图片不存在")

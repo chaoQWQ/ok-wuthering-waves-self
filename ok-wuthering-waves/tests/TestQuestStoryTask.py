@@ -5,13 +5,19 @@ from ok import Logger
 
 from src.task.QuestStoryTask import QuestStoryTask
 from src.utils.QuestProgressTracker import QuestProgressTracker
+from src.utils.QuestTargetSearch import QuestTargetSearch
+from src.utils.QuestDecisionSession import QuestDecisionSession
 
 
 class DummyExecutor:
     paused = False
+    frame = np.zeros((720, 1280, 3), dtype=np.uint8)
 
     def sleep(self, seconds):
         pass
+
+    def next_frame(self, time_out=6):
+        return self.frame
 
 
 class TestQuestStoryTask(unittest.TestCase):
@@ -19,6 +25,7 @@ class TestQuestStoryTask(unittest.TestCase):
     def setUp(self):
         self.task = QuestStoryTask.__new__(QuestStoryTask)
         self.task._executor = DummyExecutor()
+        self.task._trigger_ai_decision = lambda *args, **kwargs: None
         self.task.config = {
             "Auto Combat in Quest": True,
             "Auto Skip Dialog": True,
@@ -43,6 +50,9 @@ class TestQuestStoryTask(unittest.TestCase):
         self.task.jev_call_count = 0
         self.task.jev_total_tokens = 0
         self.task.jev_cost_estimate = 0.0
+        self.task.guidance_last_read = 0.0
+        self.task.guidance_text = ""
+        self.task.useless_interactions = set()
         self.task.logger = Logger.get_logger("test")
         self.task.ui_logs = []
         self.task.info_set = lambda k, v: self.task.ui_logs.append((k, v))
@@ -53,6 +63,20 @@ class TestQuestStoryTask(unittest.TestCase):
         self.task.in_team = lambda: (True, 0, 3)
         self.task.sleep = lambda s: None
         self.task.is_game_window_active = lambda: True
+        self.task.ocr_default_threshold = 0.5
+        self.task.ocr = lambda *args, **kwargs: []
+        self.task.find_one = lambda *args, **kwargs: None
+        self.task.climbing_start_time = 0.0
+        self.task.climbing_progress = QuestProgressTracker(require_distance=False)
+        self.task.target_search = QuestTargetSearch()
+        self.task.area_search = None
+        self.task.decision_session = QuestDecisionSession()
+        self.task.last_motion = None
+        self.task.last_interaction_text = ""
+        self.task.point_arrival_time = None
+        self.task.point_approach_seconds = 0.0
+        self.task.quest_combat_count = 0
+        self.task.interaction_decision_waits = 0
 
     def test_task_states_definition(self):
         self.assertEqual(QuestStoryTask.STATE_IDLE, "IDLE")
@@ -187,7 +211,7 @@ class TestQuestStoryTask(unittest.TestCase):
         if not os.path.exists(img_path):
             self.skipTest("对齐信标测试图片不存在")
         frame = cv2.imread(img_path)
-        self.task._extract_quest_distance = lambda f, b: 12.0
+        self.task._extract_quest_distance = lambda f, b: 15.0
         self.task._handle_world_navigation_and_interaction(frame)
         self.assertTrue(any(act == "down" and k == "w" for act, k in self.task.sent_keys))
         # 验证距离小于等于 20 米时绝对不按 shift 冲刺
@@ -238,6 +262,7 @@ class TestQuestStoryTask(unittest.TestCase):
         frame = cv2.imread(img_path)
         self.task._extract_quest_distance = lambda f, b: 62.0
         # 注入路过出现 F 键状态
+        self.task._read_interaction = lambda f: (True, "调查")
         self.task.find_f_with_text = lambda: True
         self.task._handle_world_navigation_and_interaction(frame)
         # 验证未进入交互状态，保持寻路导航并忽略路过交互

@@ -274,15 +274,13 @@ _QUEST_DISTANCE_LINE = re.compile(r"\s*(\d+(?:\.\d+)?)\s*(?:米|m|M)\s*[▲△�
 def parse_distance_text(text: str, *, require_unit: bool = False) -> Optional[float]:
     if not text:
         return None
-    if require_unit:
-        match = _QUEST_DISTANCE_LINE.fullmatch(text)
-        return float(match.group(1)) if match else None
     match = _DISTANCE_REGEX.search(text)
     if match:
         return float(match.group(1))
-    digits_match = re.search(r"(\d+(?:\.\d+)?)", text)
-    if digits_match:
-        return float(digits_match.group(1))
+    if not require_unit:
+        digits_match = re.search(r"(\d+(?:\.\d+)?)", text)
+        if digits_match:
+            return float(digits_match.group(1))
     return None
 
 
@@ -446,7 +444,7 @@ def detect_interact_action(
     frame: np.ndarray,
     search_box: Optional[Tuple[int, int, int, int]] = None,
     template_path: Optional[str] = None,
-    threshold: float = 0.85,
+    threshold: float = 0.80,
     ocr_boxes=None,
     key_box: Optional[Tuple[int, int, int, int]] = None,
 ) -> InteractActionResult:
@@ -561,41 +559,45 @@ def detect_dialog_advance_indicator(
     sx = int(frame_w * 0.40)
     ex = int(frame_w * 0.60)
     sy = int(frame_h * 0.70)
-    ey = int(frame_h * 0.95)
+    ey = int(frame_h * 0.99)
 
     roi = frame[sy:ey, sx:ex]
     gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
 
-    # 依据画面分辨率自适应缩放模板（以 1024 宽度为基准尺寸）
-    scale = frame_w / 1024.0
-    scaled_w = max(5, int(tpl_w * scale))
-    scaled_h = max(5, int(tpl_h * scale))
+    # 依据画面分辨率自适应缩放模板（以 1024 宽度为基准尺寸进行多尺度匹配）
+    base_scale = frame_w / 1024.0
+    best_candidate: Optional[Tuple[int, int, int, int, float]] = None
+    best_confidence: float = 0.0
 
-    scaled_template = cv2.resize(template, (scaled_w, scaled_h), interpolation=cv2.INTER_AREA)
+    for factor in (0.9, 1.0, 1.1):
+        scale = base_scale * factor
+        scaled_w = max(5, round(tpl_w * scale))
+        scaled_h = max(5, round(tpl_h * scale))
 
-    if gray_roi.shape[0] < scaled_h or gray_roi.shape[1] < scaled_w:
-        return DialogAdvanceResult(
-            found=False,
-            x=0,
-            y=0,
-            width=0,
-            height=0,
-            confidence=0.0
-        )
+        if gray_roi.shape[0] < scaled_h or gray_roi.shape[1] < scaled_w:
+            continue
 
-    match_result = cv2.matchTemplate(gray_roi, scaled_template, cv2.TM_CCOEFF_NORMED)
-    _, max_val, _, max_loc = cv2.minMaxLoc(match_result)
+        scaled_template = cv2.resize(template, (scaled_w, scaled_h), interpolation=cv2.INTER_LINEAR)
+        match_result = cv2.matchTemplate(gray_roi, scaled_template, cv2.TM_CCOEFF_NORMED)
+        _, max_val, _, max_loc = cv2.minMaxLoc(match_result)
 
-    if max_val >= threshold:
-        match_x = sx + max_loc[0]
-        match_y = sy + max_loc[1]
+        if max_val > best_confidence:
+            best_confidence = float(max_val)
+
+        if max_val >= threshold and (best_candidate is None or max_val > best_candidate[4]):
+            match_x = sx + max_loc[0]
+            match_y = sy + max_loc[1]
+            best_candidate = (match_x, match_y, scaled_w, scaled_h, float(max_val))
+
+    if best_candidate is not None:
+        bx, by, bw, bh, bconf = best_candidate
         return DialogAdvanceResult(
             found=True,
-            x=match_x,
-            y=match_y,
-            width=scaled_w,
-            height=scaled_h,
-            confidence=float(max_val)
+            x=bx,
+            y=by,
+            width=bw,
+            height=bh,
+            confidence=bconf
         )
 
     return DialogAdvanceResult(
@@ -604,7 +606,7 @@ def detect_dialog_advance_indicator(
         y=0,
         width=0,
         height=0,
-        confidence=float(max_val)
+        confidence=best_confidence
     )
 
 
