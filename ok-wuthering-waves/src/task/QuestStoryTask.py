@@ -490,6 +490,11 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         if beacon_result.found:
             self.quest_area_goal = None
             self.goal_seen_beacon = True
+            self.beacon_seen_streak = min(3, getattr(self, "beacon_seen_streak", 0) + 1)
+            self.last_beacon_seen_time = time.time()
+            self.last_beacon_cy_ratio = (beacon_result.y + beacon_result.height / 2) / frame.shape[0]
+        else:
+            self.beacon_seen_streak = 0
         current_distance = self._extract_quest_distance(frame, beacon_result)
         if current_distance is None and not beacon_result.found:
             if re.search(r"跟随.*花朵|Follow.*flower", self.guidance_text, re.IGNORECASE):
@@ -588,11 +593,17 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             return
 
         # 移动或调整视角前，若画面中没有带距离的任务指引点，先按 V 重新追踪任务。
-        # 两类目标跳过此行为：已确认的范围圈类型目标；目标更新 20 秒内从未出现
-        # 过指引点的无指引点目标（如"前往军营"等范围圈任务）。
-        area_suspect = (not getattr(self, "goal_seen_beacon", False)
+        # 三类情况跳过：范围圈类型目标；目标更新 20 秒内从未出现信标；
+        # 近距离(<40米)信标消失——那是信标转换成了范围圈，按 V 无意义。
+        beacon_confirmed = (getattr(self, "goal_seen_beacon", False)
+                            and getattr(self, "beacon_seen_streak", 0) >= 2
+                            and time.time() - getattr(self, "last_beacon_seen_time", 0.0) < 90.0)
+        area_suspect = (not beacon_confirmed
                         and time.time() - getattr(self, "goal_first_seen_time", 0.0) > 20.0)
-        if not beacon_result.found and self.quest_area_goal != self.guidance_text and not area_suspect:
+        near_conversion = (current_distance is not None and current_distance < 40
+                           and getattr(self, "last_beacon_cy_ratio", 1.0) >= 0.25)
+        if (not beacon_result.found and self.quest_area_goal != self.guidance_text
+                and not area_suspect and not near_conversion):
             now_v = time.time()
             if now_v - getattr(self, "last_v_retrack_time", 0.0) > 12.0:
                 self.last_v_retrack_time = now_v
@@ -749,9 +760,11 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
         # 10. 视野与小地图暂无目标标识：先垂直扫寻（任务目标常在建筑上方，
         # 水平旋转找不到），扫不到再把镜头恢复原位后水平旋转搜寻信标。
-        # 范围圈类型/无指引点目标跳过垂直扫寻，直接水平旋转，
-        # 让范围圈重新进入小地图识别范围。
-        if not area_suspect and self.quest_area_goal != self.guidance_text and self._pitch_toward_quest_beacon():
+        # 跳过条件：范围圈类型目标、无指引点目标、近距离信标转换范围圈。
+        prefer_down = getattr(self, "last_beacon_cy_ratio", 1.0) > 0.75
+        if (not area_suspect and not near_conversion
+                and self.quest_area_goal != self.guidance_text
+                and self._pitch_toward_quest_beacon(prefer_down=prefer_down)):
             return
         now = time.time()
         if now - self.last_search_log_time > 2.0:
@@ -1437,11 +1450,12 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             controller = mouse.Controller()
             controller.move(0, delta_y)
 
-    def _pitch_toward_quest_beacon(self) -> bool:
+    def _pitch_toward_quest_beacon(self, prefer_down: bool = False) -> bool:
         """画面中看不到带距离的任务指引点时，垂直调整镜头把它带进画面。
 
-        先向上后向下交替小步尝试；连续多次仍看不到则把镜头俯仰恢复到
-        扫寻前的位置并暂缓，由常规水平旋转寻路继续。
+        扫寻方向按指引点最后出现的位置决定（从画面顶部出画先向上，
+        从底部出画先向下），先向优先方向扫 4 步再反向扫 4 步；连续多次
+        仍看不到则把镜头俯仰恢复到扫寻前的位置并暂缓，由常规寻路继续。
         """
         attempts = getattr(self, "vision_pitch_attempts", 0)
         now = time.time()
@@ -1458,7 +1472,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.vision_pitch_offset = 0
         self.vision_pitch_attempts = attempts + 1
         self.last_vision_pitch_time = now
-        delta_y = -80 if attempts < 4 else 80
+        first, second = (80, -80) if prefer_down else (-80, 80)
+        delta_y = first if attempts < 4 else second
         self.vision_pitch_offset = getattr(self, "vision_pitch_offset", 0) + delta_y
         self.log_debug(f"镜头未看到带距离的任务指引点，垂直调整视角 dy={delta_y}")
         self._apply_camera_pitch(delta_y)
@@ -1666,7 +1681,13 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             if has_f_button:
                 self.interaction_decision_waits += 1
                 if self.interaction_decision_waits >= 3:
-                    raise RuntimeError(f"已识别交互 {action_text}，三次任务判断仍未确认可执行操作")
+                    # 三次任务判断仍未确认：剧情 NPC 的交互通常就是推进方式，
+                    # 直接按 F 尝试推进，避免在识别循环中原地卡死
+                    self.log_info(f"已识别交互 {action_text}，三次任务判断未确认，尝试直接按 F 推进")
+                    self.interaction_decision_waits = 0
+                    self.send_key("f", down_time=0.1)
+                    self.sleep(1.0)
+                    return "observe"
             self.log_info("任务判断置信度不足，继续取得新的画面信息")
             return "observe"
         if not self.is_game_window_active():
