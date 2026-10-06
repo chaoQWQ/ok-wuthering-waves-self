@@ -959,10 +959,16 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
     def _detect_teleport_unreachable(self) -> bool:
         """识别地图任务面板的"附近信标无法快速到达"红色提示。"""
-        for box in self.ocr(0.68, 0.82, 1.0, 0.92, frame=self.frame):
-            text = box.name or ""
-            if "无法" in text or ("信标" in text and "到达" in text):
-                return True
+        try:
+            frame = self.frame
+            if frame is None or frame.size == 0:
+                return False
+            for box in self.ocr(0.68, 0.82, 1.0, 0.92, frame=frame):
+                text = getattr(box, "name", "") or ""
+                if "无法" in text or ("信标" in text and "到达" in text):
+                    return True
+        except Exception:
+            return False
         return False
 
     def _close_map_overlays(self):
