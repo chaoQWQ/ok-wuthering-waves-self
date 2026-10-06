@@ -21,6 +21,10 @@ class QuestAreaObservation:
         return math.hypot(self.center_x - self.player_x, self.center_y - self.player_y)
 
 
+class QuestAreaStuckError(RuntimeError):
+    """区域搜索的当前路径点被持续阻挡，应跳过该点继续搜索"""
+
+
 def minimap_box(frame: np.ndarray) -> tuple[int, int, int, int]:
     height, width = frame.shape[:2]
     return 0, 0, int(width * .16), int(height * .24)
@@ -318,7 +322,7 @@ class QuestAreaSearch:
         else:
             self.movement_attempts += 1
             if self.movement_attempts >= 28:
-                raise RuntimeError("持续移动未能接近区域搜索点，停止搜索")
+                raise QuestAreaStuckError("持续移动未能接近区域搜索点，跳过该搜索点")
         return "walk", relative, distance
 
     def record_movement(self, keys: list[str], duration: float):

@@ -12,6 +12,7 @@ class QuestProgressTracker:
     stationary_observed: bool = False
     jump_attempts: int = 0
     recovery_decision_waits: int = 0
+    recovery_side_key: Optional[str] = None
 
     def observe(self, distance: Optional[float]):
         if distance is None or self.recovery_step is not None:
@@ -40,13 +41,14 @@ class QuestProgressTracker:
         distance_known = self.best_distance is not None or not self.require_distance
         return distance_known and self.stationary_observed and self.movement_seconds >= 3.0 - 1e-6
 
-    def begin_recovery(self):
+    def begin_recovery(self, side_key: Optional[str] = None):
         if self.recovery_step is not None:
             return
         if self.recovery_count >= 4:
             raise RuntimeError("任务距离持续没有缩减，四次绕行均未通过，请检查任务目标附近的道路")
         self.recovery_count += 1
         self.recovery_step = 0
+        self.recovery_side_key = side_key if side_key in ("a", "d") else None
         self.movement_seconds = 0.0
         self.recovery_decision_waits = 0
 
@@ -60,7 +62,7 @@ class QuestProgressTracker:
     def next_recovery_movement(self) -> tuple[list[str], float]:
         if self.recovery_step is None:
             raise RuntimeError("绕行尚未开始")
-        side_key = "a" if self.recovery_count % 2 else "d"
+        side_key = self.recovery_side_key or ("a" if self.recovery_count % 2 else "d")
         movements = (
             (["s"], 0.4),
             ([side_key], 0.5),

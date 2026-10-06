@@ -92,6 +92,29 @@ class TestQuestProgressTracker(unittest.TestCase):
                     tracker.begin_recovery()
         self.fail("持续受阻没有终止")
 
+    def test_recovery_side_key_overrides_alternating_direction(self):
+        tracker = QuestProgressTracker()
+        tracker.begin_recovery(side_key="a")
+        self.assertEqual(tracker.next_recovery_movement()[0], ["s"])
+        self.assertEqual(tracker.next_recovery_movement()[0], ["a"])
+        for _ in range(4):
+            tracker.next_recovery_movement()
+        self.assertIsNone(tracker.recovery_step)
+        tracker.begin_recovery(side_key="d")
+        self.assertEqual(tracker.next_recovery_movement()[0], ["s"])
+        self.assertEqual(tracker.next_recovery_movement()[0], ["d"])
+
+    def test_recovery_falls_back_to_alternating_direction(self):
+        tracker = QuestProgressTracker()
+        tracker.begin_recovery(side_key="d")
+        self.assertEqual(tracker.next_recovery_movement()[0], ["s"])
+        self.assertEqual(tracker.next_recovery_movement()[0], ["d"])
+        for _ in range(4):
+            tracker.next_recovery_movement()
+        tracker.begin_recovery(side_key="forward")
+        self.assertEqual(tracker.next_recovery_movement()[0], ["s"])
+        self.assertEqual(tracker.next_recovery_movement()[0], ["d"])
+
     def test_recorded_obstruction_limits_jump_attempts(self):
         tracker = QuestProgressTracker()
         stationary = [distance for _, distance in self.movements if distance == 5]

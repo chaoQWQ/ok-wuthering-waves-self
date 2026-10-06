@@ -1,9 +1,11 @@
+import base64
 import json
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from typing import Optional
 
+import cv2
 import numpy as np
 
 from src.utils.QuestOcrPrivacy import sanitize_quest_text
@@ -398,3 +400,112 @@ def decide_quest_action(
         ocr_text=ocr_text,
         context=context,
     )
+
+
+DETOUR_DIRECTIONS = ("left", "right", "back")
+DETOUR_SIDE_KEYS = {"left": "a", "right": "d", "back": None}
+DEFAULT_CLEF_MODEL = "clef"
+
+
+def encode_frame_as_data_url(frame: np.ndarray, max_width: int = 1280, jpeg_quality: int = 85) -> str:
+    if frame is None or frame.size == 0:
+        raise ValueError("输入画面数组不能为空")
+    height, width = frame.shape[:2]
+    if width > max_width:
+        frame = cv2.resize(frame, (max_width, round(height * max_width / width)), interpolation=cv2.INTER_AREA)
+    success, buffer = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), jpeg_quality])
+    if not success:
+        raise ValueError("画面编码 JPEG 失败")
+    return "data:image/jpeg;base64," + base64.b64encode(buffer.tobytes()).decode("ascii")
+
+
+def build_detour_payload(quest_goal_text: str, context: Optional[dict] = None) -> dict:
+    state = sanitize_quest_context({
+        "quest_goal": quest_goal_text,
+        "situation": "The character is walking toward the quest target but movement is confirmed blocked. "
+                     "Look at the game screenshot and judge which side has open ground to walk around the obstacle. "
+                     "The camera faces the quest direction: left and right are relative to the screen, "
+                     "back means no passable side is visible and the character should retreat first.",
+        "observations": context or {},
+    })
+    return {
+        "questions": {
+            "direction": {
+                "type": "choice",
+                "instructions": "Choose the detour direction with the best chance to pass the obstacle based on the screenshot.",
+                "criteria": {
+                    "left": "The left side of the screen visibly offers open ground or a path around the obstacle.",
+                    "right": "The right side of the screen visibly offers open ground or a path around the obstacle.",
+                    "back": "Both sides are blocked; retreat backward first and re-approach later.",
+                },
+            },
+        },
+        "state": state,
+    }
+
+
+def parse_detour_response(response_json: dict) -> dict:
+    if not isinstance(response_json, dict):
+        raise ValueError("模型返回数据必须为字典格式")
+    if response_json.get("success") is False:
+        errors = response_json.get("errors")
+        raise RuntimeError(f"API 请求失败: {errors}")
+    payload = response_json.get("result") if isinstance(response_json.get("result"), dict) else response_json
+    answers = payload.get("answers")
+    if not isinstance(answers, dict):
+        raise ValueError("模型返回缺少 answers 字段")
+    answer = answers.get("direction")
+    if not isinstance(answer, dict):
+        raise ValueError("模型返回缺少 direction 字段")
+    if answer.get("type") == "noul":
+        return {"direction": "back", "confidence": 0.0, "probabilities": {}, "called_model": True}
+    choice = answer.get("choice")
+    if choice not in DETOUR_DIRECTIONS:
+        raise ValueError(f"未知的绕行方向: {choice}")
+    probabilities = answer.get("probabilities")
+    confidence = float(answer.get("confidence", 0) or 0)
+    if not isinstance(probabilities, dict) or not 0 <= confidence <= 1:
+        raise ValueError("模型返回的绕行方向置信度或概率无效")
+    usage = payload.get("usage", {}) if isinstance(payload.get("usage"), dict) else {}
+    input_tokens = int(usage.get("input_tokens", 0) or usage.get("prompt_tokens", 0) or 0)
+    output_tokens = int(usage.get("output_tokens", 0) or usage.get("completion_tokens", 0) or 0)
+    return {
+        "direction": choice,
+        "confidence": confidence,
+        "probabilities": {str(key): float(value) for key, value in probabilities.items()},
+        "total_tokens": int(usage.get("total_tokens", input_tokens + output_tokens) or 0),
+        "called_model": True,
+    }
+
+
+def decide_detour_direction(
+    frame: np.ndarray,
+    quest_goal_text: str,
+    api_url: str,
+    api_key: str,
+    model: str = DEFAULT_CLEF_MODEL,
+    timeout_seconds: float = 12.0,
+    context: Optional[dict] = None,
+) -> dict:
+    endpoint = api_url.strip() if api_url and api_url.strip() else ""
+    if not endpoint.startswith("http"):
+        raise ValueError("视觉决策 API 端点地址无效")
+    if not api_key:
+        raise ValueError("视觉决策 API Key 密钥不能为空")
+    payload = build_detour_payload(quest_goal_text, context)
+    payload["model"] = model if model in ("clef", "clef-flash") else DEFAULT_CLEF_MODEL
+    payload["images"] = [encode_frame_as_data_url(frame)]
+    req_body = json.dumps(payload).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+    req = urllib.request.Request(endpoint, data=req_body, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_seconds) as response:
+            if response.status != 200:
+                raise RuntimeError(f"API 请求失败，HTTP 状态码: {response.status}")
+            resp_dict = json.loads(response.read().decode("utf-8"))
+    except urllib.error.URLError as err:
+        raise RuntimeError(f"连接视觉决策 API 失败: {err}") from err
+    return parse_detour_response(resp_dict)

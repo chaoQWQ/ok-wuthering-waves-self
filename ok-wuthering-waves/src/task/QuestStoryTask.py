@@ -8,8 +8,18 @@ from ok import Box, Logger
 from src.task.BaseCombatTask import BaseCombatTask, CharDeadException, NotInCombatException
 from src.task.SkipBaseTask import SkipBaseTask
 from src.task.WWOneTimeTask import WWOneTimeTask
-from src.utils.QuestDecisionEngine import QuestAction, decide_quest_action
-from src.utils.QuestAreaSearch import QuestAreaSearch, detect_quest_area, minimap_box
+from src.utils.QuestDecisionEngine import (
+    DETOUR_SIDE_KEYS,
+    QuestAction,
+    decide_detour_direction,
+    decide_quest_action,
+)
+from src.utils.QuestAreaSearch import (
+    QuestAreaSearch,
+    QuestAreaStuckError,
+    detect_quest_area,
+    minimap_box,
+)
 from src.utils.QuestDecisionSession import QuestDecisionSession
 from src.utils.QuestNavigator import calculate_camera_turn, compute_movement_action
 from src.utils.QuestOcrPrivacy import is_named_quest_interaction, prepare_quest_ocr_frame, quest_goal_from_lines, sanitize_quest_text
@@ -56,6 +66,9 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             "Letterbox Freeze Wait Seconds": 30.0,
             "API URL": "https://api.typesafe.ai/v1/systemone",
             "API Key": "",
+            "Vision API URL": "",
+            "Vision API Key": "",
+            "Vision Model": "clef",
             "Camera Sensitivity": 1.0,
             "Switch to First Character for Movement": True,
         }
@@ -65,6 +78,9 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             "Letterbox Freeze Wait Seconds": "上下黑边剧情动画持续静止触发交互决策的等待秒数",
             "API URL": "jev 文字决策 API 地址",
             "API Key": "jev 授权密钥",
+            "Vision API URL": "视觉绕行决策 API 地址（例如 https://api.cloudflare.com/client/v4/accounts/你的账户ID/ai/run/@cf/cloudflare/clef），留空时使用固定绕行路线",
+            "Vision API Key": "视觉绕行决策授权密钥，留空时不发送任何游戏画面截图",
+            "Vision Model": "视觉决策模型名称：clef 或 clef-flash",
             "Camera Sensitivity": "镜头旋转灵敏度系数",
             "Switch to First Character for Movement": "移动寻路期间固定切换至一号位角色",
         }
@@ -92,6 +108,9 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.jev_call_count: int = 0
         self.jev_total_tokens: int = 0
         self.jev_cost_estimate: float = 0.0
+        self.clef_call_count: int = 0
+        self.clef_total_tokens: int = 0
+        self.navigation_error_times: list[float] = []
 
     def is_game_window_active(self) -> bool:
         try:
@@ -149,8 +168,13 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.jev_call_count = 0
         self.jev_total_tokens = 0
         self.jev_cost_estimate = 0.0
+        self.clef_call_count = 0
+        self.clef_total_tokens = 0
+        self.navigation_error_times = []
         self.info_set("JEV 调用次数", "0 次")
         self.info_set("JEV 额度消耗", "0 tokens")
+        self.info_set("Clef 调用次数", "0 次")
+        self.info_set("Clef 额度消耗", "0 tokens")
 
         while not self.executor.paused:
             self.sleep(0.05)
@@ -247,7 +271,10 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             if letterbox_info.is_letterbox:
                 self._mark_scene_transition("cutscene_started", self.STATE_LETTERBOX_CUTSCENE)
                 self.current_state = self.STATE_LETTERBOX_CUTSCENE
-                self._handle_letterbox_state(frame)
+                try:
+                    self._handle_letterbox_state(frame)
+                except (RuntimeError, ValueError) as error:
+                    self._recover_from_navigation_exception(error)
                 continue
             else:
                 self.letterbox_freeze_start_time = 0.0
@@ -257,7 +284,10 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 self._stop_all_movement()
                 self.sleep(.2)
                 continue
-            self._handle_world_navigation_and_interaction(frame)
+            try:
+                self._handle_world_navigation_and_interaction(frame)
+            except (RuntimeError, ValueError) as error:
+                self._recover_from_navigation_exception(error)
 
     def _perform_quest_combat(self):
         try:
@@ -329,11 +359,15 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         climb_result = detect_climbing_state(frame)
         if climb_result.is_climbing:
             if self.area_search is not None:
-                area = self.area_search.find_observation(frame)
-                if area is not None:
-                    mx, my, mw, mh = minimap_box(frame)
-                    if not self.area_search.observe(area, frame[my:my + mh, mx:mx + mw]):
-                        self.area_search = None
+                try:
+                    area = self.area_search.find_observation(frame)
+                    if area is not None:
+                        mx, my, mw, mh = minimap_box(frame)
+                        if not self.area_search.observe(area, frame[my:my + mh, mx:mx + mw]):
+                            self.area_search = None
+                except (RuntimeError, ValueError) as error:
+                    self.log_info(f"攀爬期间区域跟踪中断，稍后重新识别黄色区域: {error}")
+                    self.area_search = None
             now = time.time()
             if self.climbing_start_time == 0.0:
                 self.climbing_start_time = now
@@ -364,7 +398,16 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.interaction_decision_waits = 0
             self.log_info(f"任务要求已经更新：{self.guidance_text}")
 
-        area = detect_quest_area(frame) if self.area_search is None else self.area_search.find_observation(frame)
+        if self.area_search is None:
+            area = detect_quest_area(frame)
+        else:
+            try:
+                area = self.area_search.find_observation(frame)
+            except (RuntimeError, ValueError) as error:
+                self.log_info(f"区域搜索跟踪中断，重新识别黄色任务区域: {error}")
+                self.area_search = None
+                self.navigation_progress = QuestProgressTracker(require_distance=False)
+                area = None
         if area is None and self.area_search is not None and detect_quest_beacon(frame).found:
             self.decision_session.mark_transition("quest_marker_changed")
             self.area_search = None
@@ -448,7 +491,17 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             if self.point_arrival_time is None:
                 self.point_arrival_time = time.time()
             elif time.time() - self.point_arrival_time >= 10:
-                raise RuntimeError("到达任务点后持续没有交互或任务变化，停止等待")
+                self._notify_navigation_issue("到达任务点后10秒仍没有交互或任务变化，小幅绕行后重新接近")
+                self.point_arrival_time = None
+                self.point_approach_seconds = 0.0
+                try:
+                    self.navigation_progress.begin_recovery()
+                except RuntimeError:
+                    self.log_info("多次绕行仍未触发任务变化，继续等待任务状态刷新")
+                    self.sleep(1.0)
+                    return
+                self._continue_navigation_recovery()
+                return
             self._trigger_ai_decision(frame, has_f_button=has_f, action_text=action_text,
                                       event="point_arrival", current_distance=current_distance)
             self.sleep(0.4)
@@ -548,7 +601,12 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.log_info("长时间未发现目标，尝试按 V 键重新追踪任务指引")
             self.send_key("v", down_time=0.1)
             self.sleep(0.5)
-        self._apply_camera_turn(self.target_search.next_turn())
+        try:
+            turn_pixels = self.target_search.next_turn()
+        except RuntimeError:
+            self._handle_target_search_failure(frame)
+            return
+        self._apply_camera_turn(turn_pixels)
         self.sleep(0.2)
 
     def _read_quest_goal(self, frame: np.ndarray, force: bool = False):
@@ -585,7 +643,12 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.current_state = self.STATE_NAVIGATE
         if area is None:
             self._stop_all_movement()
-            self.area_search.lose_observation()
+            try:
+                self.area_search.lose_observation()
+            except RuntimeError:
+                self.log_error("连续多帧无法确认黄色任务区域，重置区域搜索并重新识别", notify=True)
+                self.area_search = None
+                self.navigation_progress = QuestProgressTracker(require_distance=False)
             self.sleep(.2)
             return
         entering = self.area_search is None
@@ -597,7 +660,14 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         mx, my, mw, mh = minimap_box(frame)
         pending_keys = self.area_search.pending_keys
         pending_duration = self.area_search.pending_duration
-        if not self.area_search.observe(area, frame[my:my + mh, mx:mx + mw]):
+        try:
+            observed = self.area_search.observe(area, frame[my:my + mh, mx:mx + mw])
+        except (RuntimeError, ValueError) as error:
+            self.log_info(f"区域观察中断，重置区域搜索: {error}")
+            self.area_search = None
+            self.navigation_progress = QuestProgressTracker(require_distance=False)
+            return
+        if not observed:
             self.decision_session.mark_transition("quest_area_changed")
             self.decision_session.seen_states.clear()
             self.area_search = QuestAreaSearch()
@@ -626,7 +696,11 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self._handle_stuck_recovery(frame)
             return
         previous_ring = self.area_search.completed_rings
-        mode, bearing, distance = self.area_search.navigate(time.time())
+        try:
+            mode, bearing, distance = self.area_search.navigate(time.time())
+        except RuntimeError as error:
+            self._handle_area_search_failure(frame, error)
+            return
         if self.area_search.phase == "center":
             self.navigation_progress.observe(distance)
         elif mode in ("waypoint", "center"):
@@ -709,7 +783,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                             self.send_key("x", down_time=0.1)
                             self.sleep(0.5)
                             self.climbing_start_time = 0.0
-                            self.navigation_progress.begin_recovery()
+                            self.navigation_progress.begin_recovery(side_key=self._decide_detour_side(frame))
                             return
                     self.last_climb_coord = coord
             except Exception as e:
@@ -721,7 +795,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.send_key("x", down_time=0.1)
             self.sleep(0.5)
             self.climbing_start_time = 0.0
-            self.navigation_progress.begin_recovery()
+            self.navigation_progress.begin_recovery(side_key=self._decide_detour_side(frame))
             return
         self._apply_movement(["w"], 0.3, progress_tracker=self.climbing_progress, jump=True)
         if not self.climbing_progress.blocked:
@@ -730,14 +804,14 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         result = self._trigger_ai_decision(self.frame, event="climbing_blocked")
         if result == "climb_drop":
             self.climbing_start_time = 0.0
-            self.navigation_progress.begin_recovery()
+            self.navigation_progress.begin_recovery(side_key=self._decide_detour_side(self.frame))
             return
         if self.climbing_progress.movement_seconds >= 6:
             self.log_error("连续攀爬没有进展，强制下落绕行", notify=True)
             self.send_key("x", down_time=0.1)
             self.sleep(0.5)
             self.climbing_start_time = 0.0
-            self.navigation_progress.begin_recovery()
+            self.navigation_progress.begin_recovery(side_key=self._decide_detour_side(self.frame))
             return
 
     def _try_teleport_to_nearest_waypoint(self, current_distance: float) -> bool:
@@ -831,10 +905,14 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             return
         if result != "recover":
             raise RuntimeError(f"受阻状态返回了无法执行的移动动作：{result}")
-        self.navigation_progress.begin_recovery()
+        side_key = self._decide_detour_side(frame)
+        self.navigation_progress.begin_recovery(side_key=side_key)
         location = str(self.area_search.completed_rings) if self.area_search is not None else "movement_blocked"
         self.decision_session.record("recover", self.last_interaction_text, location, time.time())
-        self.log_info(f"检测到角色前进受阻，第 {self.navigation_progress.recovery_count} 次绕行，执行后退、侧向移动与前进")
+        if side_key is not None:
+            self.log_info(f"检测到角色前进受阻，第 {self.navigation_progress.recovery_count} 次绕行，按视觉判断方向 ({side_key}) 执行后退、侧向移动与前进")
+        else:
+            self.log_info(f"检测到角色前进受阻，第 {self.navigation_progress.recovery_count} 次绕行，执行后退、侧向移动与前进")
         self._continue_navigation_recovery()
 
     def _perform_jump_recovery(self):
@@ -863,6 +941,98 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self._apply_movement(keys, duration)
         if self.navigation_progress.recovery_step is None:
             self.log_info("侧向绕行完成，重新识别任务方向与距离")
+
+    def _notify_navigation_issue(self, message: str):
+        now = time.time()
+        last = getattr(self, "last_navigation_notify_time", 0.0)
+        if now - last >= 30.0:
+            self.last_navigation_notify_time = now
+            self.log_error(message, notify=True)
+        else:
+            self.log_info(message)
+
+    def _recover_from_navigation_exception(self, error: Exception):
+        self._stop_all_movement()
+        now = time.time()
+        previous = getattr(self, "navigation_error_times", None) or []
+        self.navigation_error_times = [stamp for stamp in previous if now - stamp < 120]
+        self.navigation_error_times.append(now)
+        self._notify_navigation_issue(f"剧情导航出现可恢复异常，已重置状态继续执行: {error}")
+        self.navigation_progress = QuestProgressTracker()
+        self.climbing_progress = QuestProgressTracker(require_distance=False)
+        self.climbing_start_time = 0.0
+        self.target_search.reset()
+        self.area_search = None
+        self.point_arrival_time = None
+        self.point_approach_seconds = 0.0
+        self.letterbox_freeze_start_time = 0.0
+        self.last_frame = None
+        self.last_motion = None
+        self.decision_session = QuestDecisionSession()
+        if len(self.navigation_error_times) >= 3:
+            self.log_info("两分钟内多次导航异常，额外等待后重试")
+            self.sleep(8.0)
+        else:
+            self.sleep(1.0)
+
+    def _handle_area_search_failure(self, frame: np.ndarray, error: Exception):
+        self._stop_all_movement()
+        if isinstance(error, QuestAreaStuckError) and self.area_search is not None:
+            self.area_search.movement_attempts = 0
+            self.area_search.best_waypoint_distance = float("inf")
+            self.area_search.stationary_seconds = 0.0
+            self.area_search.index += 1
+            self._notify_navigation_issue("区域搜索当前路径点被阻挡，跳过该点继续搜索")
+            return
+        self._notify_navigation_issue(f"区域搜索受阻：{error}，重置搜索状态并重新识别黄色区域")
+        self.area_search = None
+        self.target_search.reset()
+        self.navigation_progress = QuestProgressTracker(require_distance=False)
+
+    def _handle_target_search_failure(self, frame: np.ndarray):
+        self._stop_all_movement()
+        self._notify_navigation_issue("旋转搜索多圈仍未识别任务指引，重置搜索方向并执行侧向绕行")
+        self.target_search.reset()
+        self.navigation_progress.begin_recovery(side_key=self._decide_detour_side(frame))
+        self._continue_navigation_recovery()
+
+    def _decide_detour_side(self, frame: np.ndarray) -> Optional[str]:
+        api_url = str(self.config.get("Vision API URL") or os.environ.get("CLEF_API_URL") or "")
+        api_key = str(self.config.get("Vision API Key") or os.environ.get("CLEF_API_KEY") or "")
+        if not api_url.strip() or not api_key.strip():
+            return None
+        try:
+            decision = decide_detour_direction(
+                frame=frame,
+                quest_goal_text=self.guidance_text,
+                api_url=api_url,
+                api_key=api_key,
+                model=str(self.config.get("Vision Model") or "clef"),
+                context={
+                    "stuck": True,
+                    "distance_meters": self.navigation_progress.best_distance,
+                    "stationary_movement_seconds": round(self.navigation_progress.movement_seconds, 1),
+                    "jump_attempts": self.navigation_progress.jump_attempts,
+                    "previous_recovery_count": self.navigation_progress.recovery_count,
+                },
+            )
+        except Exception as error:
+            self.log_info(f"视觉绕行判断不可用，改用默认绕行路线: {error}")
+            return None
+        self.clef_call_count += 1
+        self.clef_total_tokens += int(decision.get("total_tokens", 0) or 0)
+        self.info_set("Clef 调用次数", f"{self.clef_call_count} 次")
+        self.info_set("Clef 额度消耗", f"{self.clef_total_tokens} tokens")
+        direction = decision.get("direction")
+        confidence = float(decision.get("confidence", 0) or 0)
+        self.log_info(
+            f"Clef 视觉绕行判断: direction={direction}, confidence={confidence:.2f}, "
+            f"probabilities={decision.get('probabilities')}"
+        )
+        if confidence < .6:
+            self.log_info("视觉绕行判断置信度不足，改用默认绕行路线")
+            return None
+        return DETOUR_SIDE_KEYS.get(direction)
 
     def _stop_all_movement(self):
         for key in ["w", "a", "s", "d", "shift"]:
