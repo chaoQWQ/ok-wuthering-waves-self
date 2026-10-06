@@ -575,6 +575,44 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self._handle_stuck_recovery(frame)
             return
 
+        # 7. 任务点 30 米内让视觉 AI 决策一次如何抵达目标；调用前先依据小地图
+        # 任务箭头保证镜头正对任务点，箭头未对正时先转镜头，下一帧再送审。
+        self.last_vision_approach = None
+        if current_distance is not None and current_distance <= 30:
+            arrow_facing = False
+            target_facing = False
+            if arrow_result.found:
+                turn_cmd = calculate_camera_turn(
+                    screen_width=width,
+                    minimap_bearing_deg=arrow_result.bearing_deg,
+                    camera_sensitivity=sensitivity,
+                    minimap_tolerance_deg=12,
+                    max_delta_x=120,
+                )
+                if turn_cmd.need_turn:
+                    self._apply_camera_turn(turn_cmd.delta_x_pixels)
+                    self.sleep(0.1)
+                    return
+                arrow_facing = True
+            if not arrow_facing and beacon_result.found:
+                beacon_cx = beacon_result.x + beacon_result.width / 2
+                target_facing = abs(beacon_cx - width / 2) <= width * .12
+            if arrow_facing or target_facing:
+                approach = self._maybe_vision_approach(frame, current_distance, beacon_result)
+                self.last_vision_approach = approach
+                if approach == "climb":
+                    self.log_info("视觉决策：目标在上方，向墙面跳跃攀爬")
+                    self._apply_movement(["w"], .45, jump=True)
+                    return
+                if approach == "drop":
+                    self.log_info("视觉决策：目标在下方，向前走出边缘下落")
+                    self._apply_movement(["w"], .5)
+                    return
+                if approach == "detour":
+                    self.log_info("视觉决策：正面受阻，执行侧向绕行")
+                    self._handle_stuck_recovery(frame)
+                    return
+
         # 8. 视野中存在任务信标
         if beacon_result.found:
             beacon_cx = beacon_result.x + beacon_result.width // 2
@@ -596,24 +634,10 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                     self._apply_movement(["w"], .12)
                 return
 
-            # 任务点 20 米内让视觉 AI 决策一次如何抵达目标
-            approach = self._maybe_vision_approach(frame, current_distance, beacon_result)
-            if approach == "climb":
-                self.log_info("视觉决策：目标在上方，向墙面跳跃攀爬")
-                self._apply_movement(["w"], .45, jump=True)
-                return
-            if approach == "drop":
-                self.log_info("视觉决策：目标在下方，向前走出边缘下落")
-                self._apply_movement(["w"], .5)
-                return
-            if approach == "detour":
-                self.log_info("视觉决策：正面受阻，执行侧向绕行")
-                self._handle_stuck_recovery(frame)
-                return
             # 未启用视觉决策时的确定性兜底：指引点位于画面上方且距离较近，
             # 目标在头顶高处，向墙面跳跃开始攀爬。3 秒内处于攀爬状态时不重复
             # 触发，避免打断正在进行的攀爬。
-            if (approach is None
+            if (self.last_vision_approach is None
                     and beacon_result.y + beacon_result.height / 2 < height * .45
                     and current_distance is not None and current_distance <= 12
                     and not detect_climbing_state(frame).is_climbing
@@ -1155,17 +1179,18 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
     def _maybe_vision_approach(self, frame: np.ndarray, current_distance: Optional[float],
                                beacon_result) -> Optional[str]:
-        """任务点 20 米内让视觉 AI 决策一次如何抵达（直走/攀爬/下落/绕行）。
+        """任务点 30 米内让视觉 AI 决策一次如何抵达（直走/攀爬/下落/绕行）。
 
-        每个任务目标只调用一次，距离退回 25 米外或目标更新后重新武装；
-        未配置视觉 API 或调用失败时返回 None，走本地确定性逻辑。
+        调用前由调用方保证镜头正对任务点；每个任务目标只调用一次，
+        距离退回 35 米外或目标更新后重新武装；未配置视觉 API 或调用
+        失败时返回 None，走本地确定性逻辑。
         """
         api_url = str(self.config.get("Vision API URL") or os.environ.get("CLEF_API_URL") or "")
         api_key = str(self.config.get("Vision API Key") or os.environ.get("CLEF_API_KEY") or "")
         if not api_url.strip() or not api_key.strip():
             return None
-        if current_distance is None or current_distance > 20:
-            if current_distance is None or current_distance > 25:
+        if current_distance is None or current_distance > 30:
+            if current_distance is None or current_distance > 35:
                 self.vision_approach_goal = None
             return None
         goal = self.guidance_text

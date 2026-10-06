@@ -580,7 +580,7 @@ def decide_approach_action(
     return decide_clef_choice(
         frame,
         "approach",
-        "The character is within 20 meters of the quest target. Choose how to close the remaining distance based on the screenshot.",
+        "The character is within 30 meters of the quest target and the camera faces it. Choose how to close the remaining distance based on the screenshot.",
         criteria,
         quest_goal_text,
         api_url,
