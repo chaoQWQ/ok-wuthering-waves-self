@@ -189,7 +189,22 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                         confidence=top_left_skip.confidence,
                         name="top_left_skip_dialog"
                     )
-                    self.click_box(skip_box, down_time=0.05, after_sleep=0.3)
+                    # Force OS level click using win32api because game ignores background clicks
+                    cx, cy = skip_box.center()
+                    import win32api
+                    import win32con
+                    import win32gui
+                    hwnd = win32gui.FindWindow('UnrealWindow', '鸣潮')
+                    if hwnd:
+                        pt = win32gui.ClientToScreen(hwnd, (int(cx), int(cy)))
+                        win32api.SetCursorPos(pt)
+                        self.sleep(0.05)
+                        win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+                        self.sleep(0.15)
+                        win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+                    else:
+                        self.click_box(skip_box, down_time=0.15, after_sleep=0.3)
+                    self.sleep(0.3)
                     self.wait_until(self.skip_confirm, time_out=3.0, raise_if_not_found=False)
                     self.sleep(0.2)
                     continue
@@ -394,7 +409,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 is_near_goal = True
 
         if has_f:
-            if is_near_goal or (current_distance is not None and current_distance <= 8.0):
+            if is_near_goal:
                 self._stop_all_movement()
                 self.point_arrival_time = None
                 self.current_state = self.STATE_DECIDE_INTERACT
@@ -462,7 +477,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 max_delta_x=100
             )
             if turn_cmd.need_turn:
-                self.target_search.next_turn()
+                self.target_search.next_turn(allow_high_count=True)
                 self._apply_camera_turn(turn_cmd.delta_x_pixels)
                 self.sleep(0.1)
                 if current_distance is not None and current_distance <= 20 and abs(angle_error_deg) <= 12:
@@ -505,7 +520,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 max_delta_x=120
             )
             if turn_cmd.need_turn:
-                self.target_search.next_turn()
+                self.target_search.next_turn(allow_high_count=True)
                 self._apply_camera_turn(turn_cmd.delta_x_pixels)
                 self.sleep(0.1)
                 # 短步让角色采用当前镜头方向，再读取角色箭头的实际朝向。
@@ -529,6 +544,10 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         if now - self.last_search_log_time > 2.0:
             self.last_search_log_time = now
             self.log_info("视野暂未发现任务信标，正在原地水平旋转视角搜寻目标方位...")
+        if self.target_search.turn_count == 10:
+            self.log_info("长时间未发现目标，尝试按 V 键重新追踪任务指引")
+            self.send_key("v", down_time=0.1)
+            self.sleep(0.5)
         self._apply_camera_turn(self.target_search.next_turn())
         self.sleep(0.2)
 
@@ -653,9 +672,58 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             return
         self.sleep(.2)
 
-    def _handle_climbing_state(self, frame: np.ndarray, climbing_duration: float = 0.0):
+    def _handle_climbing_state(self, frame, climbing_duration: float = 0.0):
         self.log_info(f"正在攀爬，持续 {climbing_duration:.1f} 秒，保持向上移动")
-        self._apply_movement(["w"], 0.3, progress_tracker=self.climbing_progress)
+        
+        # 引入左下角坐标卡死检测
+        import time
+        now = time.time()
+        if not hasattr(self, 'last_climb_coord_time'):
+            self.last_climb_coord_time = now
+            self.last_climb_coord = None
+            
+        if now - self.last_climb_coord_time > 3.0:
+            self.last_climb_coord_time = now
+            try:
+                from src.utils.VideoRouteValidator import coordinate_crop, parse_coordinate_text
+                import cv2
+                crop = coordinate_crop(frame)
+                enlarged = cv2.resize(crop, None, fx=3.0, fy=3.0, interpolation=cv2.INTER_LANCZOS4)
+                gray = cv2.cvtColor(enlarged, cv2.COLOR_BGR2GRAY)
+                # Binarize with a low threshold because the text is faint gray/white, 
+                # but it might be lighter than the floor. Wait, faint gray could be darker or lighter.
+                # It's better to just use the original enlarged image for now, OCR models usually handle color images better than badly binarized ones.
+                boxes = self.ocr(0.0, 0.0, 1.0, 1.0, frame=enlarged)
+                coord_text = " ".join([b.name for b in boxes])
+                coord = parse_coordinate_text(coord_text)
+                if coord is not None:
+                    if self.last_climb_coord is not None:
+                        import math
+                        dx = coord[0] - self.last_climb_coord[0]
+                        dy = coord[1] - self.last_climb_coord[1]
+                        dz = coord[2] - self.last_climb_coord[2]
+                        dist = math.sqrt(dx*dx + dy*dy + dz*dz)
+                        # 如果3秒内坐标移动距离过小，判定为卡死
+                        if dist < 2.0:
+                            self.log_info(f"左下角坐标 {coord} 几乎未变，判定攀爬卡死，尝试按X下落")
+                            self.send_key("x", down_time=0.1)
+                            self.sleep(0.5)
+                            self.climbing_start_time = 0.0
+                            self.navigation_progress.begin_recovery()
+                            return
+                    self.last_climb_coord = coord
+            except Exception as e:
+                pass
+                
+        # 放宽超时兜底
+        if climbing_duration > 20.0:
+            self.log_info("攀爬时间超过20秒，触发超时下落绕行")
+            self.send_key("x", down_time=0.1)
+            self.sleep(0.5)
+            self.climbing_start_time = 0.0
+            self.navigation_progress.begin_recovery()
+            return
+        self._apply_movement(["w"], 0.3, progress_tracker=self.climbing_progress, jump=True)
         if not self.climbing_progress.blocked:
             return
         self._stop_all_movement()
@@ -665,7 +733,12 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.navigation_progress.begin_recovery()
             return
         if self.climbing_progress.movement_seconds >= 6:
-            raise RuntimeError("连续攀爬没有进展，任务决策未确认可继续的操作")
+            self.log_error("连续攀爬没有进展，强制下落绕行", notify=True)
+            self.send_key("x", down_time=0.1)
+            self.sleep(0.5)
+            self.climbing_start_time = 0.0
+            self.navigation_progress.begin_recovery()
+            return
 
     def _try_teleport_to_nearest_waypoint(self, current_distance: float) -> bool:
         now = time.time()
@@ -972,7 +1045,6 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             "event": event,
             "has_f_button": has_f_button,
             "interaction_text": action_text,
-            "named_target_match": current_distance is not None and current_distance <= 8 and is_named_quest_interaction(self.guidance_text, action_text),
             "distance_meters": current_distance,
             "area": area_context,
             "movement": movement_context,
@@ -1000,7 +1072,9 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             raise ValueError(f"任务决策返回了当前无法执行的动作：{action.action_type}")
         self.log_info(f"JEV 判断: action={action.action_type}, confidence={action.confidence:.2f}, task={action.task_kind}, event={event}")
         navigation_choice = event == "movement_blocked" and action.recovery_confident
-        if not action.confident and not navigation_choice:
+        interact_confident = action.action_type == "interact" and action.confidence >= 0.4
+
+        if not action.confident and not navigation_choice and not interact_confident:
             if has_f_button:
                 self.interaction_decision_waits += 1
                 if self.interaction_decision_waits >= 3:
@@ -1018,10 +1092,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         elif not detect_letterbox(self.frame).is_letterbox:
             return "stale"
         if action.action_type == "interact" and action.key == "f":
-            named_target_match = current_distance is not None and current_distance <= 8 and is_named_quest_interaction(self.guidance_text, action_text)
-            model_relevant = action.interaction_relevance is not None and action.interaction_relevance >= .8
-            if not has_f_button or not (model_relevant or named_target_match):
-                self.log_info("当前交互与任务的关联不足，继续搜索任务目标")
+            if not has_f_button:
+                self.log_info("当前交互按键F不可见，继续搜索任务目标")
                 return "search" if "search" in actions else "observe"
             current_f, current_text = self._read_interaction(self.frame)
             if not current_f or current_text != action_text:

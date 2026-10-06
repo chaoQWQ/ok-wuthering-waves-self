@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from typing import Optional
 
-
 @dataclass
 class QuestTargetSearch:
     turn_count: int = 0
@@ -26,8 +25,10 @@ class QuestTargetSearch:
         self.forward_probes -= 1
         return .15
 
-    def next_turn(self) -> int:
+    def next_turn(self, allow_high_count: bool = False) -> int:
         self.forward_probes = 0
+        if allow_high_count and self.turn_count >= 10:
+            self.turn_count = 0
         if self.turn_count >= 32:
             raise RuntimeError("旋转搜索后仍未识别到任务指引，已停止移动，请检查当前任务要求")
         self.turn_count += 1

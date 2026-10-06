@@ -46,7 +46,12 @@ def is_named_quest_interaction(goal: str, interaction: str) -> bool:
     interaction = sanitize_quest_text(interaction).strip()
     if not 2 <= len(interaction) <= 32 or re.search(r"不要|禁止|避免|do not|avoid", goal, re.IGNORECASE):
         return False
+
+    clean_name = re.sub(r"[^\w\s\u4e00-\u9fff]", "", interaction).strip()
+    if len(clean_name) >= 2 and clean_name in goal:
+        return True
+
     name = re.escape(interaction)
-    chinese = rf"(?:与|和|向)\s*{name}\s*(?:对话|對話|交谈|交談|汇合|匯合|会合|會合|见面|見面)"
-    english = rf"(?:meet|reunite with|talk to|speak to|speak with)\s+{name}(?!\w)"
+    chinese = rf"(?:与|和|向|寻找|找|跟随)\s*{name}\s*(?:对话|對話|交谈|交談|汇合|匯合|会合|會合|见面|見面)?"
+    english = rf"(?:meet|reunite with|talk to|speak to|speak with|find|look for|follow)\s+{name}(?!\w)"
     return bool(re.search(chinese, goal) or re.search(english, goal, re.IGNORECASE))
