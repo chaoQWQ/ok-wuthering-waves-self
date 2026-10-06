@@ -427,6 +427,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                     self.log_info(f"攀爬期间区域跟踪中断，稍后重新识别黄色区域: {error}")
                     self.area_search = None
             now = time.time()
+            self.last_climbing_seen_time = now
             if self.climbing_start_time == 0.0:
                 self.climbing_start_time = now
                 self.climbing_progress = QuestProgressTracker(require_distance=False)
@@ -610,11 +611,13 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 self._handle_stuck_recovery(frame)
                 return
             # 未启用视觉决策时的确定性兜底：指引点位于画面上方且距离较近，
-            # 目标在头顶高处，向墙面跳跃开始攀爬。
+            # 目标在头顶高处，向墙面跳跃开始攀爬。3 秒内处于攀爬状态时不重复
+            # 触发，避免打断正在进行的攀爬。
             if (approach is None
                     and beacon_result.y + beacon_result.height / 2 < height * .45
                     and current_distance is not None and current_distance <= 12
                     and not detect_climbing_state(frame).is_climbing
+                    and time.time() - getattr(self, "last_climbing_seen_time", 0.0) > 3.0
                     and time.time() - getattr(self, "last_climb_start_attempt", 0.0) > 6.0):
                 self.last_climb_start_attempt = time.time()
                 self.log_info(f"任务指引位于上方 (距离 {current_distance:.1f} 米)，向墙面跳跃开始攀爬")
@@ -882,7 +885,10 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.climbing_start_time = 0.0
             self.navigation_progress.begin_recovery(side_key=self._decide_detour_side(frame))
             return
-        self._apply_movement(["w"], 0.3, progress_tracker=self.climbing_progress, jump=True)
+        # 起手第一段带跳跃抓墙加速，之后改为普通攀爬：连续跳跃攀爬会快速耗尽
+        # 体力导致中途坠落，数米高的墙普通攀爬数秒即可到达。
+        self._apply_movement(["w"], 0.3, progress_tracker=self.climbing_progress,
+                             jump=climbing_duration < 1.0)
         if not self.climbing_progress.blocked:
             return
         self._stop_all_movement()
@@ -1135,11 +1141,14 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.info_set("Clef 额度消耗", f"{self.clef_total_tokens} tokens")
         direction = decision.get("choice")
         confidence = float(decision.get("confidence", 0) or 0)
+        probabilities = decision.get("probabilities") or {}
+        choice_probability = float(probabilities.get(direction, 0) or 0)
         self.log_info(
             f"Clef 视觉绕行判断: direction={direction}, confidence={confidence:.2f}, "
-            f"probabilities={decision.get('probabilities')}"
+            f"probability={choice_probability:.2f}, probabilities={probabilities}"
         )
-        if confidence < .6:
+        # confidence 是模型校准置信度而非选项概率，绕行决策看所选选项自身概率。
+        if choice_probability < .5:
             self.log_info("视觉绕行判断置信度不足，改用默认绕行路线")
             return None
         return DETOUR_SIDE_KEYS.get(direction)
@@ -1188,11 +1197,14 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.info_set("Clef 额度消耗", f"{self.clef_total_tokens} tokens")
         choice = decision.get("choice")
         confidence = float(decision.get("confidence", 0) or 0)
+        probabilities = decision.get("probabilities") or {}
+        choice_probability = float(probabilities.get(choice, 0) or 0)
         self.log_info(
             f"Clef 抵达决策: approach={choice}, confidence={confidence:.2f}, "
-            f"probabilities={decision.get('probabilities')}"
+            f"probability={choice_probability:.2f}, probabilities={probabilities}"
         )
-        if confidence < .6 or choice is None:
+        # confidence 是模型校准置信度，抵达决策看所选选项自身概率。
+        if choice is None or choice_probability < .5:
             self.log_info("视觉抵达决策置信度不足，使用本地寻路逻辑")
             return None
         return choice
