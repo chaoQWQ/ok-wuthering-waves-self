@@ -2023,3 +2023,9 @@ msgstr "任務運行時顯示置頂小視窗"
 msgid "Display real-time task status in a floating window at the bottom-right corner when running tasks"
 msgstr "任務運行時在螢幕右下角顯示置頂小視窗，展示即時運行資訊"
 
+msgid "Task Floating Window Toggle Hotkey"
+msgstr "置頂小視窗開關快捷鍵"
+
+msgid "Hotkey to toggle display of the task floating window (e.g. <ctrl>+<f11>)"
+msgstr "快捷開啟或關閉置頂小視窗的快捷鍵（例如 <ctrl>+<f11>）"
+

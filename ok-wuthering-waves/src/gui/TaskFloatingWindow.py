@@ -18,15 +18,20 @@ from ok import Logger, og
 from ok.core.events import communicate
 from ok.ui.qt.tasks.TooltipTableWidget import TooltipTableWidget
 from ok.ui.qt.widget.UpdateConfigWidgetItem import value_to_string
+from src.utils.ManualRouteRecorder import HotkeyEdgePoller
 
 logger = Logger.get_logger(__name__)
 
 
 class TaskFloatingWindow(QWidget):
 
-    def __init__(self, main_window=None):
+    def __init__(self, main_window=None, key_reader=None):
         super().__init__(None)
         self.main_window = main_window
+        self.key_reader = key_reader
+        self._current_hotkey_str = None
+        self._hotkey_poller = None
+        self._hotkey_warned = False
         self.setObjectName("TaskFloatingWindow")
         self.setWindowFlags(
             Qt.WindowStaysOnTopHint |
@@ -54,6 +59,10 @@ class TaskFloatingWindow(QWidget):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_status)
         self.timer.start(1000)
+
+        self.hotkey_timer = QTimer(self)
+        self.hotkey_timer.timeout.connect(self.poll_hotkey)
+        self.hotkey_timer.start(50)
 
     def _init_ui(self):
         root_layout = QVBoxLayout(self)
@@ -169,8 +178,54 @@ class TaskFloatingWindow(QWidget):
     def close_window(self):
         if self.timer.isActive():
             self.timer.stop()
+        if hasattr(self, "hotkey_timer") and self.hotkey_timer.isActive():
+            self.hotkey_timer.stop()
         self.hide()
         self.close()
+
+    def poll_hotkey(self):
+        basic_config = og.global_config.get_config("Basic Options")
+        hotkey_str = str(basic_config.get("Task Floating Window Toggle Hotkey", "<ctrl>+<f11>") or "").strip()
+        if hotkey_str != self._current_hotkey_str:
+            self._current_hotkey_str = hotkey_str
+            self._hotkey_warned = False
+            if hotkey_str and hotkey_str.lower() != "none":
+                self._hotkey_poller = HotkeyEdgePoller(hotkey_str, key_reader=self.key_reader)
+            else:
+                self._hotkey_poller = None
+
+        if self._hotkey_poller is not None and self._hotkey_poller.supported:
+            if self._hotkey_poller.poll():
+                self.toggle_window()
+        elif hotkey_str and hotkey_str.lower() != "none" and not self._hotkey_warned:
+            self._hotkey_warned = True
+            logger.warning(f"Unsupported task floating window toggle hotkey: {hotkey_str!r}")
+
+    def toggle_window(self):
+        basic_config = og.global_config.get_config("Basic Options")
+        current_enabled = basic_config.get("Show Task Floating Window", True)
+        if self.isVisible():
+            basic_config["Show Task Floating Window"] = False
+            self.hide()
+        elif self.dismissed_info_run is not None and self.dismissed_info_run == self.current_info_run:
+            basic_config["Show Task Floating Window"] = True
+            self.dismissed_info_run = None
+            self.update_status()
+        else:
+            new_state = not current_enabled
+            basic_config["Show Task Floating Window"] = new_state
+            if new_state:
+                self.dismissed_info_run = None
+                self.update_status()
+            else:
+                if self.isVisible():
+                    self.hide()
+
+        if self.main_window is not None:
+            setting_tab = getattr(self.main_window, "setting_tab", None)
+            if setting_tab is not None:
+                for group in getattr(setting_tab, "config_groups", []):
+                    group.update_config()
 
     @staticmethod
     def time_elapsed(start_time):
@@ -246,8 +301,8 @@ class TaskFloatingWindow(QWidget):
 _task_floating_window = None
 
 
-def start_task_floating_window(main_window=None):
+def start_task_floating_window(main_window=None, key_reader=None):
     global _task_floating_window
     if _task_floating_window is None:
-        _task_floating_window = TaskFloatingWindow(main_window)
+        _task_floating_window = TaskFloatingWindow(main_window, key_reader=key_reader)
     return _task_floating_window

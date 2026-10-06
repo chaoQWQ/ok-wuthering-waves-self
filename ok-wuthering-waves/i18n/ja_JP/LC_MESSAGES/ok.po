@@ -1867,3 +1867,9 @@ msgstr "タスク実行時に最前面の小ウィンドウを表示"
 msgid "Display real-time task status in a floating window at the bottom-right corner when running tasks"
 msgstr "タスク実行中に画面右下に最前面の小ウィンドウを表示し、リアルタイム情報を表示します"
 
+msgid "Task Floating Window Toggle Hotkey"
+msgstr "最前面小ウィンドウ切替ホットキー"
+
+msgid "Hotkey to toggle display of the task floating window (e.g. <ctrl>+<f11>)"
+msgstr "最前面の小ウィンドウの表示／非表示を切り替えるホットキー（例：<ctrl>+<f11>）"
+

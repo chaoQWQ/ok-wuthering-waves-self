@@ -1868,3 +1868,9 @@ msgstr "작업 실행 시 최상위 작은 창 표시"
 msgid "Display real-time task status in a floating window at the bottom-right corner when running tasks"
 msgstr "작업 실행 시 화면 우측 하단에 최상위 작은 창을 띄워 실시간 정보를 표시합니다"
 
+msgid "Task Floating Window Toggle Hotkey"
+msgstr "최상위 작은 창 전환 단축키"
+
+msgid "Hotkey to toggle display of the task floating window (e.g. <ctrl>+<f11>)"
+msgstr "최상위 작은 창 표시를 켜거나 끄는 단축키(예: <ctrl>+<f11>)"
+

@@ -79,6 +79,106 @@ class TestTaskFloatingWindow(unittest.TestCase):
         basic_config = self.global_config.get_config("Basic Options")
         self.assertIn("Show Task Floating Window", basic_config)
         self.assertTrue(basic_config.get("Show Task Floating Window"))
+        self.assertIn("Task Floating Window Toggle Hotkey", basic_config)
+        self.assertEqual(basic_config.get("Task Floating Window Toggle Hotkey"), "<ctrl>+<f11>")
+
+    def test_hotkey_toggle_hides_and_restores_window(self):
+        pressed_keys = set()
+        key_reader = lambda code: code in pressed_keys
+        window = TaskFloatingWindow(key_reader=key_reader)
+        try:
+            task = RealSampleTask()
+            self.executor.current_task = task
+            window.update_status()
+            self.assertTrue(window.isVisible())
+
+            # Ctrl (17) + F11 (122) 按下触发上升沿
+            pressed_keys.update([17, 122])
+            window.poll_hotkey()
+            self.assertFalse(window.isVisible())
+            basic_config = self.global_config.get_config("Basic Options")
+            self.assertFalse(basic_config.get("Show Task Floating Window"))
+
+            # 保持按下状态不触发重复切换
+            window.poll_hotkey()
+            self.assertFalse(window.isVisible())
+
+            # 松开按键
+            pressed_keys.clear()
+            window.poll_hotkey()
+            self.assertFalse(window.isVisible())
+
+            # 再次按下，恢复显示并重新启用配置
+            pressed_keys.update([17, 122])
+            window.poll_hotkey()
+            self.assertTrue(window.isVisible())
+            self.assertTrue(basic_config.get("Show Task Floating Window"))
+        finally:
+            window.close_window()
+
+    def test_hotkey_toggle_restores_dismissed_window(self):
+        pressed_keys = set()
+        key_reader = lambda code: code in pressed_keys
+        window = TaskFloatingWindow(key_reader=key_reader)
+        try:
+            task = RealSampleTask()
+            self.executor.current_task = task
+            window.update_status()
+            self.assertTrue(window.isVisible())
+
+            # 通过关闭按钮手动收起
+            window.on_close_clicked()
+            self.assertFalse(window.isVisible())
+            self.assertIsNotNone(window.dismissed_info_run)
+
+            # 按下快捷键应当重新恢复显示
+            pressed_keys.update([17, 122])
+            window.poll_hotkey()
+            self.assertTrue(window.isVisible())
+            self.assertIsNone(window.dismissed_info_run)
+        finally:
+            window.close_window()
+
+    def test_hotkey_dynamic_update_and_disabled(self):
+        pressed_keys = set()
+        key_reader = lambda code: code in pressed_keys
+        window = TaskFloatingWindow(key_reader=key_reader)
+        try:
+            basic_config = self.global_config.get_config("Basic Options")
+            basic_config["Task Floating Window Toggle Hotkey"] = "F11"
+            window.poll_hotkey()
+            self.assertIsNotNone(window._hotkey_poller)
+            self.assertEqual(window._hotkey_poller.vk_codes, (122,))
+
+            basic_config["Task Floating Window Toggle Hotkey"] = "None"
+            window.poll_hotkey()
+            self.assertIsNone(window._hotkey_poller)
+        finally:
+            window.close_window()
+
+    def test_hotkey_toggle_refreshes_setting_tab_when_present(self):
+        class RealGroupStub:
+            def __init__(self):
+                self.updated = False
+            def update_config(self):
+                self.updated = True
+
+        class RealSettingTabStub:
+            def __init__(self):
+                self.config_groups = [RealGroupStub()]
+
+        class RealMainWindowStub:
+            def __init__(self):
+                self.setting_tab = RealSettingTabStub()
+                self.destroyed = type("SignalStub", (), {"connect": lambda self, fn: None})()
+
+        main_window = RealMainWindowStub()
+        window = TaskFloatingWindow(main_window=main_window)
+        try:
+            window.toggle_window()
+            self.assertTrue(main_window.setting_tab.config_groups[0].updated)
+        finally:
+            window.close_window()
 
     def test_window_hidden_when_no_task(self):
         self.executor.current_task = None

@@ -1945,3 +1945,9 @@ msgstr "任务运行时显示置顶小窗口"
 msgid "Display real-time task status in a floating window at the bottom-right corner when running tasks"
 msgstr "任务运行时在屏幕右下角显示置顶小窗口，展示实时运行信息"
 
+msgid "Task Floating Window Toggle Hotkey"
+msgstr "置顶小窗口开关快捷键"
+
+msgid "Hotkey to toggle display of the task floating window (e.g. <ctrl>+<f11>)"
+msgstr "快捷开启或关闭置顶小窗口的快捷键（例如 <ctrl>+<f11>）"
+
