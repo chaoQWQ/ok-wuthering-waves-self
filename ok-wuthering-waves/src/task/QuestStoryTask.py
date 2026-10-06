@@ -119,6 +119,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.last_ui_reveal_time: float = 0.0
         self.vision_approach_goal: Optional[str] = None
         self.quest_area_goal: Optional[str] = None
+        self.useless_interactions: set[str] = set()
 
     def in_team(self):
         result = super().in_team()
@@ -224,6 +225,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.last_ui_reveal_time = 0.0
         self.vision_approach_goal = None
         self.quest_area_goal = None
+        self.useless_interactions = set()
         self.info_set("JEV 调用次数", "0 次")
         self.info_set("JEV 额度消耗", "0 tokens")
         self.info_set("Clef 调用次数", "0 次")
@@ -461,6 +463,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.interaction_decision_waits = 0
             self.goal_first_seen_time = time.time()
             self.goal_seen_beacon = False
+            self.useless_interactions = set()
             self.log_info(f"任务要求已经更新：{self.guidance_text}")
 
         if self.area_search is None:
@@ -528,6 +531,15 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 is_near_goal = True
 
         if has_f:
+            if action_text in getattr(self, "useless_interactions", set()):
+                # 已标记的无用交互：不再决策与交互，退开后继续任务导航尝试其它路径
+                self._stop_all_movement()
+                if time.time() - getattr(self, "last_useless_avoid_time", 0.0) > 2.5:
+                    self.last_useless_avoid_time = time.time()
+                    self.log_info(f"跳过无用交互 {action_text}，后退后继续任务导航")
+                    self._apply_movement(["s"], .4)
+                self.sleep(.2)
+                return
             if is_near_goal:
                 self._stop_all_movement()
                 self.point_arrival_time = None
@@ -1682,11 +1694,22 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 self.interaction_decision_waits += 1
                 if self.interaction_decision_waits >= 3:
                     # 三次任务判断仍未确认：剧情 NPC 的交互通常就是推进方式，
-                    # 直接按 F 尝试推进，避免在识别循环中原地卡死
+                    # 直接按 F 尝试推进；按后无变化则标记无用交互
                     self.log_info(f"已识别交互 {action_text}，三次任务判断未确认，尝试直接按 F 推进")
                     self.interaction_decision_waits = 0
+                    goal_before_interact = self.guidance_text
                     self.send_key("f", down_time=0.1)
-                    self.sleep(1.0)
+                    self.sleep(1.8)
+                    self.next_frame()
+                    self._read_quest_goal(self.frame, force=True)
+                    frame_after = self.frame
+                    advanced = (self.guidance_text != goal_before_interact
+                                or detect_letterbox(frame_after).is_letterbox
+                                or detect_dialog_advance_indicator(frame_after).found
+                                or not self._read_interaction(frame_after)[0])
+                    if not advanced:
+                        self.useless_interactions.add(action_text)
+                        self.log_info(f"交互 {action_text} 后任务毫无变化，标记为无用交互，尝试其它路径")
                     return "observe"
             self.log_info("任务判断置信度不足，继续取得新的画面信息")
             return "observe"
@@ -1707,7 +1730,21 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             current_f, current_text = self._read_interaction(self.frame)
             if not current_f or current_text != action_text:
                 return "stale"
+            goal_before_interact = self.guidance_text
             self.send_key("f", down_time=0.1)
+            self.sleep(1.8)
+            self.next_frame()
+            self._read_quest_goal(self.frame, force=True)
+            frame_after = self.frame
+            advanced = (self.guidance_text != goal_before_interact
+                        or detect_letterbox(frame_after).is_letterbox
+                        or detect_dialog_advance_indicator(frame_after).found
+                        or not self._read_interaction(frame_after)[0])
+            if not advanced:
+                # 交互后任务提示毫无变化：标记为无用交互，本目标内不再交互此对象
+                self.useless_interactions.add(action_text)
+                self.log_info(f"交互 {action_text} 后任务毫无变化，标记为无用交互，尝试其它路径")
+                return "stale"
         elif action.action_type == "click":
             self.click(0.5, 0.5)
         elif action.action_type == "attack":
