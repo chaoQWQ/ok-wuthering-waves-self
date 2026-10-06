@@ -595,10 +595,24 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             if beacon_result.found:
                 self.vision_pitch_attempts = 0
                 beacon_cx = beacon_result.x + beacon_result.width / 2
+                beacon_cy = beacon_result.y + beacon_result.height / 2
+                # 以指引点在画面中的位置为准逐步居中：偏上抬镜、偏下压镜、
+                # 偏左右转镜（指引点旁的箭头即此方位关系）。
+                centered = True
                 if abs(beacon_cx - width / 2) > width * .18:
                     self._apply_camera_turn(120 if beacon_cx > width / 2 else -120)
+                    centered = False
+                elif beacon_cy < height * .15:
+                    self._apply_camera_pitch(-80)
+                    centered = False
+                elif beacon_cy > height * .85:
+                    self._apply_camera_pitch(80)
+                    centered = False
+                if not centered and getattr(self, "vision_center_attempts", 0) < 8:
+                    self.vision_center_attempts = getattr(self, "vision_center_attempts", 0) + 1
                     self.sleep(0.1)
                     return
+                self.vision_center_attempts = 0
                 approach = self._maybe_vision_approach(frame, current_distance, beacon_result)
                 self.last_vision_approach = approach
                 if approach == "climb":
@@ -1248,14 +1262,6 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         boxes = self.ocr(.01, .23, .20, .43, frame=frame)
         for box in boxes:
             if box.x <= frame.shape[1] * .05:
-                text = box.name or ""
-                # 任务追踪的距离行带上下箭头（33米▲/▼），表示目标在角色上/下方
-                if re.search(r"[▲△↑]", text):
-                    self.last_target_vertical_hint = 1
-                    self.last_target_vertical_time = time.time()
-                elif re.search(r"[▼▽↓]", text):
-                    self.last_target_vertical_hint = -1
-                    self.last_target_vertical_time = time.time()
                 distance = parse_distance_text(box.name, require_unit=True)
                 if distance is not None:
                     return distance
@@ -1305,27 +1311,18 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
     def _pitch_toward_quest_beacon(self) -> bool:
         """画面中看不到带距离的任务指引点时，垂直调整镜头把它带进画面。
 
-        方向优先取任务追踪栏的 ▲/▼ 提示（▲ 目标在上方，向上抬镜头），
-        无提示时先上后下交替；连续多次仍看不到则暂时放弃，由常规寻路继续。
+        先向上后向下交替小步尝试；连续多次仍看不到则暂缓，由常规寻路继续。
         """
         attempts = getattr(self, "vision_pitch_attempts", 0)
         now = time.time()
-        if attempts >= 6:
+        if attempts >= 8:
             if now - getattr(self, "last_vision_pitch_time", 0.0) < 20.0:
                 return False
             self.vision_pitch_attempts = 0
             attempts = 0
         self.vision_pitch_attempts = attempts + 1
         self.last_vision_pitch_time = now
-        hint = getattr(self, "last_target_vertical_hint", 0)
-        if now - getattr(self, "last_target_vertical_time", 0.0) > 8.0:
-            hint = 0
-        if hint == 1:
-            delta_y = -220
-        elif hint == -1:
-            delta_y = 220
-        else:
-            delta_y = -220 if attempts < 3 else 220
+        delta_y = -80 if attempts < 4 else 80
         self.log_debug(f"镜头未看到带距离的任务指引点，垂直调整视角 dy={delta_y}")
         self._apply_camera_pitch(delta_y)
         self.sleep(0.15)
