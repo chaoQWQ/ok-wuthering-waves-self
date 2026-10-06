@@ -4,7 +4,13 @@ import unittest
 
 import cv2
 
-from src.utils.QuestAreaSearch import QuestAreaSearch, detect_minimap_rotation, detect_quest_area, minimap_box
+from src.utils.QuestAreaSearch import (
+    QuestAreaSearch,
+    detect_minimap_rotation,
+    detect_quest_area,
+    minimap_box,
+    minimap_visible,
+)
 
 
 class TestQuestAreaSearch(unittest.TestCase):
@@ -13,8 +19,14 @@ class TestQuestAreaSearch(unittest.TestCase):
         directory = Path(__file__).parent / "images"
         cls.crop = cv2.imread(str(directory / "quest_yellow_area.png"))
         cls.frame = cv2.imread(str(directory / "quest_flower_guidance.png"))
-        if cls.crop is None or cls.frame is None:
-            raise FileNotFoundError("黄色圈验证截图不存在")
+        cls.map_frame = cv2.imread(str(directory / "big_map.png"))
+        if cls.crop is None or cls.frame is None or cls.map_frame is None:
+            raise FileNotFoundError("小地图验证截图不存在")
+
+    def test_minimap_visible_in_world_and_hidden_on_map(self):
+        self.assertTrue(minimap_visible(self.frame))
+        self.assertFalse(minimap_visible(self.map_frame))
+        self.assertFalse(minimap_visible(None))
 
     def test_area_center_and_player_heading_in_user_crop(self):
         for width in (160, 228, 320):

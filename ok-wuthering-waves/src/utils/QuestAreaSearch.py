@@ -182,6 +182,21 @@ def detect_minimap_rotation(previous: np.ndarray, current: np.ndarray) -> float:
     return math.atan2(transform[1, 0], transform[0, 0])
 
 
+def minimap_visible(frame: np.ndarray) -> bool:
+    """判断画面左上角是否存在圆形小地图（开放世界 HUD 特征）。
+
+    主线剧情使用试用角色时队伍可能只有一人，右侧换人栏为空，队伍栏模板全部
+    缺失；小地图在地图界面、传送加载与黑边过场中都会消失，可用来区分。
+    """
+    if frame is None or frame.size == 0:
+        return False
+    try:
+        mx, my, mw, mh = minimap_box(frame)
+        return minimap_content_circle(frame[my:my + mh, mx:mx + mw]) is not None
+    except Exception:
+        return False
+
+
 class QuestAreaSearch:
     def __init__(self):
         self.phase = "center"

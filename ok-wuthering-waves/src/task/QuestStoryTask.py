@@ -19,6 +19,7 @@ from src.utils.QuestAreaSearch import (
     QuestAreaStuckError,
     detect_quest_area,
     minimap_box,
+    minimap_visible,
 )
 from src.utils.QuestDecisionSession import QuestDecisionSession
 from src.utils.QuestNavigator import calculate_camera_turn, compute_movement_action
@@ -112,6 +113,17 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.clef_total_tokens: int = 0
         self.navigation_error_times: list[float] = []
         self.last_ui_reveal_time: float = 0.0
+
+    def in_team_and_world(self) -> bool:
+        in_team, _, _ = self.in_team()
+        if in_team:
+            return True
+        # 主线剧情使用试用角色时队伍可能只有一人，右侧换人栏为空，队伍栏模板全部缺失。
+        # 用左上角小地图（地图界面、传送加载、黑边过场中均不可见）兜底判断是否在大世界。
+        frame = self.frame
+        if frame is None or frame.size == 0 or detect_letterbox(frame).is_letterbox:
+            return False
+        return minimap_visible(frame)
 
     def is_game_window_active(self) -> bool:
         try:
