@@ -575,12 +575,11 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self._handle_stuck_recovery(frame)
             return
 
-        # 7. 任务点 30 米内让视觉 AI 决策一次如何抵达目标；调用前先依据小地图
-        # 任务箭头保证镜头正对任务点，箭头未对正时先转镜头，下一帧再送审。
+        # 7. 任务点 30 米内让视觉 AI 决策一次如何抵达目标。送审前保证：
+        # a) 小地图任务箭头指向任务点（水平对正）；b) 画面中出现带距离的
+        # 黄色任务指引点（未出现时依据任务追踪的上下箭头垂直调整镜头）。
         self.last_vision_approach = None
         if current_distance is not None and current_distance <= 30:
-            arrow_facing = False
-            target_facing = False
             if arrow_result.found:
                 turn_cmd = calculate_camera_turn(
                     screen_width=width,
@@ -593,11 +592,13 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                     self._apply_camera_turn(turn_cmd.delta_x_pixels)
                     self.sleep(0.1)
                     return
-                arrow_facing = True
-            if not arrow_facing and beacon_result.found:
+            if beacon_result.found:
+                self.vision_pitch_attempts = 0
                 beacon_cx = beacon_result.x + beacon_result.width / 2
-                target_facing = abs(beacon_cx - width / 2) <= width * .12
-            if arrow_facing or target_facing:
+                if abs(beacon_cx - width / 2) > width * .18:
+                    self._apply_camera_turn(120 if beacon_cx > width / 2 else -120)
+                    self.sleep(0.1)
+                    return
                 approach = self._maybe_vision_approach(frame, current_distance, beacon_result)
                 self.last_vision_approach = approach
                 if approach == "climb":
@@ -612,6 +613,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                     self.log_info("视觉决策：正面受阻，执行侧向绕行")
                     self._handle_stuck_recovery(frame)
                     return
+            elif self._pitch_toward_quest_beacon():
+                return
 
         # 8. 视野中存在任务信标
         if beacon_result.found:
@@ -1245,6 +1248,14 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         boxes = self.ocr(.01, .23, .20, .43, frame=frame)
         for box in boxes:
             if box.x <= frame.shape[1] * .05:
+                text = box.name or ""
+                # 任务追踪的距离行带上下箭头（33米▲/▼），表示目标在角色上/下方
+                if re.search(r"[▲△↑]", text):
+                    self.last_target_vertical_hint = 1
+                    self.last_target_vertical_time = time.time()
+                elif re.search(r"[▼▽↓]", text):
+                    self.last_target_vertical_hint = -1
+                    self.last_target_vertical_time = time.time()
                 distance = parse_distance_text(box.name, require_unit=True)
                 if distance is not None:
                     return distance
@@ -1276,6 +1287,49 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             from pynput import mouse
             controller = mouse.Controller()
             controller.move(delta_x, 0)
+
+    def _apply_camera_pitch(self, delta_y: int):
+        if not self.is_game_window_active():
+            return
+        if delta_y == 0:
+            return
+        try:
+            import win32api
+            import win32con
+            win32api.mouse_event(win32con.MOUSEEVENTF_MOVE, 0, delta_y, 0, 0)
+        except Exception:
+            from pynput import mouse
+            controller = mouse.Controller()
+            controller.move(0, delta_y)
+
+    def _pitch_toward_quest_beacon(self) -> bool:
+        """画面中看不到带距离的任务指引点时，垂直调整镜头把它带进画面。
+
+        方向优先取任务追踪栏的 ▲/▼ 提示（▲ 目标在上方，向上抬镜头），
+        无提示时先上后下交替；连续多次仍看不到则暂时放弃，由常规寻路继续。
+        """
+        attempts = getattr(self, "vision_pitch_attempts", 0)
+        now = time.time()
+        if attempts >= 6:
+            if now - getattr(self, "last_vision_pitch_time", 0.0) < 20.0:
+                return False
+            self.vision_pitch_attempts = 0
+            attempts = 0
+        self.vision_pitch_attempts = attempts + 1
+        self.last_vision_pitch_time = now
+        hint = getattr(self, "last_target_vertical_hint", 0)
+        if now - getattr(self, "last_target_vertical_time", 0.0) > 8.0:
+            hint = 0
+        if hint == 1:
+            delta_y = -220
+        elif hint == -1:
+            delta_y = 220
+        else:
+            delta_y = -220 if attempts < 3 else 220
+        self.log_debug(f"镜头未看到带距离的任务指引点，垂直调整视角 dy={delta_y}")
+        self._apply_camera_pitch(delta_y)
+        self.sleep(0.15)
+        return True
 
     def _reveal_hidden_ui(self, interval: float = 1.5) -> bool:
         """剧情界面按钮在鼠标静止数秒后自动淡出，轻晃鼠标（净位移为零）让 UI 重新显示。
