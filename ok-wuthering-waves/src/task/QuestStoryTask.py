@@ -5,6 +5,7 @@ from typing import Optional
 
 import numpy as np
 from ok import Box, Logger
+from src.char.BaseChar import BaseChar
 from src.task.BaseCombatTask import BaseCombatTask, CharDeadException, NotInCombatException
 from src.task.SkipBaseTask import SkipBaseTask
 from src.task.WWOneTimeTask import WWOneTimeTask
@@ -117,13 +118,37 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
     def in_team_and_world(self) -> bool:
         in_team, _, _ = self.in_team()
         if in_team:
+            self.last_world_seen_time = time.time()
             return True
         # 主线剧情使用试用角色时队伍可能只有一人，右侧换人栏为空，队伍栏模板全部缺失。
         # 用左上角小地图（地图界面、传送加载、黑边过场中均不可见）兜底判断是否在大世界。
         frame = self.frame
-        if frame is None or frame.size == 0 or detect_letterbox(frame).is_letterbox:
-            return False
-        return minimap_visible(frame)
+        world_seen = (frame is not None and frame.size > 0
+                      and not detect_letterbox(frame).is_letterbox and minimap_visible(frame))
+        if world_seen:
+            self.last_world_seen_time = time.time()
+            return True
+        # 小地图在雾天或 HUD 渐隐动画期间偶发识别失败，3 秒内确认过大世界的仍视为在世界。
+        return time.time() - getattr(self, "last_world_seen_time", 0.0) < 3.0
+
+    def load_chars(self):
+        loaded = super().load_chars()
+        if loaded:
+            return loaded
+        # 队伍栏不可见时基础加载必然失败，战斗永远无法开始；
+        # 大世界可见时用通用角色占满队伍槽位，执行普攻/声骸/解放的通用循环。
+        current = self.chars[0] if self.chars else None
+        if getattr(current, "story_fallback", False):
+            return True
+        frame = self.frame
+        if frame is None or frame.size == 0 or detect_letterbox(frame).is_letterbox or not minimap_visible(frame):
+            return None
+        fallback = BaseChar(self, 0)
+        fallback.is_current_char = True
+        fallback.story_fallback = True
+        self.chars = [fallback, fallback, fallback]
+        self.log_info("试用角色单人队伍且队伍栏不可见，使用通用战斗角色执行剧情战斗")
+        return True
 
     def is_game_window_active(self) -> bool:
         try:
