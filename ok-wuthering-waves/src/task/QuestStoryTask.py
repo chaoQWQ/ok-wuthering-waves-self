@@ -118,6 +118,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.navigation_error_times: list[float] = []
         self.last_ui_reveal_time: float = 0.0
         self.vision_approach_goal: Optional[str] = None
+        self.quest_area_goal: Optional[str] = None
 
     def in_team(self):
         result = super().in_team()
@@ -222,6 +223,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.navigation_error_times = []
         self.last_ui_reveal_time = 0.0
         self.vision_approach_goal = None
+        self.quest_area_goal = None
         self.info_set("JEV 调用次数", "0 次")
         self.info_set("JEV 额度消耗", "0 tokens")
         self.info_set("Clef 调用次数", "0 次")
@@ -475,11 +477,16 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.navigation_progress = QuestProgressTracker()
             self.log_info("黄色任务区域已切换为任务信标，继续跟随新的指引")
         if area is not None or self.area_search is not None:
+            # 标记当前目标为"范围圈"类型：没有指引点，丢失时不要按 V 或
+            # 垂直扫寻找指引点，靠旋转让范围圈重新进入小地图识别范围
+            self.quest_area_goal = self.guidance_text
             self._handle_area_navigation(frame, area, has_f, action_text)
             return
 
         # 2. 提取任务信标与目标距离
         beacon_result = detect_quest_beacon(frame)
+        if beacon_result.found:
+            self.quest_area_goal = None
         current_distance = self._extract_quest_distance(frame, beacon_result)
         if current_distance is None and not beacon_result.found:
             if re.search(r"跟随.*花朵|Follow.*flower", self.guidance_text, re.IGNORECASE):
@@ -577,8 +584,9 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self._handle_stuck_recovery(frame)
             return
 
-        # 移动或调整视角前，若画面中没有带距离的任务指引点，先按 V 重新追踪任务
-        if not beacon_result.found:
+        # 移动或调整视角前，若画面中没有带距离的任务指引点，先按 V 重新追踪任务。
+        # 范围圈类型的目标没有指引点，跳过此行为。
+        if not beacon_result.found and self.quest_area_goal != self.guidance_text:
             now_v = time.time()
             if now_v - getattr(self, "last_v_retrack_time", 0.0) > 12.0:
                 self.last_v_retrack_time = now_v
@@ -734,8 +742,10 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             return
 
         # 10. 视野与小地图暂无目标标识：先垂直扫寻（任务目标常在建筑上方，
-        # 水平旋转找不到），扫不到再把镜头恢复原位后水平旋转搜寻信标
-        if self._pitch_toward_quest_beacon():
+        # 水平旋转找不到），扫不到再把镜头恢复原位后水平旋转搜寻信标。
+        # 范围圈类型的目标没有指引点，跳过垂直扫寻直接水平旋转，
+        # 让范围圈重新进入小地图识别范围。
+        if self.quest_area_goal != self.guidance_text and self._pitch_toward_quest_beacon():
             return
         now = time.time()
         if now - self.last_search_log_time > 2.0:
