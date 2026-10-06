@@ -1061,12 +1061,12 @@ class BaseWWTask(BaseTask):
         return current_direction, current_adjust, False
 
     def in_team(self):
-        c1 = self.find_one('char_1_text',
-                           threshold=0.8)
-        c2 = self.find_one('char_2_text',
-                           threshold=0.8)
-        c3 = self.find_one('char_3_text',
-                           threshold=0.8)
+        # 限定在右上角队伍栏区域内搜索，避免技能栏冷却数字等元素误匹配
+        # （四人编队时 char_1_text 曾在技能栏误命中导致 exist_count=3 误判）。
+        team_bar_box = self.box_of_screen(0.82, 0.03, 1.0, 0.55, name='team_bar_box')
+        c1 = self.find_one('char_1_text', threshold=0.8, box=team_bar_box)
+        c2 = self.find_one('char_2_text', threshold=0.8, box=team_bar_box)
+        c3 = self.find_one('char_3_text', threshold=0.8, box=team_bar_box)
         arr = [c1, c2, c3]
         # logger.debug(f'in_team check {arr}')
         current = -1
@@ -1077,7 +1077,8 @@ class BaseWWTask(BaseTask):
                     current = i
             else:
                 exist_count += 1
-        if exist_count == 2 or exist_count == 1:
+        if exist_count in (1, 2, 3):
+            # exist_count=3：四人编队（当前角色在 4 号位时三个换人位均可见）
             self.logged_in = True
             return True, current, exist_count + 1
         else:

@@ -847,7 +847,8 @@ class BaseCombatTask(CombatCheck):
         self.chars[0] = get_char_by_pos(self, self.get_box_by_name('box_char_1'), 0, safe_get(self.chars, 0))
         self.chars[1] = get_char_by_pos(self, self.get_box_by_name('box_char_2'), 1, safe_get(self.chars, 1))
 
-        if count == 3:
+        if count >= 3:
+            # count=4 为四人编队：只加载前三个槽位，4 号位角色暂不参与轮换
             new_char = get_char_by_pos(self, self.get_box_by_name('box_char_3'), 2, safe_get(self.chars, 2))
             if len(self.chars) == 2:
                 self.chars.append(new_char)
@@ -867,6 +868,9 @@ class BaseCombatTask(CombatCheck):
                     char.is_current_char = True
                 else:
                     char.is_current_char = False
+        if current_index not in (0, 1, 2) and self.chars[0] is not None:
+            # 四人编队且当前角色在 4 号位时不在已加载槽位内，按 1 号位近似处理
+            self.chars[0].is_current_char = True
         self.combat_start = time.time()
         if len(self.chars) >= 2:
             if self._char_identity(self.chars) != previous_char_identity:
