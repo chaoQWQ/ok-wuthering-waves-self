@@ -245,6 +245,10 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
             # 1. 优先判定剧情对话
             if self.config.get("Auto Skip Dialog", True):
+                # 剧情跳过确认框(提示样式无模板)优先处理，避免确认框卡住整个流程
+                if self.current_state == self.STATE_DIALOG and self._handle_story_skip_confirm():
+                    self.sleep(0.5)
+                    continue
                 if self.check_skip():
                     self._mark_scene_transition("dialog_started", self.STATE_DIALOG)
                     self.current_state = self.STATE_DIALOG
@@ -1781,6 +1785,36 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.info_set("JEV 额度消耗", cost_display)
 
 
+    def _handle_story_skip_confirm(self) -> bool:
+        """识别"是否确认跳过"提示框并点击确认按钮。
+
+        该确认框样式没有对应模板，通过 OCR 找到问题文本与"确认"按钮。
+        """
+        try:
+            frame = self.frame
+            if frame is None or frame.size == 0:
+                return False
+            question_seen = False
+            confirm_button = None
+            for box in self.ocr(0.2, 0.3, 0.9, 0.8, frame=frame):
+                text = (getattr(box, "name", "") or "").replace(" ", "")
+                if not text:
+                    continue
+                if "确认跳过" in text or ("是否" in text and "跳过" in text):
+                    question_seen = True
+                if text in ("确认", "确認"):
+                    confirm_button = box
+            if not question_seen:
+                return False
+            self.log_info("检测到剧情跳过确认框，点击确认")
+            if confirm_button is not None:
+                self.click(confirm_button, after_sleep=0.5)
+            else:
+                self.click(0.66, 0.69, after_sleep=0.5)
+            return True
+        except Exception:
+            return False
+
     def skip_confirm(self) -> bool:
         if self.click_skip_dialog_confirm():
             self.confirm_dialog_checked = True
@@ -1788,6 +1822,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         if skip_button := self.find_one('skip_quest_confirm', threshold=0.8):
             self.sleep(0.2)
             self.click(skip_button)
+            return True
+        if self._handle_story_skip_confirm():
             return True
         # 不用 in_team_and_world 判断：小地图兜底会让剧情对话状态误判为已回到大世界。
         # 跳过完成的准据是所有跳过入口都已从画面上消失。
