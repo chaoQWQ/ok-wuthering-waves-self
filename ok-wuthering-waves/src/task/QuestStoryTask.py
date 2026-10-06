@@ -575,6 +575,16 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self._handle_stuck_recovery(frame)
             return
 
+        # 移动或调整视角前，若画面中没有带距离的任务指引点，先按 V 重新追踪任务
+        if not beacon_result.found:
+            now_v = time.time()
+            if now_v - getattr(self, "last_v_retrack_time", 0.0) > 12.0:
+                self.last_v_retrack_time = now_v
+                self.log_info("画面中未发现任务指引点，按 V 重新追踪任务指引")
+                self.send_key("v", down_time=0.1)
+                self.sleep(0.6)
+                return
+
         # 7. 任务点 30 米内让视觉 AI 决策一次如何抵达目标。送审前保证：
         # a) 小地图任务箭头指向任务点（水平对正）；b) 画面中出现带距离的
         # 黄色任务指引点（未出现时依据任务追踪的上下箭头垂直调整镜头）。
