@@ -8,6 +8,7 @@ import numpy as np
 from src.utils.QuestDecisionEngine import (
     build_detour_payload,
     encode_frame_as_data_url,
+    parse_approach_response,
     parse_detour_response,
 )
 
@@ -58,14 +59,31 @@ class TestQuestDetourDecision(unittest.TestCase):
             "usage": {"input_tokens": 100, "output_tokens": 10},
         }
         decision = parse_detour_response(response)
-        self.assertEqual(decision["direction"], "left")
+        self.assertEqual(decision["choice"], "left")
         self.assertAlmostEqual(decision["confidence"], .8)
         self.assertEqual(decision["total_tokens"], 110)
+
+    def test_parse_approach_response_reads_choice_answer(self):
+        response = {
+            "answers": {
+                "approach": {
+                    "type": "choice",
+                    "choice": "climb",
+                    "probabilities": {"climb": .85, "walk": .1, "drop": .03, "detour": .02},
+                    "confidence": .9,
+                }
+            },
+            "usage": {"input_tokens": 200, "output_tokens": 20},
+        }
+        decision = parse_approach_response(response)
+        self.assertEqual(decision["choice"], "climb")
+        self.assertAlmostEqual(decision["confidence"], .9)
+        self.assertEqual(decision["total_tokens"], 220)
 
     def test_parse_detour_response_unwraps_rest_result_envelope(self):
         answer = {"type": "choice", "choice": "right", "probabilities": {"right": .9, "back": .1}, "confidence": .85}
         response = {"success": True, "result": {"answers": {"direction": answer}, "usage": {"input_tokens": 5, "output_tokens": 5}}}
-        self.assertEqual(parse_detour_response(response)["direction"], "right")
+        self.assertEqual(parse_detour_response(response)["choice"], "right")
 
     def test_parse_detour_response_rejects_errors_and_unknown_directions(self):
         with self.assertRaisesRegex(RuntimeError, "auth"):
@@ -75,10 +93,10 @@ class TestQuestDetourDecision(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_detour_response({"answers": {}})
 
-    def test_parse_detour_response_treats_yes_no_answer_as_retreat(self):
+    def test_parse_detour_response_treats_yes_no_answer_as_no_confident_choice(self):
         response = {"answers": {"direction": {"type": "noul", "noul": .4}}}
         decision = parse_detour_response(response)
-        self.assertEqual(decision["direction"], "back")
+        self.assertIsNone(decision["choice"])
         self.assertEqual(decision["confidence"], 0)
 
 

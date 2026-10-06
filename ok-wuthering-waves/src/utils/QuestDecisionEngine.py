@@ -444,7 +444,7 @@ def build_detour_payload(quest_goal_text: str, context: Optional[dict] = None) -
     }
 
 
-def parse_detour_response(response_json: dict) -> dict:
+def parse_clef_choice(response_json: dict, question_id: str, valid_choices: tuple) -> dict:
     if not isinstance(response_json, dict):
         raise ValueError("模型返回数据必须为字典格式")
     if response_json.get("success") is False:
@@ -454,23 +454,23 @@ def parse_detour_response(response_json: dict) -> dict:
     answers = payload.get("answers")
     if not isinstance(answers, dict):
         raise ValueError("模型返回缺少 answers 字段")
-    answer = answers.get("direction")
+    answer = answers.get(question_id)
     if not isinstance(answer, dict):
-        raise ValueError("模型返回缺少 direction 字段")
+        raise ValueError(f"模型返回缺少 {question_id} 字段")
     if answer.get("type") == "noul":
-        return {"direction": "back", "confidence": 0.0, "probabilities": {}, "called_model": True}
+        return {"choice": None, "confidence": 0.0, "probabilities": {}, "total_tokens": 0, "called_model": True}
     choice = answer.get("choice")
-    if choice not in DETOUR_DIRECTIONS:
-        raise ValueError(f"未知的绕行方向: {choice}")
+    if choice not in valid_choices:
+        raise ValueError(f"未知的决策选项: {choice}")
     probabilities = answer.get("probabilities")
     confidence = float(answer.get("confidence", 0) or 0)
     if not isinstance(probabilities, dict) or not 0 <= confidence <= 1:
-        raise ValueError("模型返回的绕行方向置信度或概率无效")
+        raise ValueError("模型返回的置信度或概率无效")
     usage = payload.get("usage", {}) if isinstance(payload.get("usage"), dict) else {}
     input_tokens = int(usage.get("input_tokens", 0) or usage.get("prompt_tokens", 0) or 0)
     output_tokens = int(usage.get("output_tokens", 0) or usage.get("completion_tokens", 0) or 0)
     return {
-        "direction": choice,
+        "choice": choice,
         "confidence": confidence,
         "probabilities": {str(key): float(value) for key, value in probabilities.items()},
         "total_tokens": int(usage.get("total_tokens", input_tokens + output_tokens) or 0),
@@ -478,8 +478,19 @@ def parse_detour_response(response_json: dict) -> dict:
     }
 
 
-def decide_detour_direction(
+def parse_detour_response(response_json: dict) -> dict:
+    return parse_clef_choice(response_json, "direction", DETOUR_DIRECTIONS)
+
+
+def parse_approach_response(response_json: dict) -> dict:
+    return parse_clef_choice(response_json, "approach", APPROACH_ACTIONS)
+
+
+def decide_clef_choice(
     frame: np.ndarray,
+    question_id: str,
+    instructions: str,
+    criteria: dict,
     quest_goal_text: str,
     api_url: str,
     api_key: str,
@@ -492,9 +503,18 @@ def decide_detour_direction(
         raise ValueError("视觉决策 API 端点地址无效")
     if not api_key:
         raise ValueError("视觉决策 API Key 密钥不能为空")
-    payload = build_detour_payload(quest_goal_text, context)
-    payload["model"] = model if model in ("clef", "clef-flash") else DEFAULT_CLEF_MODEL
-    payload["images"] = [encode_frame_as_data_url(frame)]
+    state = sanitize_quest_context({
+        "quest_goal": quest_goal_text,
+        "observations": context or {},
+    })
+    payload = {
+        "model": model if model in ("clef", "clef-flash") else DEFAULT_CLEF_MODEL,
+        "state": state,
+        "questions": {
+            question_id: {"type": "choice", "instructions": instructions, "criteria": criteria},
+        },
+        "images": [encode_frame_as_data_url(frame)],
+    }
     req_body = json.dumps(payload).encode("utf-8")
     headers = {
         "Content-Type": "application/json",
@@ -508,4 +528,64 @@ def decide_detour_direction(
             resp_dict = json.loads(response.read().decode("utf-8"))
     except urllib.error.URLError as err:
         raise RuntimeError(f"连接视觉决策 API 失败: {err}") from err
-    return parse_detour_response(resp_dict)
+    return parse_clef_choice(resp_dict, question_id, tuple(criteria.keys()))
+
+
+def decide_detour_direction(
+    frame: np.ndarray,
+    quest_goal_text: str,
+    api_url: str,
+    api_key: str,
+    model: str = DEFAULT_CLEF_MODEL,
+    timeout_seconds: float = 12.0,
+    context: Optional[dict] = None,
+) -> dict:
+    criteria = {
+        "left": "The left side of the screen visibly offers open ground or a path around the obstacle.",
+        "right": "The right side of the screen visibly offers open ground or a path around the obstacle.",
+        "back": "Both sides are blocked; retreat backward first and re-approach later.",
+    }
+    return decide_clef_choice(
+        frame,
+        "direction",
+        "Choose the detour direction with the best chance to pass the obstacle based on the screenshot.",
+        criteria,
+        quest_goal_text,
+        api_url,
+        api_key,
+        model=model,
+        timeout_seconds=timeout_seconds,
+        context=context,
+    )
+
+
+APPROACH_ACTIONS = ("walk", "climb", "drop", "detour")
+
+
+def decide_approach_action(
+    frame: np.ndarray,
+    quest_goal_text: str,
+    api_url: str,
+    api_key: str,
+    model: str = DEFAULT_CLEF_MODEL,
+    timeout_seconds: float = 12.0,
+    context: Optional[dict] = None,
+) -> dict:
+    criteria = {
+        "walk": "The target is on walkable ground ahead; keep moving toward it on foot.",
+        "climb": "The target is above the character (marker high on screen or up arrow); jump toward it and climb the wall.",
+        "drop": "The target is below the character; walk off the nearby edge and drop down to it.",
+        "detour": "A wall or obstacle blocks the direct ground path; sidestep around it first.",
+    }
+    return decide_clef_choice(
+        frame,
+        "approach",
+        "The character is within 20 meters of the quest target. Choose how to close the remaining distance based on the screenshot.",
+        criteria,
+        quest_goal_text,
+        api_url,
+        api_key,
+        model=model,
+        timeout_seconds=timeout_seconds,
+        context=context,
+    )

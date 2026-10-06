@@ -12,6 +12,7 @@ from src.task.WWOneTimeTask import WWOneTimeTask
 from src.utils.QuestDecisionEngine import (
     DETOUR_SIDE_KEYS,
     QuestAction,
+    decide_approach_action,
     decide_detour_direction,
     decide_quest_action,
 )
@@ -114,6 +115,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.clef_total_tokens: int = 0
         self.navigation_error_times: list[float] = []
         self.last_ui_reveal_time: float = 0.0
+        self.vision_approach_goal: Optional[str] = None
 
     def in_team(self):
         result = super().in_team()
@@ -217,6 +219,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.clef_total_tokens = 0
         self.navigation_error_times = []
         self.last_ui_reveal_time = 0.0
+        self.vision_approach_goal = None
         self.info_set("JEV 调用次数", "0 次")
         self.info_set("JEV 额度消耗", "0 tokens")
         self.info_set("Clef 调用次数", "0 次")
@@ -592,6 +595,32 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                     self._apply_movement(["w"], .12)
                 return
 
+            # 任务点 20 米内让视觉 AI 决策一次如何抵达目标
+            approach = self._maybe_vision_approach(frame, current_distance, beacon_result)
+            if approach == "climb":
+                self.log_info("视觉决策：目标在上方，向墙面跳跃攀爬")
+                self._apply_movement(["w"], .45, jump=True)
+                return
+            if approach == "drop":
+                self.log_info("视觉决策：目标在下方，向前走出边缘下落")
+                self._apply_movement(["w"], .5)
+                return
+            if approach == "detour":
+                self.log_info("视觉决策：正面受阻，执行侧向绕行")
+                self._handle_stuck_recovery(frame)
+                return
+            # 未启用视觉决策时的确定性兜底：指引点位于画面上方且距离较近，
+            # 目标在头顶高处，向墙面跳跃开始攀爬。
+            if (approach is None
+                    and beacon_result.y + beacon_result.height / 2 < height * .45
+                    and current_distance is not None and current_distance <= 12
+                    and not detect_climbing_state(frame).is_climbing
+                    and time.time() - getattr(self, "last_climb_start_attempt", 0.0) > 6.0):
+                self.last_climb_start_attempt = time.time()
+                self.log_info(f"任务指引位于上方 (距离 {current_distance:.1f} 米)，向墙面跳跃开始攀爬")
+                self._apply_movement(["w"], .45, jump=True)
+                return
+
             self.target_search.reset()
             self.target_search.remember_forward_target(current_distance)
 
@@ -844,9 +873,10 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             except Exception as e:
                 pass
                 
-        # 放宽超时兜底
-        if climbing_duration > 20.0:
-            self.log_info("攀爬时间超过20秒，触发超时下落绕行")
+        # 超时兜底：仅防御坐标 OCR 与运动检测同时失效的极端情况，正常卡死由
+        # 坐标卡死检测（3 秒窗口）与背景运动检测更早接管，高墙攀爬需要更长时间。
+        if climbing_duration > 60.0:
+            self.log_info("攀爬时间超过60秒，触发超时下落绕行")
             self.send_key("x", down_time=0.1)
             self.sleep(0.5)
             self.climbing_start_time = 0.0
@@ -1103,7 +1133,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.clef_total_tokens += int(decision.get("total_tokens", 0) or 0)
         self.info_set("Clef 调用次数", f"{self.clef_call_count} 次")
         self.info_set("Clef 额度消耗", f"{self.clef_total_tokens} tokens")
-        direction = decision.get("direction")
+        direction = decision.get("choice")
         confidence = float(decision.get("confidence", 0) or 0)
         self.log_info(
             f"Clef 视觉绕行判断: direction={direction}, confidence={confidence:.2f}, "
@@ -1113,6 +1143,59 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.log_info("视觉绕行判断置信度不足，改用默认绕行路线")
             return None
         return DETOUR_SIDE_KEYS.get(direction)
+
+    def _maybe_vision_approach(self, frame: np.ndarray, current_distance: Optional[float],
+                               beacon_result) -> Optional[str]:
+        """任务点 20 米内让视觉 AI 决策一次如何抵达（直走/攀爬/下落/绕行）。
+
+        每个任务目标只调用一次，距离退回 25 米外或目标更新后重新武装；
+        未配置视觉 API 或调用失败时返回 None，走本地确定性逻辑。
+        """
+        api_url = str(self.config.get("Vision API URL") or os.environ.get("CLEF_API_URL") or "")
+        api_key = str(self.config.get("Vision API Key") or os.environ.get("CLEF_API_KEY") or "")
+        if not api_url.strip() or not api_key.strip():
+            return None
+        if current_distance is None or current_distance > 20:
+            if current_distance is None or current_distance > 25:
+                self.vision_approach_goal = None
+            return None
+        goal = self.guidance_text
+        if getattr(self, "vision_approach_goal", None) == goal:
+            return None
+        self.vision_approach_goal = goal
+        beacon_ratio = None
+        if beacon_result is not None and beacon_result.found:
+            beacon_ratio = round((beacon_result.y + beacon_result.height / 2) / frame.shape[0], 2)
+        try:
+            decision = decide_approach_action(
+                frame=frame,
+                quest_goal_text=self.guidance_text,
+                api_url=api_url,
+                api_key=api_key,
+                model=str(self.config.get("Vision Model") or "clef"),
+                context={
+                    "distance_meters": current_distance,
+                    "beacon_screen_y_ratio": beacon_ratio,
+                    "beacon_above_character": beacon_ratio is not None and beacon_ratio < .45,
+                },
+            )
+        except Exception as error:
+            self.log_info(f"视觉抵达决策不可用，使用本地寻路逻辑: {error}")
+            return None
+        self.clef_call_count += 1
+        self.clef_total_tokens += int(decision.get("total_tokens", 0) or 0)
+        self.info_set("Clef 调用次数", f"{self.clef_call_count} 次")
+        self.info_set("Clef 额度消耗", f"{self.clef_total_tokens} tokens")
+        choice = decision.get("choice")
+        confidence = float(decision.get("confidence", 0) or 0)
+        self.log_info(
+            f"Clef 抵达决策: approach={choice}, confidence={confidence:.2f}, "
+            f"probabilities={decision.get('probabilities')}"
+        )
+        if confidence < .6 or choice is None:
+            self.log_info("视觉抵达决策置信度不足，使用本地寻路逻辑")
+            return None
+        return choice
 
     def _stop_all_movement(self):
         for key in ["w", "a", "s", "d", "shift"]:
