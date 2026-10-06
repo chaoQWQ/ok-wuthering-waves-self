@@ -182,6 +182,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.sleep(0.05)
             if not self.is_game_window_active():
                 self._stop_all_movement()
+                self._recover_game_window_focus()
                 self.sleep(0.2)
                 continue
 
@@ -286,6 +287,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 self._stop_all_movement()
                 # 剧情对话的跳过按钮等 UI 会在鼠标静止后自动隐藏，轻晃鼠标让其重新显示再识别。
                 self._reveal_hidden_ui()
+                self._log_wait_state("当前界面不在队伍大世界（可能处于对话、加载或菜单），暂停移动等待界面恢复")
                 self.sleep(.2)
                 continue
             try:
@@ -954,6 +956,24 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.log_error(message, notify=True)
         else:
             self.log_info(message)
+
+    def _log_wait_state(self, message: str):
+        now = time.time()
+        if now - getattr(self, "last_wait_state_log_time", 0.0) < 10.0:
+            return
+        self.last_wait_state_log_time = now
+        self.log_info(message)
+
+    def _recover_game_window_focus(self):
+        now = time.time()
+        if now - getattr(self, "last_focus_recover_time", 0.0) < 10.0:
+            return
+        self.last_focus_recover_time = now
+        self.log_info("游戏窗口不在前台，角色已暂停移动，尝试重新激活游戏窗口")
+        try:
+            self.ensure_in_front()
+        except Exception as error:
+            logger.warning(f"重新激活游戏窗口失败: {error}")
 
     def _recover_from_navigation_exception(self, error: Exception):
         self._stop_all_movement()
