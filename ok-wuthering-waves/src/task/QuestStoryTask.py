@@ -14,6 +14,7 @@ from src.utils.QuestDecisionEngine import (
     QuestAction,
     decide_approach_action,
     decide_detour_direction,
+    decide_escape_action,
     decide_quest_action,
 )
 from src.utils.QuestAreaSearch import (
@@ -1069,8 +1070,63 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.navigation_progress = QuestProgressTracker()
         return True
 
+    def _decide_vision_escape(self, frame: np.ndarray) -> Optional[str]:
+        """受阻时让视觉 AI 判断脱离方式（桥底/屋檐等被结构包夹的场景）。"""
+        api_url = str(self.config.get("Vision API URL") or os.environ.get("CLEF_API_URL") or "")
+        api_key = str(self.config.get("Vision API Key") or os.environ.get("CLEF_API_KEY") or "")
+        if not api_url.strip() or not api_key.strip():
+            return None
+        now = time.time()
+        if now - getattr(self, "last_vision_escape_time", 0.0) < 15.0:
+            return None
+        self.last_vision_escape_time = now
+        try:
+            decision = decide_escape_action(
+                frame=frame,
+                quest_goal_text=self.guidance_text,
+                api_url=api_url,
+                api_key=api_key,
+                model=str(self.config.get("Vision Model") or "clef"),
+                context={
+                    "stationary_movement_seconds": round(self.navigation_progress.movement_seconds, 1),
+                    "jump_attempts": self.navigation_progress.jump_attempts,
+                    "recovery_count": self.navigation_progress.recovery_count,
+                },
+            )
+        except Exception as error:
+            self.log_info(f"视觉脱离决策不可用，沿用跳跃/绕行阶梯: {error}")
+            return None
+        self.clef_call_count += 1
+        self.clef_total_tokens += int(decision.get("total_tokens", 0) or 0)
+        self.info_set("Clef 调用次数", f"{self.clef_call_count} 次")
+        self.info_set("Clef 额度消耗", f"{self.clef_total_tokens} tokens")
+        choice = decision.get("choice")
+        probabilities = decision.get("probabilities") or {}
+        choice_probability = float(probabilities.get(choice, 0) or 0)
+        self.log_info(
+            f"Clef 脱离决策: escape={choice}, probability={choice_probability:.2f}, "
+            f"probabilities={probabilities}"
+        )
+        if choice is None or choice_probability < .5:
+            self.log_info("视觉脱离决策置信度不足，沿用跳跃/绕行阶梯")
+            return None
+        return choice
+
     def _handle_stuck_recovery(self, frame: np.ndarray):
         self._stop_all_movement()
+        # 桥底/屋檐等被结构包夹时跳跃无用，先让视觉 AI 判断脱离方式
+        escape = self._decide_vision_escape(frame)
+        if escape == "jump":
+            self._perform_jump_recovery()
+            return
+        if escape in ("back_left", "back_right", "retreat"):
+            side_key = {"back_left": "a", "back_right": "d"}.get(escape)
+            self.navigation_progress.begin_recovery(side_key=side_key, escape_route=True)
+            location = str(self.area_search.completed_rings) if self.area_search is not None else "movement_blocked"
+            self.decision_session.record("recover", self.last_interaction_text, location, time.time())
+            self.log_info(f"视觉决策：按 ({escape}) 执行长距离脱离路线")
+            self._continue_navigation_recovery()
+            return
         if self.navigation_progress.jump_attempts == 0:
             self._perform_jump_recovery()
             return

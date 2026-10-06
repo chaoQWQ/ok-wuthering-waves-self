@@ -561,6 +561,37 @@ def decide_detour_direction(
 
 APPROACH_ACTIONS = ("walk", "climb", "drop", "detour")
 
+ESCAPE_ACTIONS = ("jump", "back_left", "back_right", "retreat")
+
+
+def decide_escape_action(
+    frame: np.ndarray,
+    quest_goal_text: str,
+    api_url: str,
+    api_key: str,
+    model: str = DEFAULT_CLEF_MODEL,
+    timeout_seconds: float = 12.0,
+    context: Optional[dict] = None,
+) -> dict:
+    criteria = {
+        "jump": "The blocking obstacle is low; the character can jump over or climb it directly.",
+        "back_left": "The character is under or wedged against a large structure (bridge, roof, overhang); retreat backward while moving left to get out from under it.",
+        "back_right": "The character is under or wedged against a large structure; retreat backward while moving right to get out from under it.",
+        "retreat": "The character is under a large structure; retreat straight backward until fully out, then re-approach later.",
+    }
+    return decide_clef_choice(
+        frame,
+        "escape",
+        "Movement is blocked and the character may be under or against a structure such as a bridge or roof. Choose how to escape based on the screenshot.",
+        criteria,
+        quest_goal_text,
+        api_url,
+        api_key,
+        model=model,
+        timeout_seconds=timeout_seconds,
+        context=context,
+    )
+
 
 def decide_approach_action(
     frame: np.ndarray,

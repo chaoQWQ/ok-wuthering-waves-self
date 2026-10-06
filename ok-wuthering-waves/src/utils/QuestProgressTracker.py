@@ -13,6 +13,7 @@ class QuestProgressTracker:
     jump_attempts: int = 0
     recovery_decision_waits: int = 0
     recovery_side_key: Optional[str] = None
+    escape_route: bool = False
 
     def observe(self, distance: Optional[float]):
         if distance is None or self.recovery_step is not None:
@@ -41,7 +42,7 @@ class QuestProgressTracker:
         distance_known = self.best_distance is not None or not self.require_distance
         return distance_known and self.stationary_observed and self.movement_seconds >= 3.0 - 1e-6
 
-    def begin_recovery(self, side_key: Optional[str] = None):
+    def begin_recovery(self, side_key: Optional[str] = None, escape_route: bool = False):
         if self.recovery_step is not None:
             return
         if self.recovery_count >= 4:
@@ -49,6 +50,7 @@ class QuestProgressTracker:
         self.recovery_count += 1
         self.recovery_step = 0
         self.recovery_side_key = side_key if side_key in ("a", "d") else None
+        self.escape_route = escape_route
         self.movement_seconds = 0.0
         self.recovery_decision_waits = 0
 
@@ -63,14 +65,33 @@ class QuestProgressTracker:
         if self.recovery_step is None:
             raise RuntimeError("绕行尚未开始")
         side_key = self.recovery_side_key or ("a" if self.recovery_count % 2 else "d")
-        movements = (
-            (["s"], 0.4),
-            ([side_key], 0.5),
-            ([side_key], 0.5),
-            (["w", side_key], 0.4),
-            (["w", side_key], 0.4),
-            (["w"], 0.3),
-        )
+        if self.escape_route:
+            # 视觉决策的"脱离"路线：从桥底/屋檐等结构下走出，移动距离更长
+            if self.recovery_side_key:
+                movements = (
+                    (["s"], 0.8),
+                    ([side_key], 0.8),
+                    ([side_key], 0.8),
+                    (["w", side_key], 0.6),
+                    (["w", side_key], 0.6),
+                    (["w"], 0.5),
+                )
+            else:
+                movements = (
+                    (["s"], 1.0),
+                    (["s"], 0.8),
+                    (["s"], 0.8),
+                    (["w"], 0.5),
+                )
+        else:
+            movements = (
+                (["s"], 0.4),
+                ([side_key], 0.5),
+                ([side_key], 0.5),
+                (["w", side_key], 0.4),
+                (["w", side_key], 0.4),
+                (["w"], 0.3),
+            )
         movement = movements[self.recovery_step]
         self.recovery_step += 1
         if self.recovery_step == len(movements):
