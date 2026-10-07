@@ -7,6 +7,7 @@ from src.task.QuestStoryTask import QuestStoryTask
 from src.utils.QuestProgressTracker import QuestProgressTracker
 from src.utils.QuestTargetSearch import QuestTargetSearch
 from src.utils.QuestDecisionSession import QuestDecisionSession
+from src.utils.QuestSceneState import QuestSceneState
 
 
 class DummyExecutor:
@@ -36,6 +37,7 @@ class TestQuestStoryTask(unittest.TestCase):
             "Switch to First Character for Movement": True,
         }
         self.task.current_state = QuestStoryTask.STATE_IDLE
+        self.task.quest_scene = QuestSceneState()
         self.task.last_frame = None
         self.task.letterbox_freeze_start_time = 0.0
         self.task.last_search_log_time = 0.0

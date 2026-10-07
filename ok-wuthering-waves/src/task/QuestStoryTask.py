@@ -127,8 +127,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.clef_total_tokens: int = 0
         self.last_ui_reveal_time: float = 0.0
         self.quest_area_goal: Optional[str] = None
-        self.scene = QuestSceneState()
-        self.traversal = QuestTraversalController(self.scene)
+        self.quest_scene = QuestSceneState()
+        self.traversal = QuestTraversalController(self.quest_scene)
         self.puzzle = QuestPuzzleSession()
         self.puzzle_before_frame = None
         self.last_coordinate_read = 0.0
@@ -235,8 +235,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.clef_total_tokens = 0
         self.last_ui_reveal_time = 0.0
         self.quest_area_goal = None
-        self.scene = QuestSceneState()
-        self.traversal = QuestTraversalController(self.scene)
+        self.quest_scene = QuestSceneState()
+        self.traversal = QuestTraversalController(self.quest_scene)
         self.puzzle.reset_goal()
         self.puzzle_before_frame = None
         self.last_coordinate_read = 0.0
@@ -264,7 +264,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 if self.in_combat():
                     self.puzzle.interrupt("combat_started")
                     self.decision_session.mark_transition("combat_started")
-                    self.scene.waiting_for = None
+                    self.quest_scene.waiting_for = None
                     continue
                 self._check_puzzle_result(frame)
                 if self.puzzle.pending is not None:
@@ -419,8 +419,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
     def _mark_scene_transition(self, outcome: str, state: str):
         if self.current_state != state:
-            self.scene.transition(state)
-            self.scene.waiting_for = "combat_completed" if state == self.STATE_COMBAT else "scene_completed" if state == self.STATE_LETTERBOX_CUTSCENE else None
+            self.quest_scene.transition(state)
+            self.quest_scene.waiting_for = "combat_completed" if state == self.STATE_COMBAT else "scene_completed" if state == self.STATE_LETTERBOX_CUTSCENE else None
             self.traversal.invalidate()
             self.puzzle.interrupt(outcome)
             if self.current_state == self.STATE_COMBAT:
@@ -471,11 +471,11 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         height, width = frame.shape[:2]
         self._read_quest_goal(frame)
         climb_result = detect_climbing_state(frame)
-        self.scene.transition("climbing" if climb_result.is_climbing else "world")
-        if self.scene.goal != self.guidance_text:
-            vertical = self.scene.vertical
-            self.scene.set_goal(self.guidance_text)
-            self.scene.vertical = vertical
+        self.quest_scene.transition("climbing" if climb_result.is_climbing else "world")
+        if self.quest_scene.goal != self.guidance_text:
+            vertical = self.quest_scene.vertical
+            self.quest_scene.set_goal(self.guidance_text)
+            self.quest_scene.vertical = vertical
             self.traversal.reset_goal()
             self.puzzle.reset_goal()
         self._read_scene_coordinates(frame)
@@ -519,7 +519,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.interaction_decision_waits = 0
             self.goal_first_seen_time = time.time()
             self.goal_seen_beacon = False
-            self.scene.set_goal(self.guidance_text)
+            self.quest_scene.set_goal(self.guidance_text)
             self.traversal.reset_goal()
             self.puzzle.reset_goal()
             self.log_info(f"任务要求已经更新：{self.guidance_text}")
@@ -551,7 +551,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         else:
             self.beacon_seen_streak = 0
         current_distance = self._extract_quest_distance(frame, beacon_result)
-        self.scene.distance = current_distance
+        self.quest_scene.distance = current_distance
         if current_distance is None and not beacon_result.found:
             if re.search(r"跟随.*花朵|Follow.*flower", self.guidance_text, re.IGNORECASE):
                 beacon_result = detect_flower_guidance(frame)
@@ -575,7 +575,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
         # 4. 判定是否属于已到达任务点附近的交互
         arrow_result = detect_minimap_quest_arrow(frame)
-        self.scene.bearing = arrow_result.bearing_deg if arrow_result.found else None
+        self.quest_scene.bearing = arrow_result.bearing_deg if arrow_result.found else None
         is_near_goal = False
 
         if current_distance is not None:
@@ -612,7 +612,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self._ensure_first_character()
 
         # 5. 到达 1 至 2 米范围内停止移动并等待交互
-        if current_distance is not None and current_distance <= 2.0 and self.scene.vertical == "unknown":
+        if current_distance is not None and current_distance <= 2.0 and self.quest_scene.vertical == "unknown":
             if beacon_result.found:
                 beacon_cx = beacon_result.x + beacon_result.width / 2
                 beacon_cy = beacon_result.y + beacon_result.height / 2
@@ -834,11 +834,11 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         region = Box(round(width * .01), round(height * .23), round(width * .24), round(height * .16))
         boxes = self._ocr_quest_region(frame, region)
         panel_text = " ".join(box.name for box in boxes)
-        self.scene.vertical = "below" if re.search(r"[▼▽↓]", panel_text) else "above" if re.search(r"[▲△↑]", panel_text) else "unknown"
-        if self.scene.vertical == "unknown":
+        self.quest_scene.vertical = "below" if re.search(r"[▼▽↓]", panel_text) else "above" if re.search(r"[▲△↑]", panel_text) else "unknown"
+        if self.quest_scene.vertical == "unknown":
             for box in boxes:
                 if parse_distance_text(box.name, require_unit=True) is not None:
-                    self.scene.vertical = detect_quest_vertical_hint(frame, (box.x, box.y, box.width, box.height))
+                    self.quest_scene.vertical = detect_quest_vertical_hint(frame, (box.x, box.y, box.width, box.height))
                     break
         text = quest_goal_from_lines([box.name for box in boxes if box.x <= frame.shape[1] * .05])
         if text:
@@ -907,7 +907,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self._stop_all_movement()
         goal = self.guidance_text
         context = dict(kwargs.get("context") or {})
-        context["scene"] = self.scene.context()
+        context["scene"] = self.quest_scene.context()
         kwargs["context"] = context
         self.decision_session.reserve_call(time.time())
         result = function(**kwargs)
@@ -952,7 +952,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self._stop_all_movement()
             self.puzzle.interrupt("focus_changed")
             self.decision_session.mark_transition("focus_changed")
-            self.scene.waiting_for = None
+            self.quest_scene.waiting_for = None
             return
         observation = self._observe_puzzle(frame)
         pending = self.puzzle.pending
@@ -991,9 +991,9 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             if self.puzzle_panel_active:
                 self.puzzle_panel_started = time.time()
             self.decision_session.mark_transition(outcome)
-            self.scene.waiting_for = None
+            self.quest_scene.waiting_for = None
             self.puzzle_before_frame = None
-            self.scene.object_state = self.puzzle.context()
+            self.quest_scene.object_state = self.puzzle.context()
             self.info_set("机关验证", outcome)
             self.log_info(f"机关操作验证结果：{outcome}")
 
@@ -1022,7 +1022,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 elapsed += interval
                 self.next_frame()
                 if not self._can_continue_quest_input():
-                    self.scene.input_interruptions += 1
+                    self.quest_scene.input_interruptions += 1
                     break
         finally:
             release_errors = []
@@ -1044,9 +1044,9 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         step, handler = self.puzzle.prepare(observation, action)
         if expected_key is not None and step.key != expected_key:
             return "stale"
-        self.scene.object_id = step.object_id
-        self.scene.available_actions = [step.action]
-        self.scene.object_state = self.puzzle.context()
+        self.quest_scene.object_id = step.object_id
+        self.quest_scene.available_actions = [step.action]
+        self.quest_scene.object_state = self.puzzle.context()
         self.next_frame()
         if observation.frame.shape != self.frame.shape:
             return "stale"
@@ -1073,7 +1073,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.puzzle_before_frame = self.frame.copy()
         self.puzzle.begin(step, handler, observation, time.time())
         self.decision_session.record(action, action_text, location, time.time(), external_verification=True)
-        self.scene.waiting_for = "mechanism_effect"
+        self.quest_scene.waiting_for = "mechanism_effect"
         if step.target is not None:
             self.click(step.target[0] / self.frame.shape[1], step.target[1] / self.frame.shape[0])
         else:
@@ -1148,7 +1148,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             if waiting < 2:
                 self.sleep(.2)
                 return
-            if self.scene.vertical in ("above", "below"):
+            if self.quest_scene.vertical in ("above", "below"):
                 approach = self._maybe_vision_approach(frame, None, detect_quest_beacon(frame))
                 if approach == "climb":
                     self.traversal.begin_jump()
@@ -1194,9 +1194,9 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.sleep(.2)
 
     def _handle_climbing_state(self, frame, climbing_duration: float = 0.0):
-        self.scene.phase = "climbing"
-        self.scene.stamina = detect_climbing_stamina(frame)
-        if self.scene.stamina is not None and self.scene.stamina <= .15:
+        self.quest_scene.phase = "climbing"
+        self.quest_scene.stamina = detect_climbing_stamina(frame)
+        if self.quest_scene.stamina is not None and self.quest_scene.stamina <= .15:
             self._stop_all_movement()
             raise RuntimeError("攀爬体力接近耗尽，当前没有确认可到达的休息位置")
         self._read_scene_coordinates(frame)
@@ -1204,7 +1204,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self._stop_all_movement()
             raise RuntimeError("攀爬超过60秒仍未抵达通路，需要重新确认地形")
         self._apply_movement(["w"], .3, progress_tracker=self.climbing_progress)
-        if self.scene.height_progress is not None and self.scene.height_progress > 0:
+        if self.quest_scene.height_progress is not None and self.quest_scene.height_progress > 0:
             self.traversal.failed_actions.pop("climb_lateral", None)
             self.climbing_progress.movement_seconds = 0.0
             self.climbing_progress.stationary_observed = False
@@ -1219,7 +1219,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                                                quest_goal_text=self.guidance_text,
                                                api_url=api_url, api_key=api_key,
                                                model=self.config.get("Vision Model") or "clef",
-                                               context=self.scene.context())
+                                               context=self.quest_scene.context())
             self.clef_call_count += 1
             self.clef_total_tokens += int(decision.get("total_tokens", 0) or 0)
             self.info_set("Clef 调用次数", f"{self.clef_call_count} 次")
@@ -1651,7 +1651,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                     "distance_meters": current_distance,
                     "beacon_screen_y_ratio": beacon_ratio,
                     "beacon_above_character": beacon_ratio is not None and beacon_ratio < .45,
-                    "scene": self.scene.context(),
+                    "scene": self.quest_scene.context(),
                     "failed_actions": self.traversal.failed_actions,
                 },
             )
@@ -1690,8 +1690,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             if getattr(box, "x", 0) <= frame.shape[1] * .05:
                 distance = parse_distance_text(box.name, require_unit=True)
                 if distance is not None:
-                    if self.scene.vertical == "unknown":
-                        self.scene.vertical = detect_quest_vertical_hint(frame, (box.x, box.y, box.width, box.height))
+                    if self.quest_scene.vertical == "unknown":
+                        self.quest_scene.vertical = detect_quest_vertical_hint(frame, (box.x, box.y, box.width, box.height))
                     return distance
 
         if beacon_result.found:
@@ -1804,7 +1804,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             return
         if not keys:
             return
-        interruptions = self.scene.input_interruptions
+        interruptions = self.quest_scene.input_interruptions
         before = self.frame.copy() if any(key in ("w", "a", "s", "d") for key in keys) else None
         elapsed = 0.0
         if jump:
@@ -1812,8 +1812,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         if duration > elapsed and self._can_continue_quest_input():
             elapsed += self._hold_quest_input(keys, duration - elapsed)
         if elapsed > 0:
-            self.scene.movement_actions += 1
-        if self.scene.input_interruptions != interruptions:
+            self.quest_scene.movement_actions += 1
+        if self.quest_scene.input_interruptions != interruptions:
             self.traversal.invalidate()
             return
         if self.area_search is not None and progress_tracker is None and elapsed > 0:
@@ -1826,7 +1826,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             if self.area_search is None or progress_tracker is not None:
                 tracker.record_movement(keys, elapsed, moving=motion.moving)
             self.traversal.record_progress(motion.moving, time.time(), duration=elapsed)
-            self.scene.attempted_directions.append("+".join(keys))
+            self.quest_scene.attempted_directions.append("+".join(keys))
             self.log_debug(f"移动背景判断: moving={motion.moving}, displacement={motion.displacement_pixels:.2f}, vertical={motion.vertical_pixels:.2f}, points={motion.tracked_points}")
 
     def _ensure_first_character(self) -> bool:
@@ -1865,10 +1865,10 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         location = str(self.area_search.completed_rings) if self.area_search is not None else event
         if has_f_button:
             observation = self._observe_puzzle(frame, action_text)
-            if self.scene.goal != self.guidance_text or self.goal_candidate:
+            if self.quest_scene.goal != self.guidance_text or self.goal_candidate:
                 return "stale"
             obj = self.puzzle.identify(observation)
-            self.scene.object_id = obj.object_id
+            self.quest_scene.object_id = obj.object_id
             location = f"object:{obj.object_id}:{obj.version}:{self.puzzle.environment_version}"
         progress = location
         if area_context is not None:
@@ -1923,7 +1923,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         actions = [choice for choice in actions if choice not in failures or choice in ("interact", "attack", "skill")]
         if not actions:
             raise RuntimeError("任务动作持续未产生进展，当前没有可继续的操作")
-        self.scene.available_actions = actions
+        self.quest_scene.available_actions = actions
         stationary_seconds = self.climbing_progress.movement_seconds if event == "climbing_blocked" else self.navigation_progress.movement_seconds
         movement_context = None if self.last_motion is None else {
             "source": "world_background",
@@ -1951,7 +1951,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             "skill_key": skill_key,
             "recent_actions": self.decision_session.context(),
             "available_actions": actions,
-            "scene": self.scene.context(),
+            "scene": self.quest_scene.context(),
             "puzzle": self.puzzle.context(),
         }
         goal_before_request = self.guidance_text

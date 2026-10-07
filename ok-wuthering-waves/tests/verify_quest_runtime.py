@@ -74,7 +74,7 @@ def record_frames():
             cv2.imwrite(str(sample_path), frame[y:y + h, x:x + w].copy())
             area = task.area_search
             distance = task.navigation_progress.best_distance
-            observations["movement_actions"] = task.scene.movement_actions
+            observations["movement_actions"] = task.quest_scene.movement_actions
             if area is None and distance is not None:
                 if observations["initial_distance"] is None or observations["goal"] != task.guidance_text:
                     observations["initial_distance"] = distance
