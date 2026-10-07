@@ -575,12 +575,12 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.beacon_seen_streak = 0
         current_distance = self._extract_quest_distance(frame, beacon_result)
         self.quest_scene.distance = current_distance
+        self._read_scene_coordinates(frame)
         if current_distance is None and not beacon_result.found:
             if re.search(r"跟随.*花朵|Follow.*flower", self.guidance_text, re.IGNORECASE):
                 beacon_result = detect_flower_guidance(frame)
-                self.navigation_progress.require_distance = False
-            else:
-                self.navigation_progress.require_distance = True
+            # 面板显示"近距离"等无数值距离时，改用纯位移卡住判定兜底。
+            self.navigation_progress.require_distance = False
         previous_distance = self.navigation_progress.best_distance
         self.navigation_progress.observe(current_distance)
         if current_distance is not None and previous_distance is not None and current_distance <= previous_distance - .5:
@@ -816,6 +816,10 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
             duration = min(move_cmd.press_duration, .2 if effective_distance <= 5 else .4)
             self._apply_movement(move_cmd.keys, duration)
+            if self._navigation_stalled(current_distance):
+                self._notify_navigation_issue("任务距离与人物坐标持续无变化，判定卡住，执行侧向绕行")
+                self.navigation_progress.begin_recovery()
+                self._continue_navigation_recovery()
             return
 
         # 9. 视野无信标，依据小地图指示箭头旋转镜头并移动
@@ -968,6 +972,47 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             import math
             if math.dist(previous, coordinate) >= 3:
                 self.traversal.moved_to_new_location()
+
+    def _navigation_stalled(self, current_distance: Optional[float]) -> bool:
+        """撞墙判定：移动持续执行而任务距离与人物坐标都没有变化。
+
+        面板显示"近距离"无数值时以左下角 XYZ 坐标为准；任一信号连续
+        6 秒无变化即判定卡住，由调用方触发侧向绕行。判定后重置基准，
+        绕行结束重新采样。
+        """
+        import math
+        now = time.time()
+        sample_distance = current_distance
+        sample_coordinate = self.traversal.coordinate
+        base_distance = getattr(self, "stall_base_distance", None)
+        base_coordinate = getattr(self, "stall_base_coordinate", None)
+        stall_since = getattr(self, "stall_since", None)
+        if sample_distance is None and sample_coordinate is None:
+            # 两个信号都缺失，无法判定，重置后等待下一次有效采样。
+            self.stall_base_distance = None
+            self.stall_base_coordinate = None
+            self.stall_since = None
+            return False
+        progressed = (
+            (base_distance is not None and sample_distance is not None
+             and sample_distance <= base_distance - 0.5)
+            or (base_coordinate is not None and sample_coordinate is not None
+                and math.dist(base_coordinate, sample_coordinate) >= 0.5)
+        )
+        if progressed or base_distance is None and base_coordinate is None:
+            self.stall_base_distance = sample_distance
+            self.stall_base_coordinate = sample_coordinate
+            self.stall_since = now
+            return False
+        if stall_since is None:
+            self.stall_since = now
+            return False
+        if now - stall_since >= 6.0:
+            self.stall_base_distance = None
+            self.stall_base_coordinate = None
+            self.stall_since = None
+            return True
+        return False
 
     def _refresh_traversal_observation(self):
         self._stop_all_movement()

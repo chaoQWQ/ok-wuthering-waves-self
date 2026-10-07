@@ -509,6 +509,26 @@ class TestQuestStoryTask(unittest.TestCase):
         self.assertEqual(result, "stale")
         self.assertTrue(any("连续两次没有产生预期效果" in v for k, v in self.task.ui_logs))
 
+    def test_navigation_stalled_triggers_after_six_seconds(self):
+        from src.utils.QuestTraversalController import QuestTraversalController
+        self.task.traversal = QuestTraversalController(self.task.quest_scene)
+        self.task.traversal.coordinate = (100.0, 200.0, 3.0)
+        self.assertFalse(self.task._navigation_stalled(None))
+        self.assertFalse(self.task._navigation_stalled(None))
+        self.task.stall_since -= 7
+        self.assertTrue(self.task._navigation_stalled(None))
+        self.assertIsNone(self.task.stall_base_coordinate)
+
+    def test_navigation_stalled_resets_on_progress(self):
+        from src.utils.QuestTraversalController import QuestTraversalController
+        self.task.traversal = QuestTraversalController(self.task.quest_scene)
+        self.task.traversal.coordinate = (100.0, 200.0, 3.0)
+        self.task._navigation_stalled(None)
+        self.task.stall_since -= 5
+        self.task.traversal.coordinate = (103.0, 200.0, 3.0)
+        self.assertFalse(self.task._navigation_stalled(None))
+        self.assertEqual(self.task.stall_base_coordinate, (103.0, 200.0, 3.0))
+
 
 if __name__ == "__main__":
     unittest.main()
