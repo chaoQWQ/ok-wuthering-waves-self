@@ -226,6 +226,9 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.last_interaction_text = ""
         self.point_arrival_time = None
         self.point_approach_seconds = 0.0
+        self.direct_interact_key = None
+        self.direct_interact_attempts = 0
+        self.direct_interact_last_time = 0.0
         self.quest_combat_count = 0
         self.interaction_decision_waits = 0
         self.jev_call_count = 0
@@ -590,6 +593,11 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 self._stop_all_movement()
                 self.point_arrival_time = None
                 self.current_state = self.STATE_DECIDE_INTERACT
+                # 已走到任务点，画面里又只有这一个交互提示，直接按 F，
+                # 不再做交互名与任务文本的匹配（繁简差异曾导致卡死循环）。
+                if is_near_goal and self._direct_interact_at_target(action_text):
+                    self.sleep(.2)
+                    return
                 decision = self._trigger_ai_decision(
                     frame,
                     has_f_button=True,
@@ -860,6 +868,31 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         key_box = None if f_box is None else (f_box.x, f_box.y, f_box.width, f_box.height)
         result = detect_interact_action(frame, ocr_boxes=boxes, key_box=key_box)
         return result.has_f, sanitize_quest_text(result.action_text)
+
+    def _direct_interact_at_target(self, action_text: str) -> bool:
+        """已到达任务点且画面出现交互提示时直接按 F。
+
+        到点后唯一交互就是任务目标本身，无需再做交互名匹配；同一目标最多
+        重试 3 次，之后交回 AI 决策路径兜底。返回 False 表示本次不执行。
+        """
+        now = time.time()
+        key = (self.guidance_text, action_text)
+        if getattr(self, "direct_interact_key", None) != key:
+            self.direct_interact_key = key
+            self.direct_interact_attempts = 0
+        if self.decision_session.pending is not None:
+            return False
+        if "interact" in self.decision_session.failed_actions(action_text, "near_interaction"):
+            return False
+        if now - getattr(self, "direct_interact_last_time", 0.0) < 2.5:
+            return False
+        if getattr(self, "direct_interact_attempts", 0) >= 3:
+            return False
+        self.direct_interact_last_time = now
+        self.direct_interact_attempts = getattr(self, "direct_interact_attempts", 0) + 1
+        self.log_info(f"已到达任务点且出现交互提示 [F] {action_text or '(未识别)'}，直接执行交互")
+        result = self._execute_puzzle_action("interact", action_text, "near_interaction")
+        return result != "stale"
 
     def _ocr_quest_region(self, frame: np.ndarray, region: Box):
         text_frame, scale = resize_quest_text_frame(frame)
@@ -1983,6 +2016,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.log_info("任务判断置信度不足，继续取得新的画面信息")
             return "observe"
         if not self.is_game_window_active():
+            self.log_info("游戏窗口不在前台，丢弃本次交互决策，等待窗口恢复后重试")
             return "stale"
         self.next_frame()
         if not is_frozen_letterbox:

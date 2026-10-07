@@ -2,6 +2,7 @@ import re
 import unicodedata
 
 import numpy as np
+from zhconv import convert
 
 
 _IDENTITY_LABEL = re.compile(r"特\s*征\s*[码碼]|(?<![A-Za-z])U\s*I\s*D(?![A-Za-z])", re.IGNORECASE)
@@ -22,6 +23,9 @@ def prepare_quest_ocr_frame(frame: np.ndarray) -> np.ndarray:
 def sanitize_quest_text(text: str) -> str:
     clean_lines = []
     for line in unicodedata.normalize("NFKC", text).splitlines():
+        # 游戏内部分 NPC 名与 UI 文案以繁体渲染（如"煙舒"），而任务指引是简体，
+        # 统一归一为简体后两侧文本才能可靠匹配。
+        line = convert(line, "zh-cn")
         if _IDENTITY_LABEL.search(line):
             continue
         line = _IDENTITY_NUMBER.sub("", line).strip()

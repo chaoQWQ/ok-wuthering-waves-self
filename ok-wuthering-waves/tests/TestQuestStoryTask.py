@@ -465,6 +465,36 @@ class TestQuestStoryTask(unittest.TestCase):
         self.assertFalse(self.task._handle_story_skip_confirm())
         self.assertEqual(len(clicks), 0)
 
+    def test_direct_interact_presses_f_when_arrived(self):
+        calls = []
+        self.task.guidance_text = "和烟舒聊聊"
+        self.task._execute_puzzle_action = \
+            lambda action, text, location, expected_key=None: calls.append((action, text, location)) or "interact"
+        self.assertTrue(self.task._direct_interact_at_target("烟舒"))
+        self.assertEqual(calls, [("interact", "烟舒", "near_interaction")])
+
+    def test_direct_interact_skips_when_session_pending(self):
+        self.task.guidance_text = "和烟舒聊聊"
+        self.task.decision_session.record("wait", "烟舒", "near_interaction", time.time())
+        calls = []
+        self.task._execute_puzzle_action = lambda *args, **kwargs: calls.append(args)
+        self.assertFalse(self.task._direct_interact_at_target("烟舒"))
+        self.assertEqual(calls, [])
+
+    def test_direct_interact_respects_cooldown_and_attempt_cap(self):
+        self.task.guidance_text = "和烟舒聊聊"
+        calls = []
+        self.task._execute_puzzle_action = \
+            lambda action, text, location, expected_key=None: calls.append(action) or "interact"
+        for _ in range(3):
+            self.task.direct_interact_last_time = 0.0
+            self.assertTrue(self.task._direct_interact_at_target("烟舒"))
+        # 冷却期内不重复按键，重试 3 次后交回 AI 决策兜底
+        self.assertFalse(self.task._direct_interact_at_target("烟舒"))
+        self.task.direct_interact_last_time = 0.0
+        self.assertFalse(self.task._direct_interact_at_target("烟舒"))
+        self.assertEqual(len(calls), 3)
+
 
 if __name__ == "__main__":
     unittest.main()

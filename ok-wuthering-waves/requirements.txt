@@ -87,3 +87,5 @@ typing-extensions==4.16.0
     # via ok-script
 urllib3==2.7.0
     # via requests
+zhconv==1.4.3
+    # via ok-wuthering-waves

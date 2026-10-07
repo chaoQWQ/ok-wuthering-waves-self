@@ -7,7 +7,12 @@ import numpy as np
 from onnxocr.onnx_paddleocr import ONNXPaddleOcr
 
 from src.utils.QuestDecisionEngine import build_jev_payload
-from src.utils.QuestOcrPrivacy import prepare_quest_ocr_frame, quest_goal_from_lines, sanitize_quest_text
+from src.utils.QuestOcrPrivacy import (
+    is_named_quest_interaction,
+    prepare_quest_ocr_frame,
+    quest_goal_from_lines,
+    sanitize_quest_text,
+)
 from src.utils.QuestVision import parse_distance_text
 
 
@@ -76,6 +81,13 @@ class TestQuestOcrPrivacy(unittest.TestCase):
         self.assertNotIn("93", goal)
         distances = [parse_distance_text(line, require_unit=True) for line in lines]
         self.assertEqual([value for value in distances if value is not None], [93])
+
+    def test_traditional_interaction_name_normalized_to_simplified(self):
+        # 游戏内 NPC 名以繁体渲染（OCR 读出"煙舒"），任务指引是简体"和烟舒聊聊"
+        self.assertEqual(sanitize_quest_text("煙舒"), "烟舒")
+        self.assertEqual(sanitize_quest_text("和煙舒聊聊"), "和烟舒聊聊")
+        self.assertTrue(is_named_quest_interaction("和烟舒聊聊", "煙舒"))
+        self.assertTrue(is_named_quest_interaction("和煙舒聊聊", "烟舒"))
 
     def test_actual_hud_numbers_are_excluded_from_quest_distance(self):
         lines = self.protected_text.splitlines()
