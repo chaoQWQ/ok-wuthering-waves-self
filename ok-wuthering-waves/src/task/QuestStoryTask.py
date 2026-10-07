@@ -542,6 +542,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.interaction_decision_waits = 0
             self.goal_first_seen_time = time.time()
             self.goal_seen_beacon = False
+            self.v_retrack_count = 0
             self.quest_scene.set_goal(self.guidance_text)
             self.traversal.reset_goal()
             self.puzzle.reset_goal()
@@ -570,6 +571,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.goal_seen_beacon = True
             self.beacon_seen_streak = min(3, getattr(self, "beacon_seen_streak", 0) + 1)
             self.last_beacon_seen_time = time.time()
+            # 信标已找回：V 重试计数清零，「多次按 V」只在同一段连续丢失内累计。
+            self.v_retrack_count = 0
             self.last_beacon_cy_ratio = (beacon_result.y + beacon_result.height / 2) / frame.shape[0]
         else:
             self.beacon_seen_streak = 0
