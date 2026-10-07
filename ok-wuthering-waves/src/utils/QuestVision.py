@@ -826,3 +826,91 @@ def detect_climbing_state(
         width=0,
         height=0
     )
+
+
+@dataclass
+class CompanionLabelResult:
+    found: bool
+    x: int
+    y: int
+    width: int
+    height: int
+    confidence: float
+
+
+def detect_companion_label(
+    frame: np.ndarray,
+    template_path: Optional[str] = None,
+    threshold: float = 0.75
+) -> CompanionLabelResult:
+    """识别剧情编队右侧队伍栏二号位的“同行”字样。
+
+    剧情模式中部分任务会安排一名不可操作的 AI 同行与玩家角色同时在场，
+    其头像下方标注“同行”。识别到该字样即说明当前编队只有一号位可操作，
+    战斗应按单角色处理。
+    """
+    if frame is None or frame.size == 0:
+        raise ValueError("输入画面数组不能为空")
+
+    if template_path is None:
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(current_dir))
+        template_path = os.path.join(project_root, "assets", "companion_label.png")
+
+    if not os.path.exists(template_path):
+        raise FileNotFoundError(f"同行标注模板文件不存在: {template_path}")
+
+    template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
+    if template is None:
+        raise RuntimeError(f"无法读取同行标注模板: {template_path}")
+
+    tpl_h, tpl_w = template.shape[:2]
+    frame_h, frame_w = frame.shape[:2]
+
+    # 二号位头像标题区域（右侧队伍栏下半部分）
+    sx = int(frame_w * 0.78)
+    ex = int(frame_w * 0.98)
+    sy = int(frame_h * 0.30)
+    ey = int(frame_h * 0.44)
+
+    roi = frame[sy:ey, sx:ex]
+    gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+
+    scale_base = frame_w / 1920.0
+    best_score = -1.0
+    best_match = None
+
+    for factor in (0.85, 1.0, 1.15):
+        scaled_w = max(5, int(tpl_w * scale_base * factor))
+        scaled_h = max(5, int(tpl_h * scale_base * factor))
+
+        if gray_roi.shape[0] < scaled_h or gray_roi.shape[1] < scaled_w:
+            continue
+
+        scaled_template = cv2.resize(template, (scaled_w, scaled_h), interpolation=cv2.INTER_AREA)
+        match_result = cv2.matchTemplate(gray_roi, scaled_template, cv2.TM_CCOEFF_NORMED)
+        _, max_val, _, max_loc = cv2.minMaxLoc(match_result)
+
+        if max_val > best_score:
+            best_score = float(max_val)
+            best_match = (max_loc[0], max_loc[1], scaled_w, scaled_h)
+
+    if best_match and best_score >= threshold:
+        bx, by, bw, bh = best_match
+        return CompanionLabelResult(
+            found=True,
+            x=sx + bx,
+            y=sy + by,
+            width=bw,
+            height=bh,
+            confidence=best_score
+        )
+
+    return CompanionLabelResult(
+        found=False,
+        x=0,
+        y=0,
+        width=0,
+        height=0,
+        confidence=best_score if best_score > 0 else 0.0
+    )

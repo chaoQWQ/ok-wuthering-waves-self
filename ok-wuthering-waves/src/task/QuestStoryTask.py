@@ -42,6 +42,7 @@ from src.utils.QuestVision import (
     detect_climbing_state,
     detect_climbing_stamina,
     detect_quest_vertical_hint,
+    detect_companion_label,
     detect_dialog_advance_indicator,
     detect_interact_action,
     detect_letterbox,
@@ -139,6 +140,12 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
     def in_team(self):
         result = super().in_team()
         if result[0]:
+            # 剧情同行编队：二号位是不可切换的 AI 同行，与一号位同时在场上。
+            # 恰好识别到一个换人角标时可能是同行标注区域误命中数字模板，
+            # 先识别“同行”字样，命中则强制按单角色编队处理，避免战斗轮换二号位。
+            if result[2] == 2 and self._companion_team_active():
+                self.last_world_seen_time = time.time()
+                return True, 0, 1
             self.last_strict_team_time = time.time()
             self.last_world_seen_time = time.time()
             return result
@@ -155,6 +162,25 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             return True, 0, 1
         return result
 
+    def _companion_team_active(self) -> bool:
+        """右侧队伍栏是否为剧情同行编队（二号位“同行”标注），结果缓存3秒。"""
+        now = time.time()
+        if now - getattr(self, "last_companion_check_time", 0.0) < 3.0:
+            return getattr(self, "companion_team_active", False)
+        previous = getattr(self, "companion_team_active", False)
+        frame = self.frame
+        active = False
+        if frame is not None and frame.size > 0:
+            try:
+                active = detect_companion_label(frame).found
+            except Exception as error:
+                logger.warning(f"识别同行标注失败: {error}")
+        self.companion_team_active = active
+        self.last_companion_check_time = now
+        if active and not previous:
+            self.log_info("识别到剧情同行编队：二号位为AI同行无法切换，仅一号位参与战斗")
+        return active
+
     def load_chars(self):
         current = self.chars[0] if self.chars else None
         if getattr(current, "story_fallback", False):
@@ -162,6 +188,16 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 self.chars = [None, None, None]  # 真实队伍栏重新出现，交还基础加载流程
             else:
                 return True
+        if self._companion_team_active():
+            # 同行编队只有一号位可操作，与试用角色单队伍一样用别名兜底角色，
+            # 避免把同行头像当成二号位队友加载并轮换。
+            if not (self.chars and getattr(self.chars[0], "story_fallback", False)):
+                self.load_hotkey()
+                fallback = BaseChar(self, 0)
+                fallback.is_current_char = True
+                fallback.story_fallback = True
+                self.chars = [fallback, fallback, fallback]
+            return True
         in_team, _, _ = super().in_team()
         if in_team:
             return super().load_chars()

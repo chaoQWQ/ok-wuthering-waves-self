@@ -590,6 +590,77 @@ class TestQuestStoryTask(unittest.TestCase):
         self.assertFalse(self.task._handle_tutorial_panel(np.zeros((1080, 1920, 3), dtype=np.uint8)))
         self.assertNotIn(("send", "d"), self.task.sent_keys)
 
+    def test_companion_team_active_caches_detection(self):
+        import src.task.QuestStoryTask as quest_story_module
+        from src.utils.QuestVision import CompanionLabelResult, detect_companion_label as original
+
+        results = [CompanionLabelResult(found=True, x=0, y=0, width=0, height=0, confidence=0.9)]
+        quest_story_module.detect_companion_label = lambda *args, **kwargs: results[0]
+        try:
+            self.task._executor.frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+            self.assertTrue(self.task._companion_team_active())
+            self.assertTrue(self.task.companion_team_active)
+
+            # 缓存期内即使检测翻转为False也沿用旧结果
+            results[0] = CompanionLabelResult(found=False, x=0, y=0, width=0, height=0, confidence=0.1)
+            self.assertTrue(self.task._companion_team_active())
+
+            # 缓存过期后重新检测
+            self.task.last_companion_check_time -= 4.0
+            self.assertFalse(self.task._companion_team_active())
+        finally:
+            quest_story_module.detect_companion_label = original
+
+    def test_load_chars_companion_team_builds_single_fallback(self):
+        import src.task.QuestStoryTask as quest_story_module
+        from src.utils.QuestVision import CompanionLabelResult, detect_companion_label as original
+
+        quest_story_module.detect_companion_label = lambda *args, **kwargs: CompanionLabelResult(
+            found=True, x=0, y=0, width=0, height=0, confidence=0.9)
+        try:
+            self.task._executor.frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+            self.task.chars = [None, None, None]
+            self.task.load_hotkey = lambda: None
+            self.assertTrue(self.task.load_chars())
+            self.assertEqual(len(self.task.chars), 3)
+            fallback = self.task.chars[0]
+            self.assertTrue(fallback.story_fallback)
+            self.assertTrue(fallback.is_current_char)
+            self.assertEqual(fallback.index, 0)
+            # 三个槽位是同一个兜底对象，保证轮换逻辑找不到切换目标而停留在1号位
+            self.assertIs(self.task.chars[1], fallback)
+            self.assertIs(self.task.chars[2], fallback)
+        finally:
+            quest_story_module.detect_companion_label = original
+
+    def test_load_chars_without_companion_label_keeps_strict_path(self):
+        from unittest import mock
+
+        import src.task.QuestStoryTask as quest_story_module
+        from src.task.BaseCombatTask import BaseCombatTask
+        from src.task.BaseWWTask import BaseWWTask
+        from src.utils.QuestVision import CompanionLabelResult, detect_companion_label as original
+
+        quest_story_module.detect_companion_label = lambda *args, **kwargs: CompanionLabelResult(
+            found=False, x=0, y=0, width=0, height=0, confidence=0.1)
+        recorded = {}
+
+        def fake_base_load(self):
+            recorded["called"] = True
+            return True
+
+        try:
+            self.task._executor.frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+            self.task.chars = [None, None, None]
+            self.task.load_hotkey = lambda: None
+            with mock.patch.object(BaseWWTask, "in_team", lambda self: (True, 0, 3)), \
+                    mock.patch.object(BaseCombatTask, "load_chars", fake_base_load):
+                self.assertTrue(self.task.load_chars())
+            self.assertTrue(recorded.get("called"), "未识别同行编队时应走基础多角色加载流程")
+            self.assertIsNone(self.task.chars[0])
+        finally:
+            quest_story_module.detect_companion_label = original
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -8,6 +8,7 @@ from src.utils.QuestVision import (
     ClimbStateResult,
     LetterboxResult,
     detect_climbing_state,
+    detect_companion_label,
     detect_dialog_advance_indicator,
     detect_edge_turn_hint,
     detect_interact_action,
@@ -23,6 +24,10 @@ from src.utils.QuestVision import (
 class TestQuestVision(unittest.TestCase):
 
     def setUp(self):
+        tests_dir = os.path.dirname(os.path.abspath(__file__))
+        self.companion_bar_path = os.path.join(tests_dir, "images", "companion_team_bar.png")
+        self.companion_bar_path_2 = os.path.join(tests_dir, "images", "companion_team_bar_2.png")
+        self.normal_team_bar_path = os.path.join(tests_dir, "images", "quest_story_normal_team_bar.png")
         self.img_dialog_advance_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791092805274.png"
         self.img_letterbox_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791092288151.png"
         self.img_normal_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791091315830.jpg"
@@ -210,6 +215,30 @@ class TestQuestVision(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             frame = np.zeros((100, 100, 3), dtype=np.uint8)
             detect_climbing_state(frame, template_path="non_existent.png")
+
+    def test_detect_companion_label_positive(self):
+        frame = cv2.imread(self.companion_bar_path)
+        res = detect_companion_label(frame)
+        self.assertTrue(res.found)
+        self.assertGreaterEqual(res.confidence, 0.75)
+
+    def test_detect_companion_label_positive_second_sample(self):
+        frame = cv2.imread(self.companion_bar_path_2)
+        res = detect_companion_label(frame)
+        self.assertTrue(res.found)
+        self.assertGreaterEqual(res.confidence, 0.75)
+
+    def test_detect_companion_label_negative(self):
+        frame = cv2.imread(self.normal_team_bar_path)
+        res = detect_companion_label(frame)
+        self.assertFalse(res.found)
+
+    def test_detect_companion_label_invalid_input(self):
+        with self.assertRaises(ValueError):
+            detect_companion_label(None)
+        with self.assertRaises(FileNotFoundError):
+            frame = np.zeros((100, 100, 3), dtype=np.uint8)
+            detect_companion_label(frame, template_path="non_existent.png")
 
 
 if __name__ == "__main__":
