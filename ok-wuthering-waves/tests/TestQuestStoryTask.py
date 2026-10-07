@@ -519,6 +519,20 @@ class TestQuestStoryTask(unittest.TestCase):
         self.assertTrue(self.task._navigation_stalled(None))
         self.assertIsNone(self.task.stall_base_coordinate)
 
+    def test_navigation_stalled_requires_both_signals_frozen(self):
+        # 任一信号出现进展（坐标位移）即重置窗口，两个信号都冻结 6 秒才绕行
+        from src.utils.QuestTraversalController import QuestTraversalController
+        self.task.traversal = QuestTraversalController(self.task.quest_scene)
+        self.task.traversal.coordinate = (100.0, 200.0, 3.0)
+        self.task._navigation_stalled(None)
+        self.task.stall_since -= 7
+        self.task.traversal.coordinate = (100.5, 200.0, 3.0)
+        self.assertFalse(self.task._navigation_stalled(None))
+        self.assertEqual(self.task.stall_base_coordinate, (100.5, 200.0, 3.0))
+        # 进展后重新计时，两信号再次同时冻结满 6 秒才触发
+        self.task.stall_since -= 7
+        self.assertTrue(self.task._navigation_stalled(None))
+
     def test_navigation_stalled_resets_on_progress(self):
         from src.utils.QuestTraversalController import QuestTraversalController
         self.task.traversal = QuestTraversalController(self.task.quest_scene)

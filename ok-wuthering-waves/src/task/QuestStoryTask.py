@@ -974,36 +974,41 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 self.traversal.moved_to_new_location()
 
     def _navigation_stalled(self, current_distance: Optional[float]) -> bool:
-        """撞墙判定：移动持续执行而任务距离与人物坐标都没有变化。
+        """撞墙判定：任务距离与人物坐标两个信号同时持续无变化才判卡。
 
-        面板显示"近距离"无数值时以左下角 XYZ 坐标为准；任一信号连续
-        6 秒无变化即判定卡住，由调用方触发侧向绕行。判定后重置基准，
-        绕行结束重新采样。
+        任一信号出现进展（距离较窗口基准缩减 0.5 米，或坐标位移 0.5 米）
+        即重置 6 秒观察窗口；两个信号在整个窗口内都无变化才触发绕行。
+        信号缺失（面板无数值、坐标 OCR 未读到）时不阻断判定，按无变化计。
         """
         import math
         now = time.time()
         sample_distance = current_distance
         sample_coordinate = self.traversal.coordinate
-        base_distance = getattr(self, "stall_base_distance", None)
-        base_coordinate = getattr(self, "stall_base_coordinate", None)
-        stall_since = getattr(self, "stall_since", None)
         if sample_distance is None and sample_coordinate is None:
             # 两个信号都缺失，无法判定，重置后等待下一次有效采样。
             self.stall_base_distance = None
             self.stall_base_coordinate = None
             self.stall_since = None
             return False
+        base_distance = getattr(self, "stall_base_distance", None)
+        base_coordinate = getattr(self, "stall_base_coordinate", None)
+        # 信号首次可用时采纳为基准，保证窗口内比较始终有效。
+        if base_distance is None and sample_distance is not None:
+            self.stall_base_distance = base_distance = sample_distance
+        if base_coordinate is None and sample_coordinate is not None:
+            self.stall_base_coordinate = base_coordinate = sample_coordinate
         progressed = (
-            (base_distance is not None and sample_distance is not None
+            (sample_distance is not None and base_distance is not None
              and sample_distance <= base_distance - 0.5)
-            or (base_coordinate is not None and sample_coordinate is not None
-                and math.dist(base_coordinate, sample_coordinate) >= 0.5)
+            or (sample_coordinate is not None and base_coordinate is not None
+                and math.dist(sample_coordinate, base_coordinate) >= 0.5)
         )
-        if progressed or base_distance is None and base_coordinate is None:
+        if progressed:
             self.stall_base_distance = sample_distance
             self.stall_base_coordinate = sample_coordinate
             self.stall_since = now
             return False
+        stall_since = getattr(self, "stall_since", None)
         if stall_since is None:
             self.stall_since = now
             return False
