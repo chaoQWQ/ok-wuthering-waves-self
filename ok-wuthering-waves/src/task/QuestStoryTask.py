@@ -732,6 +732,20 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         if (not beacon_result.found and not arrow_result.found
                 and self.quest_area_goal != self.guidance_text
                 and not self._minimap_ring_hint(frame)):
+            beacon_lost_seconds = time.time() - getattr(self, "last_beacon_seen_time", 0.0)
+            if (getattr(self, "goal_seen_beacon", False) and 0 <= beacon_lost_seconds < 8.0
+                    and (current_distance is None or current_distance > 5)):
+                # 信标刚丢失：镜头仍指向丢失前对准的方位，按原朝向继续前进，
+                # 连续 8 秒未见再按 V 重新追踪。
+                if time.time() - getattr(self, "last_forward_hold_log_time", 0.0) > 2.0:
+                    self.last_forward_hold_log_time = time.time()
+                    self.log_info("信标暂时丢失，沿丢失前朝向继续前进")
+                self._apply_movement(["w"], 0.4)
+                if self._navigation_stalled(current_distance):
+                    self._notify_navigation_issue("按最后朝向前进仍无距离与坐标变化，执行侧向绕行")
+                    self.navigation_progress.begin_recovery()
+                    self._continue_navigation_recovery()
+                return
             now_v = time.time()
             if now_v - getattr(self, "last_v_retrack_time", 0.0) >= 4.0:
                 self.last_v_retrack_time = now_v
