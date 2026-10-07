@@ -685,7 +685,17 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 # 偏左右转镜（指引点旁的箭头即此方位关系）。
                 centered = True
                 if abs(beacon_cx - width / 2) > width * .18:
-                    if not self.traversal.observe_camera((beacon_cx - width / 2) / width * 90):
+                    try:
+                        camera_turn = self.traversal.observe_camera((beacon_cx - width / 2) / width * 90)
+                    except RuntimeError:
+                        # 镜头调整持续无法让指引点居中：重置镜头验证并侧向绕行
+                        # 重新接近，而不是终止任务。
+                        self._notify_navigation_issue("镜头调整持续没有改善目标位置，重置验证并小幅绕行后重新接近")
+                        self.traversal.reset_goal()
+                        self.navigation_progress.begin_recovery()
+                        self._continue_navigation_recovery()
+                        return
+                    if not camera_turn:
                         self._refresh_traversal_observation()
                         return
                     self._apply_camera_turn(120 if beacon_cx > width / 2 else -120)
@@ -710,7 +720,14 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                         self.sleep(.2)
                         return
                     self.log_info("视觉决策：目标在上方，向墙面跳跃攀爬")
-                    self.traversal.begin_jump()
+                    try:
+                        self.traversal.begin_jump()
+                    except RuntimeError:
+                        # 同一位置跳跃多次没有进展，改用侧向绕行寻找新通路。
+                        self._notify_navigation_issue("同一位置跳跃多次没有进展，改用侧向绕行")
+                        self.traversal.reset_goal()
+                        self._handle_stuck_recovery(frame)
+                        return
                     self.last_climb_probe_time = time.time()
                     self._apply_movement(["w"], .45, jump=True)
                     return
@@ -880,7 +897,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         if getattr(self, "direct_interact_key", None) != key:
             self.direct_interact_key = key
             self.direct_interact_attempts = 0
-        if self.decision_session.pending is not None:
+        if self.decision_session.pending is not None or self.puzzle.pending is not None:
             return False
         if "interact" in self.decision_session.failed_actions(action_text, "near_interaction"):
             return False
@@ -1074,7 +1091,13 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
     def _execute_puzzle_action(self, action, action_text, location, expected_key=None):
         self.next_frame()
         observation = self._observe_puzzle(self.frame, action_text)
-        step, handler = self.puzzle.prepare(observation, action)
+        try:
+            step, handler = self.puzzle.prepare(observation, action)
+        except RuntimeError as error:
+            # 机关规则或状态无法确认（缺提示/状态重复无效果等）不应终止任务：
+            # 本帧按画面过期处理，等待下一帧重新观察。
+            self._notify_navigation_issue(f"{error}，本帧跳过机关操作")
+            return "stale"
         if expected_key is not None and step.key != expected_key:
             return "stale"
         self.quest_scene.object_id = step.object_id
@@ -1184,14 +1207,22 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             if self.quest_scene.vertical in ("above", "below"):
                 approach = self._maybe_vision_approach(frame, None, detect_quest_beacon(frame))
                 if approach == "climb":
-                    self.traversal.begin_jump()
-                    self._apply_movement(["w"], .4, jump=True)
+                    try:
+                        self.traversal.begin_jump()
+                    except RuntimeError:
+                        self._notify_navigation_issue("同一位置跳跃多次没有进展，改用侧向绕行")
+                        self.traversal.reset_goal()
+                        self._handle_stuck_recovery(frame)
+                    else:
+                        self._apply_movement(["w"], .4, jump=True)
                 elif approach == "drop":
                     self._apply_movement(["w"], .2)
                 elif approach == "detour":
                     self._handle_stuck_recovery(frame)
                 elif approach != "walk":
-                    raise RuntimeError("已接近黄色圈中心，但目标位于其他高度，需要确认墙面或上下通路")
+                    # 圈中心目标在其他高度且视觉无法确认通路，绕行探路而不是终止任务。
+                    self._notify_navigation_issue("已接近黄色圈中心，但目标位于其他高度，改用侧向绕行探路")
+                    self._handle_stuck_recovery(frame)
                 if approach != "walk":
                     return
             result = self._trigger_ai_decision(frame, has_f_button=has_f, action_text=action_text, event="area_center")
@@ -1548,7 +1579,13 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             return
         if detect_climbing_state(self.frame).is_climbing:
             return
-        self.traversal.begin_jump()
+        try:
+            self.traversal.begin_jump()
+        except RuntimeError:
+            # 同一位置跳跃已达上限：重置地形验证，改走绕行阶梯，不再终止任务。
+            self._notify_navigation_issue("同一位置跳跃多次没有进展，改用绕行阶梯")
+            self.traversal.reset_goal()
+            return
         self.navigation_progress.begin_jump()
         keys = self.area_search.movement_keys if self.area_search is not None and self.area_search.camera_heading is not None else ["w"]
         self.log_info(f"移动受阻，第 {self.navigation_progress.jump_attempts} 次尝试向任务方向跳跃，按键 {keys}")
@@ -1705,9 +1742,18 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         if choice is None or choice == "unknown" or choice_probability < minimum:
             self.traversal.observation_attempts += 1
             if self.traversal.observation_attempts >= 3:
-                raise RuntimeError("连续三次视觉观察无法确认目标通路，需要明确的地形证据")
+                # 连续无法确认通路：重置视觉验证并侧向绕行，不终止任务。
+                self._notify_navigation_issue("连续三次视觉观察无法确认目标通路，重置后侧向绕行")
+                self.traversal.reset_goal()
+                return "detour"
             return "unknown"
-        self.traversal.remember(choice)
+        try:
+            self.traversal.remember(choice)
+        except RuntimeError:
+            # 相同位置地形操作连续没有进展：重置后换路。
+            self._notify_navigation_issue("相同位置的地形操作连续两次没有进展，重置后侧向绕行")
+            self.traversal.reset_goal()
+            return "detour"
         return choice
 
     def _stop_all_movement(self):
@@ -1900,7 +1946,15 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             observation = self._observe_puzzle(frame, action_text)
             if self.quest_scene.goal != self.guidance_text or self.goal_candidate:
                 return "stale"
-            obj = self.puzzle.identify(observation)
+            try:
+                obj = self.puzzle.identify(observation)
+            except RuntimeError as error:
+                # 机关身份无法确认不应终止任务：镜头变化导致对象登记与画面
+                # 脱节时清空重学；多同名对象歧义则本帧按画面过期处理。
+                if "无法重新确认机关身份" in str(error):
+                    self._notify_navigation_issue(f"{error}，重置机关识别后重试")
+                    self.puzzle.reset_goal()
+                return "stale"
             self.quest_scene.object_id = obj.object_id
             location = f"object:{obj.object_id}:{obj.version}:{self.puzzle.environment_version}"
         progress = location

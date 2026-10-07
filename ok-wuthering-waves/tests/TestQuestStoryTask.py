@@ -5,6 +5,7 @@ from ok import Logger
 
 from src.task.QuestStoryTask import QuestStoryTask
 from src.utils.QuestProgressTracker import QuestProgressTracker
+from src.utils.QuestPuzzleSession import QuestPuzzleSession
 from src.utils.QuestTargetSearch import QuestTargetSearch
 from src.utils.QuestDecisionSession import QuestDecisionSession
 from src.utils.QuestSceneState import QuestSceneState
@@ -38,6 +39,7 @@ class TestQuestStoryTask(unittest.TestCase):
         }
         self.task.current_state = QuestStoryTask.STATE_IDLE
         self.task.quest_scene = QuestSceneState()
+        self.task.puzzle = QuestPuzzleSession()
         self.task.last_frame = None
         self.task.letterbox_freeze_start_time = 0.0
         self.task.last_search_log_time = 0.0
@@ -494,6 +496,18 @@ class TestQuestStoryTask(unittest.TestCase):
         self.task.direct_interact_last_time = 0.0
         self.assertFalse(self.task._direct_interact_at_target("烟舒"))
         self.assertEqual(len(calls), 3)
+
+    def test_puzzle_prepare_failure_degrades_to_stale(self):
+        def raise_prepare(observation, action):
+            raise RuntimeError("当前机关在相同状态下连续两次没有产生预期效果，需要新的操作条件")
+
+        self.task.puzzle = type("P", (), {"prepare": staticmethod(raise_prepare), "pending": None})()
+        self.task.next_frame = lambda: None
+        self.task._observe_puzzle = lambda frame, text: None
+        self.task._notify_navigation_issue = lambda message: self.task.ui_logs.append(("Log", message))
+        result = self.task._execute_puzzle_action("interact", "烟舒", "near_interaction")
+        self.assertEqual(result, "stale")
+        self.assertTrue(any("连续两次没有产生预期效果" in v for k, v in self.task.ui_logs))
 
 
 if __name__ == "__main__":
