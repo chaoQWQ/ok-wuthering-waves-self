@@ -49,12 +49,21 @@ def detect_quest_area(frame: np.ndarray, search_box=None, expected_circle=None) 
         raise ValueError("黄色圈识别画面不能为空")
     mx, my, mw, mh = minimap_box(frame) if search_box is None else search_box
     roi = frame[my:my + mh, mx:mx + mw]
+    observation = _detect_area_strict(roi, min(mw, mh), mx, my, expected_circle)
+    if observation is not None:
+        return observation
+    # 严格检测未锁定时的兜底：玩家已处于任务区内的小虚线圈。
+    return _detect_dashed_area_ring(roi, min(mw, mh), mx, my)
+
+
+def _detect_area_strict(roi: np.ndarray, scale: float, mx: int, my: int,
+                        expected_circle=None) -> Optional[QuestAreaObservation]:
+    mw, mh = roi.shape[1], roi.shape[0]
     map_circle = minimap_content_circle(roi)
     if map_circle is None:
         return None
     map_x, map_y, map_radius = map_circle
     hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-    scale = min(mw, mh)
 
     # 玩家箭头的饱和度高于任务区域填充颜色。
     player_mask = cv2.inRange(hsv, (15, 120, 155), (38, 255, 255))
@@ -149,6 +158,66 @@ def detect_quest_area(frame: np.ndarray, search_box=None, expected_circle=None) 
         return None
     confidence, cx, cy, radius = max(areas)
     return QuestAreaObservation(cx + mx, cy + my, radius, px + mx, py + my, heading, confidence)
+
+
+def _detect_dashed_area_ring(roi: np.ndarray, scale: float, mx: int, my: int) -> Optional[QuestAreaObservation]:
+    """兜底识别玩家已处于任务区内的小虚线圈。
+
+    任务区中心的小圈为灰白虚线（与玩家箭头同色系、叠在视野锥边缘），
+    严格检测的填充率与色域校验不适用。方法：金色掩码锁定玩家箭头，
+    灰亮掩码剔除大块视野锥后对剩余虚线点做最小二乘圆拟合。
+    """
+    mw, mh = roi.shape[1], roi.shape[0]
+    b, g, r = roi[:, :, 0].astype(int), roi[:, :, 1].astype(int), roi[:, :, 2].astype(int)
+    gold = ((r > 170) & (g > 150) & ((r - b) > 20)).astype(np.uint8) * 255
+    count, _, gold_stats, gold_centroids = cv2.connectedComponentsWithStats(gold, connectivity=8)
+    if count <= 1:
+        return None
+    arrow = max(range(1, count), key=lambda i: int(gold_stats[i, cv2.CC_STAT_AREA]))
+    px, py = float(gold_centroids[arrow][0]), float(gold_centroids[arrow][1])
+    map_center = (mw * .425, mh * .48)
+    if int(gold_stats[arrow, cv2.CC_STAT_AREA]) < scale * scale * .004:
+        return None
+    if math.hypot(px - map_center[0], py - map_center[1]) > scale * .25:
+        return None
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    grayish = cv2.inRange(hsv, (0, 0, 115), (180, 70, 195))
+    rings, labels, ring_stats, _ = cv2.connectedComponentsWithStats(grayish, connectivity=8)
+    best = None
+    for index in range(1, rings):
+        area = int(ring_stats[index, cv2.CC_STAT_AREA])
+        if not scale * scale * .004 <= area <= scale * scale * .05:
+            continue
+        width = int(ring_stats[index, cv2.CC_STAT_WIDTH])
+        height = int(ring_stats[index, cv2.CC_STAT_HEIGHT])
+        if not .55 <= width / max(height, 1) <= 1.8:
+            continue
+        points = np.column_stack((labels == index).nonzero())[:, ::-1]
+        cx, cy, radius, residual = _fit_circle(points)
+        if not scale * .04 <= radius <= scale * .3:
+            continue
+        if residual > radius * .3:
+            continue
+        if math.hypot(cx - px, cy - py) > scale * .28:
+            continue
+        if best is None or area > best[0]:
+            best = (area, cx, cy, radius)
+    if best is None:
+        return None
+    _, cx, cy, radius = best
+    return QuestAreaObservation(cx + mx, cy + my, radius, px + mx, py + my, None, .55)
+
+
+def _fit_circle(points: np.ndarray):
+    """Kasa 最小二乘圆拟合，返回 (cx, cy, r, 平均残差)。"""
+    x = points[:, 0].astype(float)
+    y = points[:, 1].astype(float)
+    matrix = np.column_stack([2 * x, 2 * y, np.ones(len(x))])
+    solution, *_ = np.linalg.lstsq(matrix, x ** 2 + y ** 2, rcond=None)
+    cx, cy = float(solution[0]), float(solution[1])
+    radius = math.sqrt(max(solution[2] + cx ** 2 + cy ** 2, 1e-6))
+    residual = float(np.mean(np.abs(np.hypot(x - cx, y - cy) - radius)))
+    return cx, cy, radius, residual
 
 
 def detect_minimap_transform(previous: np.ndarray, current: np.ndarray) -> np.ndarray:

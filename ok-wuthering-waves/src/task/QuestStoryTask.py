@@ -589,23 +589,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.puzzle.reset_goal()
             self.log_info(f"任务要求已经更新：{self.guidance_text}")
 
-        if self.area_search is None:
-            area = detect_quest_area(frame)
-        else:
-            area = self.area_search.find_observation(frame)
-        if area is None and self.area_search is not None and detect_quest_beacon(frame).found:
-            self.decision_session.mark_transition("quest_marker_changed")
-            self.area_search = None
-            self.navigation_progress = QuestProgressTracker()
-            self.log_info("黄色任务区域已切换为任务信标，继续跟随新的指引")
-        if area is not None or self.area_search is not None:
-            # 标记当前目标为"范围圈"类型：没有指引点，丢失时不要按 V 或
-            # 垂直扫寻找指引点，靠旋转让范围圈重新进入小地图识别范围
-            self.quest_area_goal = self.guidance_text
-            self._handle_area_navigation(frame, area, has_f, action_text)
-            return
-
-        # 2. 提取任务信标与目标距离
+        # 2. 提取任务信标与目标距离（先于范围圈分支：信标可见时优先跟随信标，
+        #    避免任务区小虚线圈兜底观测抢占信标导航）
         beacon_result = detect_quest_beacon(frame)
         if beacon_result.found:
             self.quest_area_goal = None
@@ -617,6 +602,23 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.last_beacon_cy_ratio = (beacon_result.y + beacon_result.height / 2) / frame.shape[0]
         else:
             self.beacon_seen_streak = 0
+
+        if self.area_search is None:
+            area = None if beacon_result.found else detect_quest_area(frame)
+        else:
+            area = self.area_search.find_observation(frame)
+        if area is None and self.area_search is not None and beacon_result.found:
+            self.decision_session.mark_transition("quest_marker_changed")
+            self.area_search = None
+            self.navigation_progress = QuestProgressTracker()
+            self.log_info("黄色任务区域已切换为任务信标，继续跟随新的指引")
+        if area is not None or self.area_search is not None:
+            # 标记当前目标为"范围圈"类型：没有指引点，丢失时不要按 V 或
+            # 垂直扫寻找指引点，靠旋转让范围圈重新进入小地图识别范围
+            self.quest_area_goal = self.guidance_text
+            self._handle_area_navigation(frame, area, has_f, action_text)
+            return
+
         current_distance = self._extract_quest_distance(frame, beacon_result)
         self.quest_scene.distance = current_distance
         self._read_scene_coordinates(frame)
