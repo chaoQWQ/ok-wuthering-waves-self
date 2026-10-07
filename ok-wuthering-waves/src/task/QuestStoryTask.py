@@ -929,7 +929,12 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             letters = {(box.name or "").strip().upper() for box in page_strip}
             marker_region = Box(round(width * .30), round(height * .92), round(width * .40), round(height * .07))
             marker_text = "".join(sanitize_quest_text(box.name) for box in self._ocr_quest_region(frame, marker_region))
-            if "A" not in letters and "D" not in letters and "最后一页" not in marker_text:
+            panel_seen = "A" in letters or "D" in letters or "最后一页" in marker_text
+            if not panel_seen:
+                # 单页教程面板（如"鬼界"）没有 A/D 按钮与提示文案，
+                # 标题旁的"?"帮助图标是两类面板共有的固定特征。
+                panel_seen = self._tutorial_icon_matched(frame)
+            if not panel_seen:
                 return False
             confirm_region = Box(round(width * .35), round(height * .88), round(width * .30), round(height * .10))
             confirm = next((box for box in self._ocr_quest_region(frame, confirm_region)
@@ -950,6 +955,33 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             return True
         except Exception:
             return False
+
+    def _tutorial_icon_matched(self, frame: np.ndarray) -> bool:
+        """标题旁的"?"帮助图标是单页/多页教程面板共有的固定特征。"""
+        import cv2
+        template = getattr(self, "_tutorial_icon_template", None)
+        if template is None:
+            path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                                "assets", "tutorial_help_icon.png")
+            if not os.path.exists(path):
+                return False
+            template = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+            if template is None:
+                return False
+            self._tutorial_icon_template = template
+        height, width = frame.shape[:2]
+        x, y = round(width * .02), round(height * .25)
+        region = cv2.cvtColor(frame[y:round(height * .40), x:round(width * .10)], cv2.COLOR_BGR2GRAY)
+        best = 0.0
+        for factor in (.8, 1.0, 1.05, 1.2):
+            scale = width / 1920.0 * factor
+            th, tw = max(5, round(template.shape[0] * scale)), max(5, round(template.shape[1] * scale))
+            scaled = cv2.resize(template, (tw, th), interpolation=cv2.INTER_AREA)
+            if region.shape[0] >= th and region.shape[1] >= tw:
+                result = cv2.matchTemplate(region, scaled, cv2.TM_CCOEFF_NORMED)
+                _, max_val, _, _ = cv2.minMaxLoc(result)
+                best = max(best, max_val)
+        return best >= .7
 
     def _read_interaction(self, frame: np.ndarray) -> tuple[bool, str]:
         height, width = frame.shape[:2]
