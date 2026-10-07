@@ -654,9 +654,9 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self._handle_stuck_recovery(frame)
             return
 
-        # 移动或调整视角前，若画面中没有带距离的任务指引点，先按 V 重新追踪任务。
-        # 三类情况跳过：范围圈类型目标；目标更新 20 秒内从未出现信标；
-        # 近距离(<40米)信标消失——那是信标转换成了范围圈，按 V 无意义。
+        # 画面中没有任务信标时立即按 V 重新追踪任务指引——丢失的信标靠转视角
+        # 找不回来，按 V 才会重新出现。范围圈类型目标（小地图黄圈）本身没有
+        # 信标，交给区域搜索/绕行逻辑处理，不按 V。
         beacon_confirmed = (getattr(self, "goal_seen_beacon", False)
                             and getattr(self, "beacon_seen_streak", 0) >= 2
                             and time.time() - getattr(self, "last_beacon_seen_time", 0.0) < 90.0)
@@ -664,15 +664,21 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                         and time.time() - getattr(self, "goal_first_seen_time", 0.0) > 20.0)
         near_conversion = (current_distance is not None and current_distance < 40
                            and getattr(self, "last_beacon_cy_ratio", 1.0) >= 0.25)
-        if (not beacon_result.found and self.quest_area_goal != self.guidance_text
-                and not area_suspect and not near_conversion):
+        if not beacon_result.found and self.quest_area_goal != self.guidance_text:
             now_v = time.time()
-            if now_v - getattr(self, "last_v_retrack_time", 0.0) > 12.0:
+            if now_v - getattr(self, "last_v_retrack_time", 0.0) >= 4.0:
                 self.last_v_retrack_time = now_v
-                self.log_info("画面中未发现任务指引点，按 V 重新追踪任务指引")
+                self.v_retrack_count = getattr(self, "v_retrack_count", 0) + 1
+                self.log_info("画面中没有任务信标，按 V 重新追踪任务指引")
                 self.send_key("v", down_time=0.1)
-                self.sleep(0.6)
-                return
+                self.sleep(0.8)
+                if self.v_retrack_count % 4 == 0:
+                    self._notify_navigation_issue("多次按 V 仍未出现任务信标，小幅绕行变换位置后再试")
+                    self.navigation_progress.begin_recovery()
+                    self._continue_navigation_recovery()
+            else:
+                self.sleep(0.2)
+            return
 
         # 镜头调整依据世界目标的位置，角色朝向仅用于小地图导航。
         if current_distance is not None and current_distance <= 30:
