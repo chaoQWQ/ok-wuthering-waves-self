@@ -718,9 +718,10 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self._handle_stuck_recovery(frame)
             return
 
-        # 画面中没有任务信标时立即按 V 重新追踪任务指引——丢失的信标靠转视角
-        # 找不回来，按 V 才会重新出现。范围圈类型目标（小地图黄圈）本身没有
-        # 信标，交给区域搜索/绕行逻辑处理，不按 V。
+        # 画面中没有任务信标时按 V 重新追踪任务指引——丢失的信标靠转视角
+        # 找不回来，按 V 才会重新出现。但三类情况不按 V：小地图任务箭头
+        # 仍在（跟随箭头走向目标）；小地图有任务黄圈（范围圈任务，走进圈
+        # 中心后由里往外搜索）；当前目标已被登记为范围圈类型。
         beacon_confirmed = (getattr(self, "goal_seen_beacon", False)
                             and getattr(self, "beacon_seen_streak", 0) >= 2
                             and time.time() - getattr(self, "last_beacon_seen_time", 0.0) < 90.0)
@@ -728,7 +729,9 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                         and time.time() - getattr(self, "goal_first_seen_time", 0.0) > 20.0)
         near_conversion = (current_distance is not None and current_distance < 40
                            and getattr(self, "last_beacon_cy_ratio", 1.0) >= 0.25)
-        if not beacon_result.found and self.quest_area_goal != self.guidance_text:
+        if (not beacon_result.found and not arrow_result.found
+                and self.quest_area_goal != self.guidance_text
+                and not self._minimap_ring_hint(frame)):
             now_v = time.time()
             if now_v - getattr(self, "last_v_retrack_time", 0.0) >= 4.0:
                 self.last_v_retrack_time = now_v
@@ -1130,6 +1133,41 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.stall_since = None
             return True
         return False
+
+    def _minimap_ring_hint(self, frame: np.ndarray) -> bool:
+        """宽松判定小地图上是否存在任务黄圈（范围圈任务特征）。
+
+        detect_quest_area 需要同时识别地图边框、玩家箭头与黄圈才锁定，
+        任一失败即返回 None；这里只做黄色像素统计——抹除玩家箭头（高饱
+        和黄，含尖端）与左下角任务图标后仍剩足够黄色，即认为有圈，用于
+        决定"不要按 V"，正式导航仍由 detect_quest_area 接管。
+        """
+        import cv2
+        from src.utils.QuestAreaSearch import minimap_box
+        try:
+            mx, my, mw, mh = minimap_box(frame)
+            roi = frame[my:my + mh, mx:mx + mw]
+            if roi.size == 0:
+                return False
+            hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+            scale = min(mw, mh)
+            kernel = max(3, round(scale * .025) | 1)
+            player_mask = cv2.inRange(hsv, (15, 120, 155), (38, 255, 255))
+            player_mask = cv2.morphologyEx(player_mask, cv2.MORPH_CLOSE,
+                                           np.ones((kernel, kernel), np.uint8))
+            mask = cv2.inRange(hsv, (20, 60, 120), (50, 255, 255))
+            mask[player_mask > 0] = 0
+            mask[round(mh * .7):, :round(mw * .2)] = 0
+            # 小地图半透明会透出场景黄色杂纹，只统计成块的连通域。
+            minimum_component = scale * scale * .004
+            count = 0
+            n, _, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+            for index in range(1, n):
+                if stats[index, cv2.CC_STAT_AREA] >= minimum_component:
+                    count += int(stats[index, cv2.CC_STAT_AREA])
+            return count >= scale * scale * .008
+        except Exception:
+            return False
 
     def _refresh_traversal_observation(self):
         self._stop_all_movement()

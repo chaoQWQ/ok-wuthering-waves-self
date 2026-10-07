@@ -662,6 +662,28 @@ class TestQuestStoryTask(unittest.TestCase):
             quest_story_module.detect_companion_label = original
 
 
+    def test_minimap_ring_hint_detects_yellow_ring(self):
+        import cv2
+        # 低饱和暗黄圆环（区别于高饱和玩家箭头）应被识别为范围圈
+        frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+        mh, mw = int(1080 * .24), int(1920 * .16)
+        roi_hsv = np.zeros((mh, mw, 3), dtype=np.uint8)
+        cv2.circle(roi_hsv, (230, 130), 40, (30, 100, 180), 12)
+        frame[:mh, :mw] = cv2.cvtColor(roi_hsv, cv2.COLOR_HSV2BGR)
+        self.assertTrue(self.task._minimap_ring_hint(frame))
+        # 纯黑小地图不误报
+        self.assertFalse(self.task._minimap_ring_hint(np.zeros((1080, 1920, 3), dtype=np.uint8)))
+
+    def test_minimap_ring_hint_ignores_scattered_noise(self):
+        import cv2
+        # 半透明小地图透出的细碎黄色条纹不应判为黄圈
+        frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+        mh, mw = int(1080 * .24), int(1920 * .16)
+        for x in range(240, mw, 12):
+            cv2.line(frame, (x, 10), (x, mh - 20), (30, 140, 190), 2)
+        self.assertFalse(self.task._minimap_ring_hint(frame))
+
+
 if __name__ == "__main__":
     unittest.main()
 
