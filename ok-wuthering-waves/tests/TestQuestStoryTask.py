@@ -543,6 +543,53 @@ class TestQuestStoryTask(unittest.TestCase):
         self.assertFalse(self.task._navigation_stalled(None))
         self.assertEqual(self.task.stall_base_coordinate, (103.0, 200.0, 3.0))
 
+    def test_tutorial_panel_presses_d_until_confirm(self):
+        from ok.feature.Box import Box
+        clicks = []
+        self.task.click = lambda *args, **kwargs: clicks.append(args)
+        frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+        MARKER_Y, CONFIRM_Y, STRIP_Y = 994, 950, 864
+
+        def ocr_page1(f, region):
+            if region.y == STRIP_Y:
+                return [Box(480, 895, 50, 30, name="A")]
+            if region.y == MARKER_Y:
+                return [Box(780, 1030, 360, 30, name="切换至最后一页后可关闭界面")]
+            return []
+
+        self.task._ocr_quest_region = ocr_page1
+        self.assertTrue(self.task._handle_tutorial_panel(frame))
+        self.assertIn(("send", "d"), self.task.sent_keys)
+
+        # 最后一页：提示文案消失，A/D 字母与确认按钮仍在 → 点击确认
+        self.task.sent_keys.clear()
+
+        def ocr_last(f, region):
+            if region.y == STRIP_Y:
+                return [Box(1400, 895, 50, 30, name="D")]
+            if region.y == CONFIRM_Y:
+                return [Box(870, 1000, 180, 46, name="确认")]
+            return []
+
+        self.task._ocr_quest_region = ocr_last
+        self.assertTrue(self.task._handle_tutorial_panel(frame))
+        self.assertEqual(clicks[0][0].name, "确认")
+        self.assertNotIn(("send", "d"), self.task.sent_keys)
+
+    def test_tutorial_panel_not_detected_without_marker(self):
+        self.task._ocr_quest_region = lambda f, region: []
+        self.assertFalse(self.task._handle_tutorial_panel(np.zeros((1080, 1920, 3), dtype=np.uint8)))
+
+    def test_tutorial_panel_stops_pressing_after_limit(self):
+        from ok.feature.Box import Box
+        self.task._ocr_quest_region = lambda f, region: (
+            [Box(480, 895, 50, 30, name="A")] if region.y == 864
+            else ([Box(780, 1030, 360, 30, name="切换至最后一页后可关闭界面")] if region.y == 994 else [])
+        )
+        self.task.tutorial_panel_presses = 15
+        self.assertFalse(self.task._handle_tutorial_panel(np.zeros((1080, 1920, 3), dtype=np.uint8)))
+        self.assertNotIn(("send", "d"), self.task.sent_keys)
+
 
 if __name__ == "__main__":
     unittest.main()

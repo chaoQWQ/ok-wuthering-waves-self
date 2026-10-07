@@ -397,6 +397,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 self._stop_all_movement()
                 # 剧情对话的跳过按钮等 UI 会在鼠标静止后自动隐藏，轻晃鼠标让其重新显示再识别。
                 self._reveal_hidden_ui()
+                if self._handle_tutorial_panel(frame):
+                    continue
                 self._log_wait_state(frame, "当前界面不在队伍大世界（可能处于对话、加载或菜单），暂停移动等待界面恢复")
                 self.sleep(.2)
                 continue
@@ -912,6 +914,42 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             else:
                 self.goal_candidate = text
         self.guidance_last_read = time.time()
+
+    def _handle_tutorial_panel(self, frame: np.ndarray) -> bool:
+        """识别多页教程提示面板：连按 D 翻页，出现确认按钮后点击。
+
+        面板特征：底部 A/D 翻页按钮（每页都有）与"切换至最后一页后
+        可关闭界面"提示文案；最后一页提示文案消失、出现"确认"按钮，
+        因此用 A/D 字母或提示文案任一命中即认定面板。
+        """
+        try:
+            height, width = frame.shape[:2]
+            page_strip = self._ocr_quest_region(
+                frame, Box(round(width * .20), round(height * .80), round(width * .60), round(height * .07)))
+            letters = {(box.name or "").strip().upper() for box in page_strip}
+            marker_region = Box(round(width * .30), round(height * .92), round(width * .40), round(height * .07))
+            marker_text = "".join(sanitize_quest_text(box.name) for box in self._ocr_quest_region(frame, marker_region))
+            if "A" not in letters and "D" not in letters and "最后一页" not in marker_text:
+                return False
+            confirm_region = Box(round(width * .35), round(height * .88), round(width * .30), round(height * .10))
+            confirm = next((box for box in self._ocr_quest_region(frame, confirm_region)
+                            if (box.name or "").replace(" ", "") in ("确认", "确認")), None)
+            if confirm is not None:
+                self.log_info("教程面板已翻到最后一页，点击确认关闭")
+                self.click(confirm, after_sleep=0.5)
+                self.tutorial_panel_presses = 0
+                return True
+            if getattr(self, "tutorial_panel_presses", 0) >= 15:
+                self.tutorial_panel_presses = 0
+                self._notify_navigation_issue("教程面板多次翻页仍未出现确认按钮，暂停自动翻页")
+                return False
+            self.tutorial_panel_presses = getattr(self, "tutorial_panel_presses", 0) + 1
+            self.log_info("检测到教程提示面板，按 D 翻页")
+            self.send_key("d", down_time=0.05)
+            self.sleep(0.4)
+            return True
+        except Exception:
+            return False
 
     def _read_interaction(self, frame: np.ndarray) -> tuple[bool, str]:
         height, width = frame.shape[:2]
