@@ -286,7 +286,13 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                     if observation.phase in ("dialog", "cutscene"):
                         self.puzzle_panel_active = False
                     elif time.time() - self.puzzle_panel_started > 8:
-                        raise RuntimeError("机关界面持续无法识别操作提示，需要明确的按钮或控制说明")
+                        # 机关面板迟迟识别不出操作提示：重置机关会话并按画面
+                        # 过期处理，等待下一帧重新观察，不终止任务。
+                        self._notify_navigation_issue("机关界面持续无法识别操作提示，重置机关会话后重试")
+                        self.puzzle.reset_goal()
+                        self.puzzle_panel_active = False
+                        self.puzzle_before_frame = None
+                        continue
 
             # 1. 优先判定剧情对话
             if self.config.get("Auto Skip Dialog", True):
@@ -399,6 +405,20 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             except QuestSceneChangedError:
                 self._stop_all_movement()
                 self.traversal.invalidate()
+                continue
+            except RuntimeError as error:
+                # 验证类失败（镜头/攀爬/机关/搜索/交互确认）不应终止任务：
+                # 通知后重置导航与机关状态并绕行重试，交由用户决定是否人工介入。
+                self._stop_all_movement()
+                self._notify_navigation_issue(f"{error}，重置状态并绕行重试")
+                frame_now = self.frame
+                if frame_now is not None and frame_now.size and detect_climbing_state(frame_now).is_climbing:
+                    self.send_key("x", down_time=.1)
+                    self.sleep(0.5)
+                self.traversal.reset_goal()
+                self.puzzle.reset_goal()
+                self.navigation_progress.begin_recovery()
+                self._continue_navigation_recovery()
                 continue
             except Exception:
                 self._stop_all_movement()
