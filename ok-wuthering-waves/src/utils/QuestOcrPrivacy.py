@@ -36,6 +36,7 @@ def quest_goal_from_lines(lines: list[str]) -> str:
     for line in lines:
         line = sanitize_quest_text(line or "").strip(" -—•·▲△▼▽↑↓")
         line = re.sub(r"^[A-Za-z]\s+(?=[\u4e00-\u9fff])", "", line)
+        line = re.sub(r"[（(]?\d+\s*[/／]\s*\d+[）)]?", "", line).strip()
         if len(line) >= 2 and not distance.fullmatch(line):
             goal_lines.append(line)
     return " ".join(goal_lines)

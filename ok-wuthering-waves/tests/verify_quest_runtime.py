@@ -47,7 +47,9 @@ frame_path = Path(__file__).resolve().parent.parent / "screenshots" / "quest-ver
 frame_path.parent.mkdir(exist_ok=True)
 capture_directory = frame_path.parent / "quest-area-capture" / time.strftime("%Y%m%d-%H%M%S")
 capture_directory.mkdir(parents=True, exist_ok=True)
-observations = {"initial_distance": None, "closest_distance": None, "movement_observed": False, "jump_attempted": False, "combat_completed": False, "resumed_after_combat": False, "foreground_error": None}
+observations = {"initial_distance": None, "closest_distance": None, "goal": None, "movement_actions": 0,
+                "movement_observed": False, "jump_attempted": False, "combat_completed": False,
+                "resumed_after_combat": False, "foreground_error": None}
 
 
 def record_frames():
@@ -72,11 +74,14 @@ def record_frames():
             cv2.imwrite(str(sample_path), frame[y:y + h, x:x + w].copy())
             area = task.area_search
             distance = task.navigation_progress.best_distance
+            observations["movement_actions"] = task.scene.movement_actions
             if area is None and distance is not None:
-                if observations["initial_distance"] is None:
+                if observations["initial_distance"] is None or observations["goal"] != task.guidance_text:
                     observations["initial_distance"] = distance
+                    observations["closest_distance"] = distance
+                    observations["goal"] = task.guidance_text
                 observations["closest_distance"] = distance if observations["closest_distance"] is None else min(distance, observations["closest_distance"])
-                if observations["initial_distance"] - distance >= .5:
+                if observations["initial_distance"] - distance >= .5 and observations["movement_actions"] > 0:
                     observations["movement_observed"] = True
             observations["jump_attempted"] |= task.navigation_progress.jump_attempts > 0
             observations["combat_completed"] |= task.quest_combat_count > 0

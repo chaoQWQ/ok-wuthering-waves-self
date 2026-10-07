@@ -34,8 +34,6 @@ class QuestProgressTracker:
                 self.movement_seconds += duration
             else:
                 self.movement_seconds = 0.0
-                if moving is True:
-                    self.recovery_count = 0
 
     @property
     def blocked(self) -> bool:
@@ -49,7 +47,7 @@ class QuestProgressTracker:
             raise RuntimeError("任务距离持续没有缩减，四次绕行均未通过，请检查任务目标附近的道路")
         self.recovery_count += 1
         self.recovery_step = 0
-        self.recovery_side_key = side_key if side_key in ("a", "d") else None
+        self.recovery_side_key = side_key if side_key in ("a", "d", "s") else None
         self.escape_route = escape_route
         self.movement_seconds = 0.0
         self.recovery_decision_waits = 0
@@ -65,23 +63,21 @@ class QuestProgressTracker:
         if self.recovery_step is None:
             raise RuntimeError("绕行尚未开始")
         side_key = self.recovery_side_key or ("a" if self.recovery_count % 2 else "d")
-        if self.escape_route:
-            # 视觉决策的"脱离"路线：从桥底/屋檐等结构下走出，移动距离更长
+        if self.recovery_side_key == "s":
+            movements = ((["s"], .3), (["s"], .3), (["s"], .3))
+        elif self.escape_route:
+            # 离开头顶遮挡后重新观察通路。
             if self.recovery_side_key:
                 movements = (
-                    (["s"], 0.8),
-                    ([side_key], 0.8),
-                    ([side_key], 0.8),
-                    (["w", side_key], 0.6),
-                    (["w", side_key], 0.6),
-                    (["w"], 0.5),
+                    (["s"], 0.3),
+                    ([side_key], 0.3),
+                    (["s", side_key], 0.3),
                 )
             else:
                 movements = (
-                    (["s"], 1.0),
-                    (["s"], 0.8),
-                    (["s"], 0.8),
-                    (["w"], 0.5),
+                    (["s"], 0.3),
+                    (["s"], 0.3),
+                    (["s"], 0.3),
                 )
         else:
             movements = (

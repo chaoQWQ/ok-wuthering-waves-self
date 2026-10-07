@@ -40,6 +40,16 @@ try:
         print(width, has_f, interaction, task.guidance_text, flush=True)
         if not has_f or interaction != "秧秧" or not is_named_quest_interaction(task.guidance_text, interaction):
             raise AssertionError("剧情任务没有完整识别实际任务与交互名称")
+        task._read_scene_coordinates(frame)
+        observation = task._observe_puzzle(frame, interaction)
+        step, handler = task.puzzle.prepare(observation, "interact")
+        if step.kind != "dialog" or observation.phase != "world":
+            raise AssertionError("实际剧情任务没有建立 NPC 交互验证步骤")
+        task.puzzle.begin(step, handler, observation, 0)
+        if task.puzzle.verify(observation, 3) != "no_observed_progress":
+            raise AssertionError("重复画面被误认为交互已经成功")
+        from src.utils.QuestPuzzleSession import QuestPuzzleSession
+        task.puzzle = QuestPuzzleSession()
     print("剧情任务初始化与交互截图读取检查通过", flush=True)
 finally:
     runtime.quit()

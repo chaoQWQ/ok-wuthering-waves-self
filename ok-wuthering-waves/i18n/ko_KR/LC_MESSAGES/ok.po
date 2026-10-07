@@ -1874,3 +1874,8 @@ msgstr "최상위 작은 창 전환 단축키"
 msgid "Hotkey to toggle display of the task floating window (e.g. <ctrl>+<f11>)"
 msgstr "최상위 작은 창 표시를 켜거나 끄는 단축키(예: <ctrl>+<f11>)"
 
+msgid "Allow Vision Screenshots"
+msgstr "시각 분석용 스크린샷 전송 허용"
+
+msgid "允许发送已遮蔽特征码的游戏截图，用于地形识别和机关操作前后比较"
+msgstr "UID를 가린 게임 스크린샷을 전송하여 지형을 인식하고 장치 조작 전후를 비교합니다"

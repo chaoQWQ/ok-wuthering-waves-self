@@ -23,7 +23,7 @@ class QuestDecisionSession:
             elif interaction != self.pending["interaction"]:
                 self.pending["outcome"] = "interaction_changed"
                 self.pending = None
-            elif now - self.pending["time"] >= 2:
+            elif not self.pending.get("external_verification") and now - self.pending["time"] >= 2:
                 self.pending["outcome"] = "no_observed_progress"
                 self.pending = None
         if changed:
@@ -36,14 +36,17 @@ class QuestDecisionSession:
         signature = json.dumps((self.goal, event, sanitize_quest_text(interaction), progress), ensure_ascii=False)
         if signature in self.seen_states or (self.last_call is not None and now - self.last_call < 2):
             return False
+        self.reserve_call(now)
+        self.seen_states.add(signature)
+        return True
+
+    def reserve_call(self, now: float):
         while self.recent_calls and now - self.recent_calls[0] >= 60:
             self.recent_calls.popleft()
         if len(self.recent_calls) >= 12:
             raise RuntimeError("一分钟内任务决策次数达到限制，停止重复调用")
-        self.seen_states.add(signature)
         self.recent_calls.append(now)
         self.last_call = now
-        return True
 
     def failed_actions(self, interaction: str, location: str) -> set[str]:
         counts = {}
@@ -52,7 +55,7 @@ class QuestDecisionSession:
                 counts[item["action"]] = counts.get(item["action"], 0) + 1
         return {action for action, count in counts.items() if count >= 2}
 
-    def record(self, action: str, interaction: str, location: str, now: float):
+    def record(self, action: str, interaction: str, location: str, now: float, external_verification: bool = False):
         if self.pending is not None:
             raise RuntimeError("前一次任务动作尚未完成结果检查")
         item = {
@@ -62,6 +65,7 @@ class QuestDecisionSession:
             "action": action,
             "time": now,
             "outcome": "pending",
+            "external_verification": external_verification,
         }
         self.history.append(item)
         self.pending = item
@@ -72,4 +76,4 @@ class QuestDecisionSession:
             self.pending = None
 
     def context(self) -> list[dict]:
-        return [{key: value for key, value in item.items() if key != "time"} for item in self.history]
+        return [{key: value for key, value in item.items() if key not in ("time", "external_verification")} for item in self.history]

@@ -2029,3 +2029,8 @@ msgstr "置頂小視窗開關快捷鍵"
 msgid "Hotkey to toggle display of the task floating window (e.g. <ctrl>+<f11>)"
 msgstr "快捷開啟或關閉置頂小視窗的快捷鍵（例如 <ctrl>+<f11>）"
 
+msgid "Allow Vision Screenshots"
+msgstr "允許傳送視覺分析截圖"
+
+msgid "允许发送已遮蔽特征码的游戏截图，用于地形识别和机关操作前后比较"
+msgstr "允許傳送已遮蔽特徵碼的遊戲截圖，用於地形辨識及機關操作前後比較"

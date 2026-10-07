@@ -700,6 +700,63 @@ class ClimbStateResult:
     height: int = 0
 
 
+def detect_climbing_stamina(frame: np.ndarray) -> Optional[float]:
+    if not detect_climbing_state(frame).is_climbing:
+        return None
+    height, width = frame.shape[:2]
+    x, y = round(width * .53), round(height * .4)
+    roi = frame[y:round(height * .75), x:round(width * .64)]
+    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    circles = cv2.HoughCircles(cv2.GaussianBlur(gray, (5, 5), 0), cv2.HOUGH_GRADIENT,
+                               1, max(8, height * .03), param1=80, param2=12,
+                               minRadius=max(5, round(height * .014)), maxRadius=round(height * .035))
+    if circles is None:
+        return None
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    candidates = []
+    for cx, cy, radius in circles[0]:
+        angles = np.linspace(0, 2 * np.pi, 72, endpoint=False)
+        filled = np.zeros(72, dtype=bool)
+        for ratio in (.85, 1.0, 1.1):
+            xs = np.rint(cx + np.cos(angles) * radius * ratio).astype(int)
+            ys = np.rint(cy + np.sin(angles) * radius * ratio).astype(int)
+            if np.any(xs < 0) or np.any(xs >= roi.shape[1]) or np.any(ys < 0) or np.any(ys >= roi.shape[0]):
+                continue
+            values = hsv[ys, xs]
+            colored = ((values[:, 0] <= 40) | (values[:, 0] >= 170)) & (values[:, 1] >= 65) & (values[:, 2] >= 80)
+            filled |= colored
+        fraction = float(np.mean(filled))
+        if fraction >= .08:
+            candidates.append(fraction)
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def detect_quest_vertical_hint(frame: np.ndarray, distance_box: tuple) -> str:
+    x, y, width, height = distance_box
+    # 箭头位于距离文字末尾或紧邻右侧。
+    x0 = max(0, x + width - round(height * .7))
+    roi = frame[max(0, y):min(frame.shape[0], y + height + 2), x0:min(frame.shape[1], x + width + height)]
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    mask = cv2.inRange(hsv, np.array((15, 50, 90)), np.array((40, 255, 255)))
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    hints = []
+    for contour in contours:
+        if cv2.contourArea(contour) < max(3, height * height * .015):
+            continue
+        bx, by, bw, bh = cv2.boundingRect(contour)
+        if not .6 <= bw / bh <= 1.8 or not .3 <= cv2.contourArea(contour) / (bw * bh) <= .8:
+            continue
+        shape = mask[by:by + bh, bx:bx + bw]
+        rows = np.count_nonzero(shape, axis=1)
+        count = max(1, bh // 3)
+        upper, lower = float(np.mean(rows[:count])), float(np.mean(rows[-count:]))
+        if lower > upper * 1.8:
+            hints.append((bx, "above"))
+        elif upper > lower * 1.8:
+            hints.append((bx, "below"))
+    return max(hints)[1] if hints else "unknown"
+
+
 def detect_climbing_state(
     frame: np.ndarray,
     template_path: Optional[str] = None,

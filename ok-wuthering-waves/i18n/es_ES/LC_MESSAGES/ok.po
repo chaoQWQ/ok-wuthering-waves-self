@@ -1794,3 +1794,8 @@ msgstr "Tecla para alternar la ventana flotante de tareas"
 msgid "Hotkey to toggle display of the task floating window (e.g. <ctrl>+<f11>)"
 msgstr "Tecla para mostrar u ocultar la ventana flotante de tareas (p. ej. <ctrl>+<f11>)"
 
+msgid "Allow Vision Screenshots"
+msgstr "Permitir capturas para análisis visual"
+
+msgid "允许发送已遮蔽特征码的游戏截图，用于地形识别和机关操作前后比较"
+msgstr "Permitir el envío de capturas con el UID oculto para reconocer el terreno y comparar los mecanismos antes y después de una acción"

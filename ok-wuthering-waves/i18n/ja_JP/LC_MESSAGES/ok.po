@@ -1873,3 +1873,8 @@ msgstr "最前面小ウィンドウ切替ホットキー"
 msgid "Hotkey to toggle display of the task floating window (e.g. <ctrl>+<f11>)"
 msgstr "最前面の小ウィンドウの表示／非表示を切り替えるホットキー（例：<ctrl>+<f11>）"
 
+msgid "Allow Vision Screenshots"
+msgstr "画像分析用スクリーンショットの送信を許可"
+
+msgid "允许发送已遮蔽特征码的游戏截图，用于地形识别和机关操作前后比较"
+msgstr "UIDを隠したゲーム画像の送信を許可し、地形の認識と仕掛けの操作前後の比較に使用します"

@@ -46,13 +46,15 @@ class TestQuestBackgroundMotion(unittest.TestCase):
         tracker.record_movement(["w"], 0.3, moving=self.motion.moving)
         self.assertFalse(tracker.blocked)
 
-    def test_valid_movement_clears_failed_recovery_count(self):
+    def test_target_progress_clears_failed_recovery_count(self):
         tracker = QuestProgressTracker()
         tracker.observe(5)
         tracker.begin_recovery()
         while tracker.recovery_step is not None:
             tracker.next_recovery_movement()
         tracker.record_movement(["w"], 0.3, moving=self.motion.moving)
+        self.assertEqual(tracker.recovery_count, 1)
+        tracker.observe(4)
         self.assertEqual(tracker.recovery_count, 0)
 
 

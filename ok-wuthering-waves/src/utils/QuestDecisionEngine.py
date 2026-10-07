@@ -8,7 +8,7 @@ from typing import Optional
 import cv2
 import numpy as np
 
-from src.utils.QuestOcrPrivacy import sanitize_quest_text
+from src.utils.QuestOcrPrivacy import sanitize_quest_text, prepare_quest_ocr_frame
 
 
 @dataclass
@@ -403,13 +403,14 @@ def decide_quest_action(
 
 
 DETOUR_DIRECTIONS = ("left", "right", "back")
-DETOUR_SIDE_KEYS = {"left": "a", "right": "d", "back": None}
+DETOUR_SIDE_KEYS = {"left": "a", "right": "d", "back": "s"}
 DEFAULT_CLEF_MODEL = "clef"
 
 
 def encode_frame_as_data_url(frame: np.ndarray, max_width: int = 1280, jpeg_quality: int = 85) -> str:
     if frame is None or frame.size == 0:
         raise ValueError("输入画面数组不能为空")
+    frame = prepare_quest_ocr_frame(frame)
     height, width = frame.shape[:2]
     if width > max_width:
         frame = cv2.resize(frame, (max_width, round(height * max_width / width)), interpolation=cv2.INTER_AREA)
@@ -559,7 +560,7 @@ def decide_detour_direction(
     )
 
 
-APPROACH_ACTIONS = ("walk", "climb", "drop", "detour")
+APPROACH_ACTIONS = ("walk", "climb", "drop", "detour", "unknown")
 
 ESCAPE_ACTIONS = ("jump", "back_left", "back_right", "retreat")
 
@@ -604,9 +605,10 @@ def decide_approach_action(
 ) -> dict:
     criteria = {
         "walk": "The target is on walkable ground ahead; keep moving toward it on foot.",
-        "climb": "The target is above the character (marker high on screen or up arrow); jump toward it and climb the wall.",
-        "drop": "The target is below the character; walk off the nearby edge and drop down to it.",
+        "climb": "A reachable climbable wall is visible ahead AND an actual quest up-arrow or other spatial evidence confirms the destination above. Screen marker height alone is insufficient.",
+        "drop": "An actual quest down-arrow confirms the destination below AND a nearby platform edge and reachable lower route are visible. Screen marker height alone is insufficient.",
         "detour": "A wall or obstacle blocks the direct ground path; sidestep around it first.",
+        "unknown": "The screenshot does not establish a passable route or the required height relationship.",
     }
     return decide_clef_choice(
         frame,
@@ -620,3 +622,36 @@ def decide_approach_action(
         timeout_seconds=timeout_seconds,
         context=context,
     )
+
+
+def decide_puzzle_effect(before: np.ndarray, after: np.ndarray, goal: str, kind: str,
+                         api_url: str, api_key: str, model: str = DEFAULT_CLEF_MODEL,
+                         context: Optional[dict] = None) -> dict:
+    if before.shape != after.shape:
+        raise ValueError("机关操作前后画面尺寸必须一致")
+    # 两张画面分别遮蔽后组合，组合画面仍然经过发送前保护。
+    pair = np.concatenate((prepare_quest_ocr_frame(before), prepare_quest_ocr_frame(after)), axis=1)
+    return decide_clef_choice(
+        pair, "effect",
+        "Compare BEFORE on the left and AFTER on the right. Report changed only for a visible "
+        "semantic change of the relevant mechanism: light activation, door opening, object destruction, "
+        "carrying/placement, connection or orientation. Camera motion, animation, NPC movement, "
+        "different viewpoints or unrelated UI changes are insufficient. Choose unknown if the same "
+        "mechanism cannot be confidently located in both views.",
+        {"changed": "The same relevant mechanism visibly changed state after the operation.",
+         "unchanged": "The same mechanism is visible in both views and remains in the same state.",
+         "unknown": "Insufficient evidence to compare this mechanism."},
+        goal, api_url, api_key, model=model, context={"mechanism_kind": kind, "observations": context or {}})
+
+
+def decide_climbing_route(frame: np.ndarray, quest_goal_text: str, api_url: str, api_key: str,
+                         model: str = DEFAULT_CLEF_MODEL, context: Optional[dict] = None):
+    return decide_clef_choice(
+        frame, "climbing_route", "Climbing is confirmed blocked by actual position or motion observations. "
+        "Choose a bounded movement only when the wall geometry visibly supports it.",
+        {"left": "A reachable wall surface or opening is visible immediately to the left.",
+         "right": "A reachable wall surface or opening is visible immediately to the right.",
+         "continue": "The wall continues upward and there is evidence that climbing can resume.",
+         "release": "The overhead surface prevents climbing and releasing the wall is required.",
+         "unknown": "No supported climbing route can be established from the screenshot."},
+        quest_goal_text, api_url, api_key, model=model, context=context)
