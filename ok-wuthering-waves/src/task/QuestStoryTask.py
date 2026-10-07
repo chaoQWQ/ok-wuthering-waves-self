@@ -2041,9 +2041,10 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
 
     def _handle_story_skip_confirm(self) -> bool:
-        """识别"是否确认跳过"提示框并点击确认按钮。
+        """识别"是否确认跳过"提示框与新版"剧情梗概"界面并执行跳过。
 
-        该确认框样式没有对应模板，通过 OCR 找到问题文本与"确认"按钮。
+        这类弹窗样式没有对应模板，通过 OCR 识别特征文本后点击对应按钮。
+        剧情梗概界面在点击跳过后弹出，提供"继续观看"和"跳过剧情"两个按钮。
         """
         try:
             frame = self.frame
@@ -2051,6 +2052,9 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 return False
             question_seen = False
             confirm_button = None
+            synopsis_seen = False
+            synopsis_skip_button = None
+            synopsis_continue_button = None
             for box in self.ocr(0.2, 0.3, 0.9, 0.8, frame=frame):
                 text = (getattr(box, "name", "") or "").replace(" ", "")
                 if not text:
@@ -2059,6 +2063,25 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                     question_seen = True
                 if text in ("确认", "确認"):
                     confirm_button = box
+                if "梗概" in text:
+                    synopsis_seen = True
+                # 按钮文本不超过 8 字，避免误点梗概正文中包含相同关键词的行
+                if len(text) <= 8 and "跳过" in text and ("剧情" in text or "劇情" in text):
+                    synopsis_skip_button = box
+                elif len(text) <= 8 and ("继续" in text or "繼續" in text) and ("观看" in text or "觀看" in text):
+                    synopsis_continue_button = box
+            if synopsis_seen:
+                self.log_info("检测到剧情梗概界面，点击跳过剧情")
+                if synopsis_skip_button is not None:
+                    self.click(synopsis_skip_button, after_sleep=0.5)
+                elif synopsis_continue_button is not None:
+                    # "跳过剧情"与"继续观看"关于屏幕中轴对称，按镜像位置点击
+                    cx, cy = synopsis_continue_button.center()
+                    h, w = frame.shape[:2]
+                    self.click(1 - cx / w, cy / h, after_sleep=0.5)
+                else:
+                    self.click(0.63, 0.655, after_sleep=0.5)
+                return True
             if not question_seen:
                 return False
             self.log_info("检测到剧情跳过确认框，点击确认")

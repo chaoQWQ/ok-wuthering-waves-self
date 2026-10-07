@@ -382,6 +382,87 @@ class TestQuestStoryTask(unittest.TestCase):
         # 验证成功调用退出地图界面回到大世界
         self.assertTrue(in_team_status[0])
 
+    def test_story_synopsis_clicks_skip_button(self):
+        from ok.feature.Box import Box
+        clicks = []
+        self.task.click = lambda *args, **kwargs: clicks.append(args)
+        self.task._executor.frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+        self.task.ocr = lambda *args, **kwargs: [
+            Box(880, 350, 160, 40, name="剧情梗概", confidence=0.9),
+            Box(600, 684, 210, 46, name="继续观看", confidence=0.9),
+            Box(1105, 684, 210, 46, name="跳过剧情", confidence=0.9),
+        ]
+        self.assertTrue(self.task._handle_story_skip_confirm())
+        self.assertEqual(len(clicks), 1)
+        self.assertEqual(clicks[0][0].name, "跳过剧情")
+
+    def test_story_synopsis_mirrors_continue_button(self):
+        from ok.feature.Box import Box
+        clicks = []
+        self.task.click = lambda *args, **kwargs: clicks.append(args)
+        self.task._executor.frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+        self.task.ocr = lambda *args, **kwargs: [
+            Box(880, 350, 160, 40, name="剧情梗概", confidence=0.9),
+            Box(600, 684, 210, 46, name="继续观看", confidence=0.9),
+        ]
+        self.assertTrue(self.task._handle_story_skip_confirm())
+        x, y = clicks[0][:2]
+        # "跳过剧情"与"继续观看"关于屏幕中轴对称
+        self.assertAlmostEqual(x, 1 - 705 / 1920, places=2)
+        self.assertAlmostEqual(y, 707 / 1080, places=2)
+
+    def test_story_synopsis_fallback_fixed_position(self):
+        from ok.feature.Box import Box
+        clicks = []
+        self.task.click = lambda *args, **kwargs: clicks.append(args)
+        self.task._executor.frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+        self.task.ocr = lambda *args, **kwargs: [
+            Box(880, 350, 160, 40, name="剧情梗概", confidence=0.9),
+        ]
+        self.assertTrue(self.task._handle_story_skip_confirm())
+        x, y = clicks[0][:2]
+        self.assertAlmostEqual(x, 0.63, places=2)
+        self.assertAlmostEqual(y, 0.655, places=2)
+
+    def test_story_synopsis_body_text_not_mistaken_for_button(self):
+        from ok.feature.Box import Box
+        clicks = []
+        self.task.click = lambda *args, **kwargs: clicks.append(args)
+        self.task._executor.frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+        self.task.ocr = lambda *args, **kwargs: [
+            Box(880, 350, 160, 40, name="剧情梗概", confidence=0.9),
+            Box(560, 430, 800, 120, name="接下来穗穗打算去梦州城调查梦州边庭和珥钧堂的情报并跳过剧情简介", confidence=0.9),
+        ]
+        self.assertTrue(self.task._handle_story_skip_confirm())
+        # 正文行不含独立按钮文本，应回退到固定坐标而不是点击正文
+        x, y = clicks[0][:2]
+        self.assertAlmostEqual(x, 0.63, places=2)
+        self.assertAlmostEqual(y, 0.655, places=2)
+
+    def test_story_skip_confirm_still_clicks_confirm(self):
+        from ok.feature.Box import Box
+        clicks = []
+        self.task.click = lambda *args, **kwargs: clicks.append(args)
+        self.task._executor.frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+        self.task.ocr = lambda *args, **kwargs: [
+            Box(700, 500, 500, 60, name="是否确认跳过剧情", confidence=0.9),
+            Box(850, 640, 220, 50, name="确认", confidence=0.9),
+        ]
+        self.assertTrue(self.task._handle_story_skip_confirm())
+        self.assertEqual(clicks[0][0].name, "确认")
+
+    def test_story_synopsis_not_detected_without_title(self):
+        from ok.feature.Box import Box
+        clicks = []
+        self.task.click = lambda *args, **kwargs: clicks.append(args)
+        self.task._executor.frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+        self.task.ocr = lambda *args, **kwargs: [
+            Box(1105, 684, 210, 46, name="跳过剧情", confidence=0.9),
+        ]
+        # 没有梗概标题和确认框问题时不应触发点击
+        self.assertFalse(self.task._handle_story_skip_confirm())
+        self.assertEqual(len(clicks), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
