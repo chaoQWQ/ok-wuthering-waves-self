@@ -43,13 +43,22 @@ class QuestProgressTracker:
     def begin_recovery(self, side_key: Optional[str] = None, escape_route: bool = False):
         if self.recovery_step is not None:
             return
-        if self.recovery_count >= 4:
-            raise RuntimeError("任务距离持续没有缩减，四次绕行均未通过，请检查任务目标附近的道路")
+        if self.recovery_count >= 8:
+            raise RuntimeError("八次短绕行均未通过，请检查任务目标附近的道路")
         self.recovery_count += 1
         self.recovery_step = 0
         self.recovery_side_key = side_key if side_key in ("a", "d", "s") else None
         self.escape_route = escape_route
         self.movement_seconds = 0.0
+        self.recovery_decision_waits = 0
+
+    def reset_cycle(self):
+        """清空绕行循环计数，供上限触发后的降级逻辑重新开始尝试。"""
+        self.recovery_count = 0
+        self.recovery_step = None
+        self.movement_seconds = 0.0
+        self.stationary_observed = False
+        self.jump_attempts = 0
         self.recovery_decision_waits = 0
 
     def begin_jump(self):
@@ -64,29 +73,27 @@ class QuestProgressTracker:
             raise RuntimeError("绕行尚未开始")
         side_key = self.recovery_side_key or ("a" if self.recovery_count % 2 else "d")
         if self.recovery_side_key == "s":
-            movements = ((["s"], .3), (["s"], .3), (["s"], .3))
+            movements = ((["s"], .25), (["s"], .25))
         elif self.escape_route:
             # 离开头顶遮挡后重新观察通路。
             if self.recovery_side_key:
                 movements = (
-                    (["s"], 0.3),
-                    ([side_key], 0.3),
-                    (["s", side_key], 0.3),
+                    (["s"], 0.25),
+                    ([side_key], 0.25),
+                    (["s", side_key], 0.25),
                 )
             else:
                 movements = (
-                    (["s"], 0.3),
-                    (["s"], 0.3),
-                    (["s"], 0.3),
+                    (["s"], 0.25),
+                    (["s"], 0.25),
                 )
         else:
+            # 短步多试：单次绕行幅度小，靠多次尝试与左右交替通过障碍。
             movements = (
-                (["s"], 0.4),
-                ([side_key], 0.5),
-                ([side_key], 0.5),
-                (["w", side_key], 0.4),
-                (["w", side_key], 0.4),
-                (["w"], 0.3),
+                (["s"], 0.25),
+                ([side_key], 0.3),
+                (["w", side_key], 0.3),
+                (["w"], 0.2),
             )
         movement = movements[self.recovery_step]
         self.recovery_step += 1

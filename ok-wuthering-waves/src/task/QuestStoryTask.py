@@ -417,6 +417,9 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                     self.sleep(0.5)
                 self.traversal.reset_goal()
                 self.puzzle.reset_goal()
+                # 绕行上限触发后计数已满，先清空循环计数再开新绕行，
+                # 避免 begin_recovery 在降级路径内二次抛出。
+                self.navigation_progress.reset_cycle()
                 self.navigation_progress.begin_recovery()
                 self._continue_navigation_recovery()
                 continue
@@ -1679,6 +1682,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.decision_session.mark_transition("climbing_started")
 
     def _continue_navigation_recovery(self):
+        if self.navigation_progress.recovery_step is None:
+            return
         keys, duration = self.navigation_progress.next_recovery_movement()
         self._apply_movement(keys, duration)
         if self.navigation_progress.recovery_step is None:

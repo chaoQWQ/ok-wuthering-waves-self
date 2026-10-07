@@ -1,5 +1,6 @@
 from datetime import datetime
 from pathlib import Path
+import itertools
 import re
 import unittest
 
@@ -59,19 +60,19 @@ class TestQuestProgressTracker(unittest.TestCase):
         tracker.observe(stationary[0])
         tracker.begin_recovery()
         actions = []
-        for distance in stationary[:6]:
+        for distance in stationary[:4]:
             tracker.observe(distance)
             actions.append(tracker.next_recovery_movement()[0])
         self.assertEqual(actions[0], ["s"])
-        self.assertEqual(actions[1:3], [["a"], ["a"]])
-        self.assertEqual(actions[3:5], [["w", "a"], ["w", "a"]])
-        self.assertEqual(actions[5], ["w"])
+        self.assertEqual(actions[1], ["a"])
+        self.assertEqual(actions[2], ["w", "a"])
+        self.assertEqual(actions[3], ["w"])
         self.assertIsNone(tracker.recovery_step)
 
     def test_persistent_obstruction_terminates_after_both_directions(self):
         tracker = QuestProgressTracker()
         sides = []
-        for _, distance in self.movements:
+        for _, distance in itertools.cycle(self.movements):
             if distance != 5:
                 continue
             tracker.observe(distance)
@@ -84,8 +85,8 @@ class TestQuestProgressTracker(unittest.TestCase):
                 action = compute_movement_action(distance)
                 tracker.record_movement(action.keys, action.press_duration, moving=self.stationary)
                 if tracker.blocked:
-                    if tracker.recovery_count == 4:
-                        with self.assertRaisesRegex(RuntimeError, "四次绕行"):
+                    if tracker.recovery_count == 8:
+                        with self.assertRaisesRegex(RuntimeError, "八次短绕行"):
                             tracker.begin_recovery()
                         self.assertEqual(set(sides), {"a", "d"})
                         return
@@ -97,7 +98,7 @@ class TestQuestProgressTracker(unittest.TestCase):
         tracker.begin_recovery(side_key="a")
         self.assertEqual(tracker.next_recovery_movement()[0], ["s"])
         self.assertEqual(tracker.next_recovery_movement()[0], ["a"])
-        for _ in range(4):
+        for _ in range(2):
             tracker.next_recovery_movement()
         self.assertIsNone(tracker.recovery_step)
         tracker.begin_recovery(side_key="d")
@@ -109,7 +110,7 @@ class TestQuestProgressTracker(unittest.TestCase):
         tracker.begin_recovery(side_key="d")
         self.assertEqual(tracker.next_recovery_movement()[0], ["s"])
         self.assertEqual(tracker.next_recovery_movement()[0], ["d"])
-        for _ in range(4):
+        for _ in range(2):
             tracker.next_recovery_movement()
         tracker.begin_recovery(side_key="forward")
         self.assertEqual(tracker.next_recovery_movement()[0], ["s"])
