@@ -1083,8 +1083,13 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             return False
 
     def _handle_quest_log_stuck(self, frame: np.ndarray) -> bool:
-        """主循环中识别任务日志界面停滞，尝试点击前往或发送退出键恢复大世界。"""
-        if not self._is_quest_log_open(frame):
+        """主循环中识别任务日志或大地图任务抽屉停滞，尝试点击前往或发送退出键恢复大世界。"""
+        is_open = False
+        try:
+            is_open = self._is_quest_log_open(frame) or self._is_map_quest_detail_open(frame)
+        except Exception:
+            is_open = False
+        if not is_open:
             self.quest_log_stuck_start_time = 0.0
             return False
         now = time.time()
@@ -1095,16 +1100,16 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
         proceed_btn = self._find_proceed_button(frame)
         if now - start > 3.0:
-            self.log_info("任务日志界面持续停滞，发送退出按键恢复大世界")
+            self.log_info("任务面板持续停滞，发送退出按键恢复大世界")
             self._close_map_overlays()
             self.quest_log_stuck_start_time = 0.0
             return True
 
-        self.log_info("主循环检测到任务日志界面，尝试点击前往按钮进入大地图")
+        self.log_info("主循环检测到任务面板，尝试点击前往按钮进入大地图")
         if proceed_btn:
             self.click(proceed_btn)
         else:
-            self.click(0.87, 0.914)
+            self.click(0.91, 0.93)
         self.sleep(1.0)
         return True
 
@@ -1707,23 +1712,33 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self._close_map_overlays()
 
     def _is_quest_log_open(self, frame: Optional[np.ndarray] = None) -> bool:
-        """检查任务日志界面是否已打开。"""
+        """检查全屏任务日志界面是否已打开。"""
         target_frame = frame if frame is not None else self.frame
         if target_frame is None or target_frame.size == 0:
             return False
         try:
             boxes = self.ocr(0.01, 0.01, 0.20, 0.15, match=["任务", "Quest"], frame=target_frame)
-            if boxes:
-                return True
-            bottom_boxes = self.ocr(0.60, 0.85, 0.98, 0.98, match=["前往", "Proceed", "取消追踪"], frame=target_frame)
-            if bottom_boxes:
-                return True
+            return len(boxes) > 0
+        except Exception:
+            return False
+        return False
+
+    def _is_map_quest_detail_open(self, frame: Optional[np.ndarray] = None) -> bool:
+        """检查大地图界面中的任务详情侧边卡片是否已打开。"""
+        target_frame = frame if frame is not None else self.frame
+        if target_frame is None or target_frame.size == 0:
+            return False
+        if self._is_quest_log_open(target_frame):
+            return False
+        try:
+            boxes = self.ocr(0.60, 0.85, 0.98, 0.98, match=["前往", "Proceed", "取消追踪"], frame=target_frame)
+            return len(boxes) > 0
         except Exception:
             return False
         return False
 
     def _find_proceed_button(self, frame: Optional[np.ndarray] = None):
-        """寻找任务面板右下角前往按钮。"""
+        """寻找任务面板或大地图侧边卡片右下角前往按钮。"""
         target_frame = frame if frame is not None else self.frame
         if target_frame is None or target_frame.size == 0:
             return None
@@ -1783,7 +1798,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.sleep(2.0)
 
         # 3. 检查地图界面是否已打开
-        # 若依然停留在任务日志界面（如点击前往未成功响应），再次尝试点击前往；若依然无法切换，退出界面避免停滞
+        # 若依然停留在全屏任务日志界面，再次尝试点击前往；若依然无法切换，退出界面避免停滞
         if self._is_quest_log_open():
             proceed_btn = self._find_proceed_button()
             if proceed_btn:
@@ -1801,7 +1816,19 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self._close_map_overlays()
             return False
 
-        # 3.5 出现"附近信标无法快速到达"提示时放弃传送，关闭界面改为步行
+        # 4. 在大地图界面中，优先检测任务详情卡片右下角前往按钮并点击
+        # 触发游戏自动聚焦并选中距离任务目标最近的传送信标
+        map_proceed_btn = self._find_proceed_button()
+        if map_proceed_btn:
+            self.log_info("大地图界面检测到任务详情卡片，点击右下角前往按钮定位最近传送信标")
+            self.click(map_proceed_btn)
+            self.sleep(1.5)
+        elif self._is_map_quest_detail_open():
+            self.log_info("大地图界面检测到任务详情卡片，点击右下角前往按钮定位最近传送信标")
+            self.click(0.91, 0.93)
+            self.sleep(1.5)
+
+        # 4.1 出现"附近信标无法快速到达"提示时放弃传送，关闭界面改为步行
         if self._detect_teleport_unreachable():
             self.log_info("附近信标无法快速到达，放弃传送改为步行前往任务点")
             self.teleport_retry_delay = 150.0
@@ -1812,7 +1839,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self._cancel_and_abort_teleport_for_closer_target()
             return False
 
-        # 4. 在地图中检测前往/快速旅行按钮或寻找附近传送信标
+        # 5. 在地图中检测快速旅行按钮或寻找附近传送信标
         travel_clicked = False
         try:
             if hasattr(self, "click_traval_button") and self.click_traval_button():
@@ -1852,18 +1879,6 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 self.log_info("附近信标无法快速到达，放弃传送改为步行前往任务点")
                 self.teleport_retry_delay = 150.0
                 self._close_map_overlays()
-                return False
-
-            proceed_btn = self._find_proceed_button()
-            if proceed_btn:
-                self.click(proceed_btn)
-            else:
-                self.click(0.89, 0.92)
-            self.sleep(1.0)
-
-            # 点击前往后，若触发"当前位置更接近目标点"提示，取消弹窗并退出，直接走过去
-            if self._detect_closer_to_target_dialog():
-                self._cancel_and_abort_teleport_for_closer_target()
                 return False
 
             if hasattr(self, "click_confirm"):

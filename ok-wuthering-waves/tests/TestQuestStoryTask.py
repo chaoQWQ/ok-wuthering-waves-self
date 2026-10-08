@@ -843,6 +843,36 @@ class TestQuestStoryTask(unittest.TestCase):
         self.assertTrue(result)
         self.assertIn("PROCEED_BUTTON", clicked)
 
+    def test_is_map_quest_detail_open(self):
+        self.task._is_quest_log_open = lambda *args, **kwargs: False
+        self.task.ocr = lambda *args, **kwargs: [type("Box", (), {"name": "前往"})()]
+        res = self.task._is_map_quest_detail_open()
+        self.assertTrue(res)
+
+    def test_try_teleport_clicks_map_proceed_button_first(self):
+        self.task.last_teleport_attempt_time = 0.0
+        self.task.teleport_retry_delay = 30.0
+        self.task._stop_all_movement = lambda: None
+        self.task.send_key = lambda key, **kwargs: None
+        self.task.sleep = lambda sec: None
+        clicked = []
+        self.task.click = lambda target, **kwargs: clicked.append(target)
+        # 第一次在任务日志，返回 PROCEED_1；第二次在地图任务详情卡片，返回 PROCEED_2
+        proceed_responses = ["PROCEED_1", "PROCEED_2"]
+        self.task._find_proceed_button = lambda *args, **kwargs: proceed_responses.pop(0) if proceed_responses else None
+        quest_log_states = [True, False]
+        self.task._is_quest_log_open = lambda *args, **kwargs: quest_log_states.pop(0) if quest_log_states else False
+        self.task.in_team_and_world = lambda: False
+        self.task._detect_teleport_unreachable = lambda: False
+        self.task._detect_closer_to_target_dialog = lambda: False
+        self.task.click_traval_button = lambda: True
+        self.task.wait_in_team_and_world = lambda **kwargs: True
+
+        result = self.task._try_teleport_to_nearest_waypoint(555.0)
+        self.assertTrue(result)
+        self.assertIn("PROCEED_1", clicked)
+        self.assertIn("PROCEED_2", clicked)
+
 
 if __name__ == "__main__":
     unittest.main()
