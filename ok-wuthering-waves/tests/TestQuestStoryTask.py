@@ -742,6 +742,30 @@ class TestQuestStoryTask(unittest.TestCase):
         self.task._perform_quest_combat()
         self.assertEqual(call_count, 2)
 
+    def test_extract_quest_distance_excludes_optional_entry(self):
+        class MockBox:
+            def __init__(self, name, x, y, width, height):
+                self.name = name
+                self.x = x
+                self.y = y
+                self.width = width
+                self.height = height
+
+        mock_boxes = [
+            MockBox("烟云幽远心剑鸣", 25, 161, 102, 18),
+            MockBox("前往剑光的附近", 28, 187, 74, 13),
+            MockBox("27米", 171, 186, 31, 16),
+            MockBox("向景燃了解更多信息（可", 28, 205, 117, 15),
+            MockBox("2米", 172, 206, 22, 11),
+            MockBox("选）", 27, 219, 16, 12),
+        ]
+        self.task.ocr = lambda *args, **kwargs: mock_boxes
+        dummy_frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        from src.utils.QuestVision import BeaconResult
+        beacon = BeaconResult(found=True, x=274, y=236, width=12, height=12, confidence=0.9)
+        distance = self.task._extract_quest_distance(dummy_frame, beacon)
+        self.assertEqual(distance, 27.0)
+
 
 if __name__ == "__main__":
     unittest.main()

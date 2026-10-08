@@ -34,12 +34,23 @@ def sanitize_quest_text(text: str) -> str:
     return "\n".join(clean_lines)
 
 
+OPTIONAL_QUEST_MARKER = re.compile(
+    r"[（(【\[]\s*可(?:\s*[选選])?|"
+    r"[选選]\s*[）)】\]]|"
+    r"可[选選]|"
+    r"\boptional\b",
+    re.IGNORECASE,
+)
+
+
 def quest_goal_from_lines(lines: list[str]) -> str:
     distance = re.compile(r"\s*\d+(?:\.\d+)?\s*(?:米|m|M)\s*[▲△▼▽↑↓]*\s*")
     goal_lines = []
     for line in lines:
-        line = sanitize_quest_text(line or "").strip(" -—•·▲△▼▽↑↓")
-        line = re.sub(r"^[A-Za-z]\s+(?=[\u4e00-\u9fff])", "", line)
+        raw_clean = sanitize_quest_text(line or "").strip(" -—•·▲△▼▽↑↓")
+        if not raw_clean or OPTIONAL_QUEST_MARKER.search(raw_clean):
+            continue
+        line = re.sub(r"^[A-Za-z]\s+(?=[\u4e00-\u9fff])", "", raw_clean)
         line = re.sub(r"[（(]?\d+\s*[/／]\s*\d+[）)]?", "", line).strip()
         if len(line) >= 2 and not distance.fullmatch(line):
             goal_lines.append(line)

@@ -732,7 +732,7 @@ def detect_climbing_stamina(frame: np.ndarray) -> Optional[float]:
 
 
 def detect_quest_vertical_hint(frame: np.ndarray, distance_box: tuple) -> str:
-    x, y, width, height = distance_box
+    x, y, width, height = int(round(distance_box[0])), int(round(distance_box[1])), int(round(distance_box[2])), int(round(distance_box[3]))
     if width <= 0 or height <= 0:
         return "unknown"
     # 箭头位于距离文字末尾或紧邻右侧。

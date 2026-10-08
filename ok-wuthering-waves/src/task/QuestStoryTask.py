@@ -32,7 +32,13 @@ from src.utils.QuestTraversalController import QuestTraversalController
 from src.utils.QuestPuzzleSession import ExplicitControlHandler, QuestPuzzleSession, PuzzleObservation, object_appearance
 from src.utils.VideoRouteValidator import coordinate_crop, parse_coordinate_text
 from src.utils.QuestNavigator import calculate_camera_turn, compute_movement_action
-from src.utils.QuestOcrPrivacy import is_named_quest_interaction, prepare_quest_ocr_frame, quest_goal_from_lines, sanitize_quest_text
+from src.utils.QuestOcrPrivacy import (
+    OPTIONAL_QUEST_MARKER,
+    is_named_quest_interaction,
+    prepare_quest_ocr_frame,
+    quest_goal_from_lines,
+    sanitize_quest_text,
+)
 from src.utils.QuestProgressTracker import QuestProgressTracker
 from src.utils.QuestBackgroundMotion import detect_background_motion
 from src.utils.QuestTargetSearch import QuestTargetSearch
@@ -978,11 +984,32 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         height, width = frame.shape[:2]
         region = Box(round(width * .01), round(height * .23), round(width * .24), round(height * .16))
         boxes = self._ocr_quest_region(frame, region)
-        panel_text = " ".join(box.name for box in boxes)
+        # 按垂直坐标聚类为行，排除包含可选标记的行
+        boxes_sorted = sorted(boxes, key=lambda b: getattr(b, "y", 0))
+        lines: list[list] = []
+        for b in boxes_sorted:
+            b_cy = getattr(b, "y", 0) + getattr(b, "height", 0) / 2.0
+            placed = False
+            for group in lines:
+                group_cy = sum(getattr(item, "y", 0) + getattr(item, "height", 0) / 2.0 for item in group) / len(group)
+                group_h = max(getattr(item, "height", 0) for item in group)
+                if abs(b_cy - group_cy) <= max(group_h * 0.75, 10.0):
+                    group.append(b)
+                    placed = True
+                    break
+            if not placed:
+                lines.append([b])
+
+        main_boxes = []
+        for line in lines:
+            if not any(OPTIONAL_QUEST_MARKER.search(getattr(item, "name", "") or "") for item in line):
+                main_boxes.extend(line)
+
+        panel_text = " ".join(getattr(box, "name", "") or "" for box in main_boxes)
         self.quest_scene.vertical = "below" if re.search(r"[▼▽↓]", panel_text) else "above" if re.search(r"[▲△↑]", panel_text) else "unknown"
         if self.quest_scene.vertical == "unknown":
-            for box in boxes:
-                if parse_distance_text(box.name, require_unit=True) is not None:
+            for box in main_boxes:
+                if parse_distance_text(getattr(box, "name", ""), require_unit=True) is not None:
                     self.quest_scene.vertical = detect_quest_vertical_hint(
                         frame, (getattr(box, "x", 0), getattr(box, "y", 0), getattr(box, "width", 0), getattr(box, "height", 0))
                     )
@@ -2046,10 +2073,27 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 pass
 
     def _extract_quest_distance(self, frame: np.ndarray, beacon_result: BeaconResult) -> Optional[float]:
-        boxes = self.ocr(.01, .23, .20, .43, frame=frame)
-        for box in boxes:
-            if getattr(box, "x", 0) <= frame.shape[1] * .05:
-                distance = parse_distance_text(box.name, require_unit=True)
+        boxes = self.ocr(.01, .20, .28, .48, frame=frame)
+        boxes_sorted = sorted(boxes, key=lambda b: getattr(b, "y", 0))
+        lines: list[list] = []
+        for b in boxes_sorted:
+            b_cy = getattr(b, "y", 0) + getattr(b, "height", 0) / 2.0
+            placed = False
+            for group in lines:
+                group_cy = sum(getattr(item, "y", 0) + getattr(item, "height", 0) / 2.0 for item in group) / len(group)
+                group_h = max(getattr(item, "height", 0) for item in group)
+                if abs(b_cy - group_cy) <= max(group_h * 0.75, 10.0):
+                    group.append(b)
+                    placed = True
+                    break
+            if not placed:
+                lines.append([b])
+
+        for line in lines:
+            if any(OPTIONAL_QUEST_MARKER.search(getattr(item, "name", "") or "") for item in line):
+                continue
+            for box in line:
+                distance = parse_distance_text(getattr(box, "name", ""), require_unit=True)
                 if distance is not None:
                     if self.quest_scene.vertical == "unknown":
                         self.quest_scene.vertical = detect_quest_vertical_hint(

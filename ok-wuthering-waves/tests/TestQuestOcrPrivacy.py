@@ -97,5 +97,20 @@ class TestQuestOcrPrivacy(unittest.TestCase):
             self.assertIsNone(parse_distance_text(line, require_unit=True))
 
 
+    def test_optional_quest_goal_excluded(self):
+        sample_lines = [
+            "烟云幽远心剑鸣",
+            "前往剑光的附近",
+            "向景燃了解更多信息（可",
+            "选）",
+            "P",
+        ]
+        goal = quest_goal_from_lines(sample_lines)
+        self.assertIn("烟云幽远心剑鸣", goal)
+        self.assertIn("前往剑光的附近", goal)
+        self.assertNotIn("景燃", goal)
+        self.assertFalse(is_named_quest_interaction(goal, "景燃"))
+
+
 if __name__ == "__main__":
     unittest.main()
