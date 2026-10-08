@@ -1,7 +1,9 @@
 import ctypes
 import re
+import time
 from ctypes import wintypes
 from datetime import datetime
+from pathlib import Path
 
 import win32con
 import win32gui
@@ -16,13 +18,14 @@ from src.task.DailyTask import (
 )
 from src.task.WWOneTimeTask import WWOneTimeTask
 from src.task.BaseCombatTask import BaseCombatTask
-from src.task.BaseWWTask import LOGIN_TEXTS, BaseWWTask
+from src.task.BaseWWTask import LOGIN_TEXTS, BaseWWTask, LoginTimeoutError
 from src.task.MouseResetTask import MouseResetTask
 from src.task.NightmareNestTask import NightmareNestTask
 from src.utils.wgc_compat import enable_windows_graphics_capture
 from src.utils.DailyEmail import (
     send_daily_report, EMAIL_ENABLED, EMAIL_SENDER, EMAIL_AUTH, EMAIL_TO,
 )
+from src.utils.DailyAccountState import DailyAccountState
 
 enable_windows_graphics_capture()
 
@@ -81,6 +84,10 @@ def select_combo_item(combo, index):
 
 class AccountConfigNotDetected(Exception):
     """Stop stamina spending when an account-specific config cannot be resolved."""
+
+
+class AccountAlreadyCompleted(Exception):
+    pass
 
 # Number of independent per-account DailyTask override slots shown in the UI
 NUM_ACCOUNT_SLOTS = 5
@@ -252,11 +259,27 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         normalized = normalize_account_name(account)
         if normalized:
             self.done_set.add(normalized)
+            self._account_state.record(self._daily_date, [normalized], 'success')
+            self._update_daily_status_info()
 
     def _mark_failed(self, account):
         normalized = normalize_account_name(account)
         if normalized:
             self.failed_set.add(normalized)
+            if normalized not in self._account_state.statuses(self._daily_date):
+                self._account_state.record(self._daily_date, [normalized], 'failed')
+            self._update_daily_status_info()
+
+    def _update_daily_status_info(self):
+        status_names = {
+            'running': '执行中', 'success': '成功', 'failed': '失败',
+            'login_timeout': '登录超时', 'interrupted': '中断',
+        }
+        self.info_set('账号每日状态', {
+            account: status_names[status]
+            for account, status in self._account_state.statuses(self._daily_date).items()
+            if not account.startswith('profile:')
+        })
 
     def _is_done(self, account):
         normalized = normalize_account_name(account)
@@ -375,14 +398,33 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
     def _run_daily_for_account(self, account):
         result = {'account': account or '当前账号（未识别）', 'status': '中断'}
         self._current_email_result = result
+        identities = {normalize_account_name(account)} if account else set()
+        state_status = 'interrupted'
+        self._account_state.record(self._daily_date, identities, 'running')
+        self._update_daily_status_info()
         try:
             succeeded = self._execute_daily_for_account(account)
             result['status'] = '成功' if succeeded else '失败'
+            state_status = 'success' if succeeded else 'failed'
             return succeeded
+        except AccountAlreadyCompleted:
+            result['status'] = '当天已完成，跳过'
+            self.log_info('当前账号当天已完成日常任务，跳过执行')
+            state_status = 'success'
+            return True
+        except LoginTimeoutError:
+            result['status'] = '登录超时'
+            state_status = 'login_timeout'
+            return False
         except AccountConfigNotDetected:
             result['status'] = '未匹配账号配置'
+            state_status = 'failed'
             raise
         finally:
+            if result.get('profile_code'):
+                identities.add(f"profile:{result['profile_code']}")
+            self._account_state.record(self._daily_date, identities, state_status)
+            self._update_daily_status_info()
             if hasattr(self, '_email_results'):
                 self._email_results.append(result)
             self._current_email_result = None
@@ -400,6 +442,7 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         resolved_account = account
         originals = {}
         overrides_applied = False
+        profile_checked = False
 
         def apply_account_overrides(detected_account):
             nonlocal resolved_account, overrides_applied
@@ -422,10 +465,18 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         is_main_was_overridden = 'is_main' in daily_task.__dict__
 
         def is_main_with_account_profile_code(*args, **kwargs):
+            nonlocal profile_checked
             result = original_is_main(*args, **kwargs)
-            if result and not overrides_applied and self._account_overrides_required():
-                apply_account_overrides(self._detect_account_from_world_profile())
-                if not overrides_applied:
+            if result and not profile_checked:
+                profile_checked = True
+                detected_account = self._detect_account_from_world_profile()
+                if detected_account:
+                    profile_code = normalize_profile_code(detected_account)
+                    self._current_email_result['profile_code'] = profile_code
+                    if f'profile:{profile_code}' in self._account_state.completed(self._daily_date):
+                        raise AccountAlreadyCompleted()
+                apply_account_overrides(detected_account)
+                if not overrides_applied and self._account_overrides_required():
                     raise AccountConfigNotDetected(
                         self.tr('Could not identify account config after entering the game world')
                     )
@@ -451,6 +502,10 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         try:
             self.run_task_by_class(DailyTask)
             return True
+        except AccountAlreadyCompleted:
+            raise
+        except LoginTimeoutError:
+            raise
         except AccountConfigNotDetected:
             raise
         except TaskDisabledException:
@@ -463,16 +518,6 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
                 e,
             )
             self.screenshot('daily_task_failed')
-            try:
-                self.ensure_main(time_out=120)
-            except Exception as recovery_err:
-                self.log_warning(
-                    self.tr(
-                        'ensure_main failed after DailyTask error for account {account}, '
-                        '_switch_to_login will attempt recovery'
-                    ).format(account=resolved_account or '(current)'),
-                    recovery_err,
-                )
             return False
         finally:
             if targets_were_overridden:
@@ -501,7 +546,7 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         try:
             self._run_accounts()
             status = '完成'
-            if any(result['status'] != '成功' for result in self._email_results):
+            if any(result['status'] not in {'成功', '当天已完成，跳过'} for result in self._email_results):
                 status = '完成（存在失败或未完成的尝试）'
         except TaskDisabledException:
             status = '已停止'
@@ -515,18 +560,34 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
                 # SMTP errors may contain credentials or addresses. Never log them.
                 self.log_warning('日常汇总邮件发送失败，请检查多账号任务的邮箱配置、SMTP 服务和网络')
 
-    def _run_accounts(self):
-        WWOneTimeTask.run(self)
+    def _load_daily_state(self):
+        self._account_state = DailyAccountState(
+            Path(self.config.config_file).parent / 'multi_account_daily_state.sqlite3'
+        )
+        self._daily_date = self._account_state.day()
+        for account, status in self._account_state.statuses(self._daily_date).items():
+            if status == 'running':
+                self._account_state.record(self._daily_date, [account], 'interrupted')
         self.done_set.clear()
+        self.done_set.update(
+            account for account in self._account_state.completed(self._daily_date)
+            if not account.startswith('profile:')
+        )
         self.failed_set.clear()
         self.all_accounts.clear()
+        self._update_daily_status_info()
 
+    def _run_accounts(self):
+        WWOneTimeTask.run(self)
+        self._load_daily_state()
         # Keep the selected login-list account for completion bookkeeping.  It
         # is deliberately not used to choose DailyTask settings; those are
         # resolved from the in-game ESC Profile Code below.
         initial_account = None
         if self._login_combo() or self.do_find_account_drop_down():
-            initial_account = self._detect_current_account_from_login()
+            initial_account = self._select_and_login_account()
+            if initial_account is None:
+                return
             self.log_info(
                 self.tr('Detected initial account before DailyTask: {account}').format(
                     account=initial_account or '(unknown)'
@@ -556,13 +617,19 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             # A second miss is terminal by design: never spend stamina with a
             # default config when account-specific overrides are enabled.
             daily_succeeded = self._run_daily_for_account(initial_account)
-        self.ensure_main(time_out=100)
-        self._switch_to_login()
+        self._return_to_account_list(restart=not daily_succeeded)
         # OCR here is only for login-list progress bookkeeping.  DailyTask
         # settings have already been selected from the in-game ESC Profile
         # Code and never depend on this short-lived login-screen text.
         detected = self._detect_current_account_from_login()
-        processed_account = detected or initial_account
+        processed_account = initial_account or detected
+        if initial_account is None and processed_account and self._email_results:
+            result = self._email_results[-1]
+            result['account'] = processed_account
+            if result['status'] == '登录超时':
+                self._account_state.record(
+                    self._daily_date, [normalize_account_name(processed_account)], 'login_timeout'
+                )
         if daily_succeeded:
             self._mark_done(processed_account)
         else:
@@ -579,8 +646,50 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
                 self._mark_done(next_account)
             else:
                 self._mark_failed(next_account)
+            self._return_to_account_list(restart=not daily_succeeded)
+
+    def _return_to_account_list(self, restart=False):
+        if self._login_combo() or self.do_find_account_drop_down():
+            return
+        if not restart:
             self.ensure_main(time_out=100)
             self._switch_to_login()
+            return
+        self.log_warning('当前账号无法完成登录或日常任务，重新启动游戏并返回账号列表')
+        self.executor.check_enabled()
+        device_manager = self.executor.device_manager
+        device_manager.stop_hwnd()
+        deadline = time.monotonic() + 30
+        while device_manager.hwnd_window.hwnd and win32gui.IsWindow(device_manager.hwnd_window.hwnd):
+            self.executor.check_enabled()
+            if time.monotonic() >= deadline:
+                raise TimeoutError('关闭游戏超过 30 秒，无法切换账号')
+            if self.executor.exit_event.wait(0.2):
+                raise TaskDisabledException()
+        device_manager.do_refresh(True)
+        if not self._app.start_controller.start_device():
+            raise RuntimeError('重新启动游戏失败，无法返回账号列表')
+        self.executor.check_enabled()
+        self.logged_in = False
+        self.executor.reset_scene()
+        self.next_frame()
+        self._allow_bring_to_front = True
+        try:
+            def open_account_list():
+                if self._login_combo() or self.do_find_account_drop_down():
+                    return True
+                if switch_account := self.find_one('switch_account', vertical_variance=0.1, threshold=0.7):
+                    self._click_direct(switch_account, after_sleep=1)
+                    confirmation = self.wait_feature(
+                        ['confirm_btn_hcenter_vcenter', 'confirm_btn_highlight_hcenter_vcenter'],
+                        time_out=10, threshold=0.6, raise_if_not_found=True,
+                    )
+                    self._click_direct(confirmation, after_sleep=1)
+                return False
+
+            self.wait_until(open_account_list, time_out=180, raise_if_not_found=True)
+        finally:
+            self._allow_bring_to_front = False
 
 
     def _click_center_offset(self, offset_x, offset_y, after_sleep=0.5):
@@ -636,7 +745,7 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             code = normalize_profile_code(self.config.get(_slot_profile_code(n)))
             if len(code) >= 4:
                 configured_codes.append(code)
-        if not configured_codes or not self.in_team_and_world():
+        if not self.in_team_and_world():
             return None
 
         opened = False
@@ -651,7 +760,8 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             # counts elsewhere on the ESC screen.
             for text in self.ocr(0.18, 0.32, 0.38, 0.45):
                 digits = normalize_profile_code(text.name)
-                if any(code in digits for code in configured_codes):
+                if (configured_codes and any(code in digits for code in configured_codes)) or (
+                        not configured_codes and len(digits) >= 7):
                     self.log_info(
                         self.tr('Detected account from in-game Profile Code: {account}').format(
                             account=text.name
@@ -684,6 +794,32 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         return next_account if next_account is not None else _ACCOUNT_LIST_EXHAUSTED
 
     def _select_and_login_account(self):
+        while True:
+            self._login_attempt_account = None
+            try:
+                return self._select_and_login_account_once()
+            except TaskDisabledException:
+                if self._login_attempt_account:
+                    self._account_state.record(
+                        self._daily_date, [normalize_account_name(self._login_attempt_account)], 'interrupted'
+                    )
+                    self._update_daily_status_info()
+                    self._email_results.append({'account': self._login_attempt_account, 'status': '中断'})
+                raise
+            except LoginTimeoutError as error:
+                account = self._login_attempt_account
+                if not account:
+                    raise
+                self.log_warning(f'账号 {account} 登录超过 3 分钟，继续处理下一个账号：{error}')
+                self._mark_failed(account)
+                self._account_state.record(
+                    self._daily_date, [normalize_account_name(account)], 'login_timeout'
+                )
+                self._update_daily_status_info()
+                self._email_results.append({'account': account, 'status': '登录超时'})
+            self._return_to_account_list(restart=True)
+
+    def _select_and_login_account_once(self):
         current_account = None
         mouse_reset_task = self.executor.get_task_by_class(MouseResetTask)
         mouse_reset_was_enabled = mouse_reset_task.enabled if mouse_reset_task else False
@@ -733,6 +869,11 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
                         'Account selection failed after {max_retries} retries; {account} is still not displayed. Continuing login attempt'
                     ).format(max_retries=max_retries, account=account))
                     raise Exception(self.tr('Failed to switch account'))
+            self._login_attempt_account = current_account
+            self._account_state.record(
+                self._daily_date, [normalize_account_name(current_account)], 'running'
+            )
+            self._update_daily_status_info()
             self.sleep(4)
             texts = self.ocr()
             login_btn = self.find_boxes(texts, boundary=self.box_of_screen(0.3, 0.3, 0.7, 0.8),

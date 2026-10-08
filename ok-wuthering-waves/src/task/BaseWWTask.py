@@ -28,6 +28,10 @@ processed_feature = False
 WIDE_MODE_UI_SCALE = 0.75
 
 
+class LoginTimeoutError(TimeoutError):
+    pass
+
+
 class BaseWWTask(BaseTask):
     map_zoomed = False
 
@@ -780,8 +784,10 @@ class BaseWWTask(BaseTask):
     def ensure_main(self, esc=True, time_out=30):
         self.info_set('current task', f'wait main esc={esc}')
         if not self.logged_in:
-            time_out = 600
+            time_out = min(time_out, 180)
         if not self.wait_until(lambda: self.is_main(esc=esc), time_out=time_out, raise_if_not_found=False):
+            if not self.logged_in:
+                raise LoginTimeoutError(f'登录等待超过 {time_out} 秒，未进入游戏世界')
             raise Exception('Please start in game world and in team!')
         self.sleep(0.5)
         self.info_set('current task', f'in main esc={esc}')
