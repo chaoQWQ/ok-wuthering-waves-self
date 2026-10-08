@@ -661,6 +661,8 @@ class BaseChar:
                 self.task.in_liberation = False
                 self.task.raise_not_in_combat('too long a liberation, the boss was killed by the liberation')
             self.task.next_frame()
+        if not was_in_team and clicked:
+            self.sleep(max(animation_min_duration, 1.2))
         duration = time.time() - start
         self.add_freeze_duration(start, duration)
         self.record_liberation_use()

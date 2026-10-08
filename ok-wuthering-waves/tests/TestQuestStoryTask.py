@@ -716,6 +716,33 @@ class TestQuestStoryTask(unittest.TestCase):
         self.assertTrue(self.task._can_continue_quest_input())
 
 
+    def test_single_char_combat_active_in_team(self):
+        self.task._executor.frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        self.task.current_state = QuestStoryTask.STATE_COMBAT
+        in_team_status, current_idx, char_count = QuestStoryTask.in_team(self.task)
+        self.assertTrue(in_team_status)
+        self.assertEqual(current_idx, 0)
+        self.assertEqual(char_count, 1)
+
+    def test_perform_quest_combat_loops_until_combat_ends(self):
+        call_count = 0
+
+        class DummyChar:
+            def perform(self):
+                nonlocal call_count
+                call_count += 1
+
+        self.task.get_current_char = lambda: DummyChar()
+        states = [True, True, False]
+
+        def fake_in_combat():
+            return states.pop(0) if states else False
+
+        self.task.in_combat = fake_in_combat
+        self.task._perform_quest_combat()
+        self.assertEqual(call_count, 2)
+
+
 if __name__ == "__main__":
     unittest.main()
 

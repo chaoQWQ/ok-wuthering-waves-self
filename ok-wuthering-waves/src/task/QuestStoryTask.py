@@ -156,7 +156,16 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         frame = self.frame
         if frame is not None and frame.size > 0 and not detect_letterbox(frame).is_letterbox:
             beacon_found = detect_quest_beacon(frame).found
-            if minimap_visible(frame) or beacon_found:
+            combat_active = False
+            try:
+                combat_active = (getattr(self, "current_state", None) == self.STATE_COMBAT
+                                 or getattr(self, "_in_combat", False)
+                                 or (hasattr(self, "has_target") and self.has_target())
+                                 or (hasattr(self, "check_health_bar") and self.check_health_bar()))
+            except Exception:
+                pass
+            in_liberation = getattr(self, "in_liberation", False)
+            if not in_liberation and (minimap_visible(frame) or beacon_found or combat_active):
                 self.last_world_seen_time = time.time()
                 return True, 0, 1
             if getattr(self, "goal_seen_beacon", False) and time.time() - getattr(self, "last_beacon_seen_time", 0.0) < 8.0:
@@ -206,9 +215,17 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         in_team, _, _ = super().in_team()
         if in_team:
             return super().load_chars()
-        frame = self.frame
+        combat_active = False
+        try:
+            combat_active = (getattr(self, "current_state", None) == self.STATE_COMBAT
+                             or getattr(self, "_in_combat", False)
+                             or (hasattr(self, "has_target") and self.has_target())
+                             or (hasattr(self, "check_health_bar") and self.check_health_bar()))
+        except Exception:
+            pass
+        world_or_combat_visible = minimap_visible(frame) or detect_quest_beacon(frame).found or combat_active
         if (frame is None or frame.size == 0 or detect_letterbox(frame).is_letterbox
-                or (not minimap_visible(frame) and not detect_quest_beacon(frame).found)
+                or not world_or_combat_visible
                 or time.time() - getattr(self, "last_strict_team_time", 0.0) < 2.0):
             return super().load_chars()
         self.load_hotkey()
@@ -472,7 +489,11 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
     def _perform_quest_combat(self):
         try:
-            self.get_current_char().perform()
+            while self.in_combat():
+                char = self.get_current_char()
+                if not char:
+                    break
+                char.perform()
         except CharDeadException:
             raise
         except NotInCombatException as error:

@@ -604,7 +604,7 @@ class BaseCombatTask(CombatCheck):
         switch_to = self._choose_switch_target(current_char, has_intro, target_low_con=target_low_con)
         if not switch_to or switch_to == current_char:
             logger.warning(f"{current_char} can't find next char to switch to, performing too fast add a normal attack")
-            current_char.continues_normal_attack(0.2)
+            current_char.continues_normal_attack(0.5)
             return
         self._apply_intro_flags(current_char, switch_to, has_intro)
         logger.info(
