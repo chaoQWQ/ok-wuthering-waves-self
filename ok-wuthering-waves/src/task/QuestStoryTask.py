@@ -160,23 +160,33 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         # 小地图同样在解放过场、地图界面、传送加载与黑边动画中不可见，语义一致。
         # 剧情特殊场景下可能缺少小地图，但界面中存在黄色任务信标，同样属于大世界状态。
         frame = self.frame
-        if frame is not None and frame.size > 0 and not detect_letterbox(frame).is_letterbox:
-            beacon_found = detect_quest_beacon(frame).found
-            combat_active = False
+        if frame is not None and frame.size > 0:
+            is_quest_open = False
             try:
-                combat_active = (getattr(self, "current_state", None) == self.STATE_COMBAT
-                                 or getattr(self, "_in_combat", False)
-                                 or (hasattr(self, "has_target") and self.has_target())
-                                 or (hasattr(self, "check_health_bar") and self.check_health_bar()))
+                is_quest_open = self._is_quest_log_open()
+            except TypeError:
+                is_quest_open = self._is_quest_log_open(frame)
             except Exception:
-                pass
-            in_liberation = getattr(self, "in_liberation", False)
-            if not in_liberation and (minimap_visible(frame) or beacon_found or combat_active):
-                self.last_world_seen_time = time.time()
-                return True, 0, 1
-            if getattr(self, "goal_seen_beacon", False) and time.time() - getattr(self, "last_beacon_seen_time", 0.0) < 8.0:
-                self.last_world_seen_time = time.time()
-                return True, 0, 1
+                is_quest_open = False
+            if is_quest_open:
+                return result
+            if not detect_letterbox(frame).is_letterbox:
+                beacon_found = detect_quest_beacon(frame).found
+                combat_active = False
+                try:
+                    combat_active = (getattr(self, "current_state", None) == self.STATE_COMBAT
+                                     or getattr(self, "_in_combat", False)
+                                     or (hasattr(self, "has_target") and self.has_target())
+                                     or (hasattr(self, "check_health_bar") and self.check_health_bar()))
+                except Exception:
+                    pass
+                in_liberation = getattr(self, "in_liberation", False)
+                if not in_liberation and (minimap_visible(frame) or beacon_found or combat_active):
+                    self.last_world_seen_time = time.time()
+                    return True, 0, 1
+                if getattr(self, "goal_seen_beacon", False) and time.time() - getattr(self, "last_beacon_seen_time", 0.0) < 8.0:
+                    self.last_world_seen_time = time.time()
+                    return True, 0, 1
         # 小地图偶发识别失败（雾天/HUD 渐隐动画）时的短滞回。
         if time.time() - getattr(self, "last_world_seen_time", 0.0) < 1.0:
             return True, 0, 1
@@ -229,7 +239,10 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                              or (hasattr(self, "check_health_bar") and self.check_health_bar()))
         except Exception:
             pass
-        world_or_combat_visible = minimap_visible(frame) or detect_quest_beacon(frame).found or combat_active
+        frame = self.frame
+        world_or_combat_visible = False
+        if frame is not None and frame.size > 0:
+            world_or_combat_visible = minimap_visible(frame) or detect_quest_beacon(frame).found or combat_active
         if (frame is None or frame.size == 0 or detect_letterbox(frame).is_letterbox
                 or not world_or_combat_visible
                 or time.time() - getattr(self, "last_strict_team_time", 0.0) < 2.0):
@@ -462,6 +475,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 # 剧情对话的跳过按钮等 UI 会在鼠标静止后自动隐藏，轻晃鼠标让其重新显示再识别。
                 self._reveal_hidden_ui()
                 if self._handle_tutorial_panel(frame):
+                    continue
+                if self._handle_quest_log_stuck(frame):
                     continue
                 self._log_wait_state(frame, "当前界面不在队伍大世界（可能处于对话、加载或菜单），暂停移动等待界面恢复")
                 self.sleep(.2)
@@ -1067,6 +1082,32 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         except Exception:
             return False
 
+    def _handle_quest_log_stuck(self, frame: np.ndarray) -> bool:
+        """主循环中识别任务日志界面停滞，尝试点击前往或发送退出键恢复大世界。"""
+        if not self._is_quest_log_open(frame):
+            self.quest_log_stuck_start_time = 0.0
+            return False
+        now = time.time()
+        start = getattr(self, "quest_log_stuck_start_time", 0.0)
+        if start <= 0.0:
+            self.quest_log_stuck_start_time = now
+            start = now
+
+        proceed_btn = self._find_proceed_button(frame)
+        if now - start > 3.0:
+            self.log_info("任务日志界面持续停滞，发送退出按键恢复大世界")
+            self._close_map_overlays()
+            self.quest_log_stuck_start_time = 0.0
+            return True
+
+        self.log_info("主循环检测到任务日志界面，尝试点击前往按钮进入大地图")
+        if proceed_btn:
+            self.click(proceed_btn)
+        else:
+            self.click(0.87, 0.914)
+        self.sleep(1.0)
+        return True
+
     def _tutorial_icon_matched(self, frame: np.ndarray) -> bool:
         """标题旁的"?"帮助图标是单页/多页教程面板共有的固定特征。"""
         import cv2
@@ -1671,10 +1712,15 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         if target_frame is None or target_frame.size == 0:
             return False
         try:
-            boxes = self.ocr(0.01, 0.01, 0.20, 0.12, match=["任务", "Quest"], frame=target_frame)
-            return len(boxes) > 0
+            boxes = self.ocr(0.01, 0.01, 0.20, 0.15, match=["任务", "Quest"], frame=target_frame)
+            if boxes:
+                return True
+            bottom_boxes = self.ocr(0.60, 0.85, 0.98, 0.98, match=["前往", "Proceed", "取消追踪"], frame=target_frame)
+            if bottom_boxes:
+                return True
         except Exception:
             return False
+        return False
 
     def _find_proceed_button(self, frame: Optional[np.ndarray] = None):
         """寻找任务面板右下角前往按钮。"""
@@ -1711,29 +1757,47 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
         # 1. 发送快捷键 J 打开任务日志界面
         self.send_key("j")
-        self.sleep(1.5)
+        quest_log_opened = False
+        start_wait = time.time()
+        while time.time() - start_wait < 3.0:
+            self.sleep(0.3)
+            if self._is_quest_log_open() or self._find_proceed_button() is not None:
+                quest_log_opened = True
+                break
 
         # 2. 若进入任务日志界面，点击右下角前往按钮切换到大地图定位
-        if not self.in_team_and_world() and self._is_quest_log_open():
+        if quest_log_opened:
             proceed_btn = self._find_proceed_button()
             if proceed_btn:
                 self.click(proceed_btn)
             else:
-                self.click(0.87, 0.91)
-            self.sleep(2.0)
-        elif self.in_team_and_world():
+                self.click(0.87, 0.914)
+            start_map_wait = time.time()
+            while time.time() - start_map_wait < 3.0:
+                self.sleep(0.4)
+                if not self._is_quest_log_open():
+                    break
+        else:
             # 若未打开任务日志界面，发送快捷键 M 打开大地图
             self.send_key("m")
             self.sleep(2.0)
 
         # 3. 检查地图界面是否已打开
+        # 若依然停留在任务日志界面（如点击前往未成功响应），再次尝试点击前往；若依然无法切换，退出界面避免停滞
+        if self._is_quest_log_open():
+            proceed_btn = self._find_proceed_button()
+            if proceed_btn:
+                self.click(proceed_btn)
+            else:
+                self.click(0.87, 0.914)
+            self.sleep(2.0)
+            if self._is_quest_log_open():
+                self.log_info("未从任务日志界面成功切换至地图界面，关闭界面继续地面寻路")
+                self._close_map_overlays()
+                return False
+
         if self.in_team_and_world():
             self.log_info("地图界面未能成功打开，继续执行常规地面寻路")
-            return False
-
-        # 若依然停留在任务日志界面（如点击前往未成功响应），退出界面避免卡在面板中
-        if self._is_quest_log_open():
-            self.log_info("未从任务日志界面成功切换至地图界面，关闭界面继续地面寻路")
             self._close_map_overlays()
             return False
 

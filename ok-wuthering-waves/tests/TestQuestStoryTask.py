@@ -804,6 +804,45 @@ class TestQuestStoryTask(unittest.TestCase):
         distance = self.task._extract_quest_distance(dummy_frame, beacon)
         self.assertEqual(distance, 27.0)
 
+    def test_load_chars_does_not_raise_name_error_without_frame(self):
+        self.task.chars = []
+        self.task._companion_team_active = lambda: False
+        from unittest.mock import patch
+        with patch("src.task.BaseCombatTask.BaseCombatTask.load_chars", return_value=True), \
+             patch("src.task.BaseWWTask.BaseWWTask.in_team", return_value=(False, 0, 0)):
+            res = QuestStoryTask.load_chars(self.task)
+            self.assertTrue(res)
+
+    def test_in_team_excludes_quest_log_interface(self):
+        self.task._companion_team_active = lambda: False
+        self.task.goal_seen_beacon = True
+        self.task.last_beacon_seen_time = time.time()
+        self.task._is_quest_log_open = lambda *args, **kwargs: True
+        from unittest.mock import patch
+        with patch("src.task.BaseWWTask.BaseWWTask.in_team", return_value=(False, -1, 1)):
+            res = QuestStoryTask.in_team(self.task)
+            self.assertFalse(res[0])
+
+    def test_try_teleport_clicks_proceed_button(self):
+        self.task.last_teleport_attempt_time = 0.0
+        self.task.teleport_retry_delay = 30.0
+        self.task._stop_all_movement = lambda: None
+        self.task.send_key = lambda key, **kwargs: None
+        self.task.sleep = lambda sec: None
+        clicked = []
+        self.task.click = lambda target, **kwargs: clicked.append(target)
+        self.task._find_proceed_button = lambda *args, **kwargs: "PROCEED_BUTTON"
+        self.task._is_quest_log_open = lambda *args, **kwargs: False
+        self.task.in_team_and_world = lambda: False
+        self.task._detect_teleport_unreachable = lambda: False
+        self.task._detect_closer_to_target_dialog = lambda: False
+        self.task.click_traval_button = lambda: True
+        self.task.wait_in_team_and_world = lambda **kwargs: True
+
+        result = self.task._try_teleport_to_nearest_waypoint(1052.0)
+        self.assertTrue(result)
+        self.assertIn("PROCEED_BUTTON", clicked)
+
 
 if __name__ == "__main__":
     unittest.main()
