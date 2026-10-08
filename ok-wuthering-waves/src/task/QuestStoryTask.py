@@ -1665,13 +1665,24 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.teleport_retry_delay = 300.0
         self._close_map_overlays()
 
+    def _is_quest_log_open(self, frame: Optional[np.ndarray] = None) -> bool:
+        """检查任务日志界面是否已打开。"""
+        target_frame = frame if frame is not None else self.frame
+        if target_frame is None or target_frame.size == 0:
+            return False
+        try:
+            boxes = self.ocr(0.01, 0.01, 0.20, 0.12, match=["任务", "Quest"], frame=target_frame)
+            return len(boxes) > 0
+        except Exception:
+            return False
+
     def _find_proceed_button(self, frame: Optional[np.ndarray] = None):
         """寻找任务面板右下角前往按钮。"""
         target_frame = frame if frame is not None else self.frame
         if target_frame is None or target_frame.size == 0:
             return None
         try:
-            boxes = self.ocr(0.75, 0.85, 0.98, 0.98, match=["前往", "Proceed"], frame=target_frame)
+            boxes = self.ocr(0.70, 0.85, 0.98, 0.98, match=["前往", "Proceed"], frame=target_frame)
             if boxes:
                 return boxes[0]
         except Exception:
@@ -1702,11 +1713,15 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.send_key("j")
         self.sleep(1.5)
 
-        # 2. 若进入任务日志界面，点击右下角定位按钮
-        if not self.in_team_and_world():
-            self.click(0.89, 0.92)
-            self.sleep(1.5)
-        else:
+        # 2. 若进入任务日志界面，点击右下角前往按钮切换到大地图定位
+        if not self.in_team_and_world() and self._is_quest_log_open():
+            proceed_btn = self._find_proceed_button()
+            if proceed_btn:
+                self.click(proceed_btn)
+            else:
+                self.click(0.87, 0.91)
+            self.sleep(2.0)
+        elif self.in_team_and_world():
             # 若未打开任务日志界面，发送快捷键 M 打开大地图
             self.send_key("m")
             self.sleep(2.0)
@@ -1714,6 +1729,12 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         # 3. 检查地图界面是否已打开
         if self.in_team_and_world():
             self.log_info("地图界面未能成功打开，继续执行常规地面寻路")
+            return False
+
+        # 若依然停留在任务日志界面（如点击前往未成功响应），退出界面避免卡在面板中
+        if self._is_quest_log_open():
+            self.log_info("未从任务日志界面成功切换至地图界面，关闭界面继续地面寻路")
+            self._close_map_overlays()
             return False
 
         # 3.5 出现"附近信标无法快速到达"提示时放弃传送，关闭界面改为步行

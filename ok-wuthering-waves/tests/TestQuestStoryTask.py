@@ -304,14 +304,20 @@ class TestQuestStoryTask(unittest.TestCase):
     def test_try_teleport_to_nearest_waypoint_flow(self):
         self.task.in_team_and_world = lambda: False
         self.task.clicked_cords = []
-        self.task.click = lambda x, y, **kw: self.task.clicked_cords.append((x, y))
+        self.task.click = lambda *args, **kw: self.task.clicked_cords.append(args)
         self.task.wait_in_team_and_world = lambda **kw: True
         self.task.click_traval_button = lambda: True
+
+        from ok.feature.Box import Box
+        proceed_box = Box(873, 515, 39, 44, name="前往")
+        quest_log_open = [True, False]
+        self.task._is_quest_log_open = lambda: quest_log_open.pop(0) if quest_log_open else False
+        self.task._find_proceed_button = lambda *args, **kwargs: proceed_box
 
         res = self.task._try_teleport_to_nearest_waypoint(current_distance=280.0)
         self.assertTrue(res)
         self.assertTrue(any(act == "send" and k == "j" for act, k in self.task.sent_keys))
-        self.assertTrue(any(x == 0.89 and y == 0.92 for x, y in self.task.clicked_cords))
+        self.assertTrue(any(c[0] == proceed_box or (c[0] == 0.87 and c[1] == 0.91) for c in self.task.clicked_cords))
         self.assertTrue(any(k == "Log" and "超过 200 米" in v for k, v in self.task.ui_logs))
 
     def test_record_jev_usage_updates_ui_table(self):
@@ -398,6 +404,38 @@ class TestQuestStoryTask(unittest.TestCase):
         self.assertEqual(self.task.teleport_retry_delay, 300.0)
         # 验证成功调用退出地图界面回到大世界
         self.assertTrue(in_team_status[0])
+
+    def test_try_teleport_clicks_proceed_in_quest_log(self):
+        clicks = []
+        self.task.click = lambda *args, **kwargs: clicks.append(args)
+        in_team_status = [False]
+        self.task.in_team_and_world = lambda: in_team_status[0]
+        quest_log_open = [True, False]
+        self.task._is_quest_log_open = lambda: quest_log_open.pop(0) if quest_log_open else False
+        from ok.feature.Box import Box
+        proceed_box = Box(873, 515, 39, 44, name="前往")
+        self.task._find_proceed_button = lambda *args, **kwargs: proceed_box
+        self.task.click_traval_button = lambda: True
+        self.task.wait_in_team_and_world = lambda *args, **kwargs: True
+
+        result = self.task._try_teleport_to_nearest_waypoint(1052.0)
+        self.assertTrue(result)
+        self.assertTrue(any(proceed_box in c for c in clicks))
+
+    def test_try_teleport_closes_overlay_if_stuck_in_quest_log(self):
+        clicks = []
+        self.task.click = lambda *args, **kwargs: clicks.append(args)
+        in_team_status = [False]
+        self.task.in_team_and_world = lambda: in_team_status[0]
+        closed = []
+        self.task._close_map_overlays = lambda: closed.append(True)
+        # 任务日志界面持续未关闭（例如点击未响应）
+        self.task._is_quest_log_open = lambda: True
+        self.task._find_proceed_button = lambda *args, **kwargs: None
+
+        result = self.task._try_teleport_to_nearest_waypoint(1052.0)
+        self.assertFalse(result)
+        self.assertTrue(len(closed) > 0)
 
     def test_story_synopsis_clicks_skip_button(self):
         from ok.feature.Box import Box
