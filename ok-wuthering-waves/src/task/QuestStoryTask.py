@@ -142,6 +142,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.puzzle_panel_active = False
         self.goal_candidate = None
         self.last_climb_probe_time = 0.0
+        self.forward_step_count: int = 0
 
     def in_team(self):
         result = super().in_team()
@@ -323,6 +324,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.puzzle_panel_active = False
         self.goal_candidate = None
         self.last_climb_probe_time = 0.0
+        self.forward_step_count = 0
         self.info_set("JEV 调用次数", "0 次")
         self.info_set("JEV 额度消耗", "0 tokens")
         self.info_set("Clef 调用次数", "0 次")
@@ -2311,6 +2313,21 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             return
         if not keys:
             return
+
+        # 普通向前移动：每2步自动跳跃一次，减少被地形卡住的概率。
+        # 仅计主导航的向前步（含 w、非跳跃、非绕行recovery阶段）。
+        is_forward_step = (
+            not jump
+            and "w" in keys
+            and progress_tracker is None
+            and self.navigation_progress.recovery_step is None
+        )
+        if is_forward_step:
+            self.forward_step_count += 1
+            if self.forward_step_count >= 2:
+                self.forward_step_count = 0
+                jump = True
+
         interruptions = self.quest_scene.input_interruptions
         before = self.frame.copy() if any(key in ("w", "a", "s", "d") for key in keys) else None
         elapsed = 0.0
@@ -2335,6 +2352,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.traversal.record_progress(motion.moving, time.time(), duration=elapsed)
             self.quest_scene.attempted_directions.append("+".join(keys))
             self.log_debug(f"移动背景判断: moving={motion.moving}, displacement={motion.displacement_pixels:.2f}, vertical={motion.vertical_pixels:.2f}, points={motion.tracked_points}")
+
 
     def _ensure_first_character(self) -> bool:
         now = time.time()

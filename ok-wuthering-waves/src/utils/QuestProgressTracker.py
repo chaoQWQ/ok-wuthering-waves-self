@@ -90,10 +90,10 @@ class QuestProgressTracker:
         else:
             # 短步多试：单次绕行幅度小，靠多次尝试与左右交替通过障碍。
             movements = (
-                (["s"], 0.25),
-                ([side_key], 0.3),
-                (["w", side_key], 0.3),
-                (["w"], 0.2),
+                (["s"], 0.15),
+                ([side_key], 0.18),
+                (["w", side_key], 0.18),
+                (["w"], 0.12),
             )
         movement = movements[self.recovery_step]
         self.recovery_step += 1
