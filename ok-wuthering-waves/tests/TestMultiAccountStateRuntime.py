@@ -2,12 +2,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import cv2
+
 from config import config
 from ok import OK
 
 
 class TestMultiAccountStateRuntime(unittest.TestCase):
-    def test_real_task_reloads_success_and_retries_previous_failure(self):
+    def test_real_task_reloads_daily_state_and_recognizes_title_login(self):
         with tempfile.TemporaryDirectory() as directory:
             runtime_config = dict(config)
             runtime_config.update({
@@ -22,6 +24,18 @@ class TestMultiAccountStateRuntime(unittest.TestCase):
                 from src.task.MultiAccountDailyTask import MultiAccountDailyTask
 
                 task = runtime.task_executor.get_task_by_class(MultiAccountDailyTask)
+                # 同步处理截图，执行线程保持未启动。
+                runtime.task_executor.paused = False
+                frame = cv2.imread(str(Path(__file__).parent / 'images' / 'account_logged_out_title.png'))
+                if frame is None:
+                    raise FileNotFoundError('登出后的标题界面截图不存在')
+                for width, height in ((1920, 1080), (1280, 720)):
+                    with self.subTest(resolution=(width, height)):
+                        image = cv2.resize(frame, (width, height))
+                        button = task._find_title_login_button(frame=image)
+                        self.assertIsNotNone(button)
+                        self.assertEqual(button.name, '登入')
+                        self.assertGreater(button.x, width * 0.9)
                 task._load_daily_state()
                 task._mark_done('185****6758')
                 task._mark_failed('134****1892')

@@ -678,6 +678,10 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             def open_account_list():
                 if self._login_combo() or self.do_find_account_drop_down():
                     return True
+                if login_button := self._find_title_login_button():
+                    self.log_info('点击标题界面登入按钮，打开账号列表')
+                    self._click_direct(login_button, after_sleep=1)
+                    return False
                 if switch_account := self.find_one('switch_account', vertical_variance=0.1, threshold=0.7):
                     self._click_direct(switch_account, after_sleep=1)
                     confirmation = self.wait_feature(
@@ -690,6 +694,14 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             self.wait_until(open_account_list, time_out=180, raise_if_not_found=True)
         finally:
             self._allow_bring_to_front = False
+
+    def _find_title_login_button(self, frame=None):
+        buttons = self.ocr(
+            x=0.88, y=0.2, to_x=0.99, to_y=0.36,
+            match=re.compile(r'^(?:登录|登入|登錄|Log\s*in|Sign\s*in)$', re.IGNORECASE),
+            frame=frame,
+        )
+        return buttons[0] if buttons else None
 
 
     def _click_center_offset(self, offset_x, offset_y, after_sleep=0.5):
