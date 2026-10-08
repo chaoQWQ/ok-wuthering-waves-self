@@ -733,9 +733,13 @@ def detect_climbing_stamina(frame: np.ndarray) -> Optional[float]:
 
 def detect_quest_vertical_hint(frame: np.ndarray, distance_box: tuple) -> str:
     x, y, width, height = distance_box
+    if width <= 0 or height <= 0:
+        return "unknown"
     # 箭头位于距离文字末尾或紧邻右侧。
     x0 = max(0, x + width - round(height * .7))
     roi = frame[max(0, y):min(frame.shape[0], y + height + 2), x0:min(frame.shape[1], x + width + height)]
+    if roi.size == 0:
+        return "unknown"
     hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
     mask = cv2.inRange(hsv, np.array((15, 50, 90)), np.array((40, 255, 255)))
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)

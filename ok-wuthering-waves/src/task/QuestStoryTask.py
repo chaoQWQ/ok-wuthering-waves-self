@@ -152,11 +152,16 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         # 主线剧情使用试用角色时队伍可能只有一人，右侧换人栏为空，队伍栏模板全部缺失。
         # 战斗引擎依赖 in_team 的翻转判定解放动画等状态，这里用左上角小地图兜底：
         # 小地图同样在解放过场、地图界面、传送加载与黑边动画中不可见，语义一致。
+        # 剧情特殊场景下可能缺少小地图，但界面中存在黄色任务信标，同样属于大世界状态。
         frame = self.frame
-        if (frame is not None and frame.size > 0 and not detect_letterbox(frame).is_letterbox
-                and minimap_visible(frame)):
-            self.last_world_seen_time = time.time()
-            return True, 0, 1
+        if frame is not None and frame.size > 0 and not detect_letterbox(frame).is_letterbox:
+            beacon_found = detect_quest_beacon(frame).found
+            if minimap_visible(frame) or beacon_found:
+                self.last_world_seen_time = time.time()
+                return True, 0, 1
+            if getattr(self, "goal_seen_beacon", False) and time.time() - getattr(self, "last_beacon_seen_time", 0.0) < 8.0:
+                self.last_world_seen_time = time.time()
+                return True, 0, 1
         # 小地图偶发识别失败（雾天/HUD 渐隐动画）时的短滞回。
         if time.time() - getattr(self, "last_world_seen_time", 0.0) < 1.0:
             return True, 0, 1
@@ -203,7 +208,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             return super().load_chars()
         frame = self.frame
         if (frame is None or frame.size == 0 or detect_letterbox(frame).is_letterbox
-                or not minimap_visible(frame)
+                or (not minimap_visible(frame) and not detect_quest_beacon(frame).found)
                 or time.time() - getattr(self, "last_strict_team_time", 0.0) < 2.0):
             return super().load_chars()
         self.load_hotkey()
@@ -312,7 +317,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 frame = self.frame
 
             if self.puzzle_panel_active:
-                if minimap_visible(frame):
+                if minimap_visible(frame) or detect_quest_beacon(frame).found:
                     self.puzzle_panel_active = False
                 else:
                     observation = self._observe_puzzle(frame)
@@ -597,6 +602,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.goal_seen_beacon = True
             self.beacon_seen_streak = min(3, getattr(self, "beacon_seen_streak", 0) + 1)
             self.last_beacon_seen_time = time.time()
+            self.last_world_seen_time = self.last_beacon_seen_time
             # 信标已找回：V 重试计数清零，「多次按 V」只在同一段连续丢失内累计。
             self.v_retrack_count = 0
             self.last_beacon_cy_ratio = (beacon_result.y + beacon_result.height / 2) / frame.shape[0]
@@ -956,9 +962,11 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         if self.quest_scene.vertical == "unknown":
             for box in boxes:
                 if parse_distance_text(box.name, require_unit=True) is not None:
-                    self.quest_scene.vertical = detect_quest_vertical_hint(frame, (box.x, box.y, box.width, box.height))
+                    self.quest_scene.vertical = detect_quest_vertical_hint(
+                        frame, (getattr(box, "x", 0), getattr(box, "y", 0), getattr(box, "width", 0), getattr(box, "height", 0))
+                    )
                     break
-        text = quest_goal_from_lines([box.name for box in boxes if box.x <= frame.shape[1] * .05])
+        text = quest_goal_from_lines([box.name for box in boxes if getattr(box, "x", 0) <= frame.shape[1] * .05])
         if text:
             if not self.guidance_text or text == self.guidance_text:
                 self.guidance_text = text
@@ -1084,7 +1092,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
     def _read_scene_coordinates(self, frame):
         now = time.time()
-        if now - self.last_coordinate_read < 1:
+        if now - getattr(self, "last_coordinate_read", 0.0) < 1:
             return
         import cv2
         self.last_coordinate_read = now
@@ -1097,12 +1105,14 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             if match:
                 coordinate = parse_coordinate_text(match[0])
                 break
-        previous = self.traversal.coordinate
-        self.traversal.record_coordinate(coordinate, now)
-        if previous is not None and coordinate is not None:
-            import math
-            if math.dist(previous, coordinate) >= 3:
-                self.traversal.moved_to_new_location()
+        traversal = getattr(self, "traversal", None)
+        if traversal is not None:
+            previous = traversal.coordinate
+            traversal.record_coordinate(coordinate, now)
+            if previous is not None and coordinate is not None:
+                import math
+                if math.dist(previous, coordinate) >= 3:
+                    traversal.moved_to_new_location()
 
     def _navigation_stalled(self, current_distance: Optional[float]) -> bool:
         """撞墙判定：任务距离与人物坐标两个信号同时持续无变化才判卡。
@@ -1212,7 +1222,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         return result
 
     def _observe_puzzle(self, frame, interaction=None):
-        if minimap_visible(frame):
+        beacon_found = detect_quest_beacon(frame).found
+        if minimap_visible(frame) or beacon_found:
             self._read_quest_goal(frame, force=True)
         if interaction is None:
             _, interaction = self._read_interaction(frame)
@@ -1228,7 +1239,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             phase = "cutscene"
         elif detect_dialog_advance_indicator(frame).found or detect_top_left_skip_button(frame).found:
             phase = "dialog"
-        elif not minimap_visible(frame):
+        elif not minimap_visible(frame) and not beacon_found:
             phase = "unknown"
             if any(re.search(r"确认|返回|取消|Confirm|Cancel|Back", text, re.IGNORECASE) for text in texts):
                 phase = "panel"
@@ -1290,11 +1301,17 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.log_info(f"机关操作验证结果：{outcome}")
 
     def _can_continue_quest_input(self):
+        frame = self.frame
+        world_visible = (minimap_visible(frame)
+                         or detect_quest_beacon(frame).found
+                         or time.time() - getattr(self, "last_world_seen_time", 0.0) < 1.0
+                         or (getattr(self, "goal_seen_beacon", False)
+                             and time.time() - getattr(self, "last_beacon_seen_time", 0.0) < 8.0))
         return (not self.executor.paused and self.is_game_window_active()
-                and not detect_letterbox(self.frame).is_letterbox
-                and not detect_dialog_advance_indicator(self.frame).found
-                and not detect_top_left_skip_button(self.frame).found
-                and minimap_visible(self.frame) and not self.in_combat())
+                and not detect_letterbox(frame).is_letterbox
+                and not detect_dialog_advance_indicator(frame).found
+                and not detect_top_left_skip_button(frame).found
+                and world_visible and not self.in_combat())
 
     def _hold_quest_input(self, keys, duration, mouse=False):
         if duration <= 0:
@@ -1357,7 +1374,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             if not current_f or current_text != step.preconditions["interaction"]:
                 return "stale"
         if action == "panel_select":
-            if observation.phase != "panel" or not self.is_game_window_active() or minimap_visible(self.frame):
+            if observation.phase != "panel" or not self.is_game_window_active() or minimap_visible(self.frame) or detect_quest_beacon(self.frame).found:
                 return "stale"
             x, y = step.target
             height, width = self.frame.shape[:2]
@@ -2014,7 +2031,9 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 distance = parse_distance_text(box.name, require_unit=True)
                 if distance is not None:
                     if self.quest_scene.vertical == "unknown":
-                        self.quest_scene.vertical = detect_quest_vertical_hint(frame, (box.x, box.y, box.width, box.height))
+                        self.quest_scene.vertical = detect_quest_vertical_hint(
+                            frame, (getattr(box, "x", 0), getattr(box, "y", 0), getattr(box, "width", 0), getattr(box, "height", 0))
+                        )
                     return distance
 
         if beacon_result.found:

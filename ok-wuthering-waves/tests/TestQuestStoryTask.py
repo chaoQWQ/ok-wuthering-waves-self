@@ -9,9 +9,17 @@ from src.utils.QuestPuzzleSession import QuestPuzzleSession
 from src.utils.QuestTargetSearch import QuestTargetSearch
 from src.utils.QuestDecisionSession import QuestDecisionSession
 from src.utils.QuestSceneState import QuestSceneState
+from src.utils.QuestTraversalController import QuestTraversalController
+
+
+class DummyMethod:
+    width = 1280
+    height = 720
 
 
 class DummyExecutor:
+    method = DummyMethod()
+    device_manager = type("DummyDeviceManager", (), {"supported_ratio": 16 / 9})()
     paused = False
     frame = np.zeros((720, 1280, 3), dtype=np.uint8)
 
@@ -19,6 +27,9 @@ class DummyExecutor:
         pass
 
     def next_frame(self, time_out=6):
+        return self.frame
+
+    def nullable_frame(self):
         return self.frame
 
 
@@ -39,6 +50,7 @@ class TestQuestStoryTask(unittest.TestCase):
         }
         self.task.current_state = QuestStoryTask.STATE_IDLE
         self.task.quest_scene = QuestSceneState()
+        self.task.traversal = QuestTraversalController(self.task.quest_scene)
         self.task.puzzle = QuestPuzzleSession()
         self.task.last_frame = None
         self.task.letterbox_freeze_start_time = 0.0
@@ -56,6 +68,7 @@ class TestQuestStoryTask(unittest.TestCase):
         self.task.jev_cost_estimate = 0.0
         self.task.guidance_last_read = 0.0
         self.task.guidance_text = ""
+        self.task.last_coordinate_read = 0.0
         self.task.useless_interactions = set()
         self.task.logger = Logger.get_logger("test")
         self.task.ui_logs = []
@@ -682,6 +695,25 @@ class TestQuestStoryTask(unittest.TestCase):
         for x in range(240, mw, 12):
             cv2.line(frame, (x, 10), (x, mh - 20), (30, 140, 190), 2)
         self.assertFalse(self.task._minimap_ring_hint(frame))
+
+
+    def test_no_minimap_with_quest_beacon_compatible(self):
+        import cv2, os
+        img_path = os.path.join(os.path.dirname(__file__), "images", "quest_no_minimap_with_beacon.jpg")
+        if not os.path.exists(img_path):
+            self.skipTest("剧情信标测试图片不存在")
+        frame = cv2.imread(img_path)
+        self.task._executor.frame = frame
+        from src.utils.QuestAreaSearch import minimap_visible
+        from src.utils.QuestVision import detect_quest_beacon
+        self.assertFalse(minimap_visible(frame))
+        self.assertTrue(detect_quest_beacon(frame).found)
+
+        in_team_status, current_idx, char_count = QuestStoryTask.in_team(self.task)
+        self.assertTrue(in_team_status)
+        self.assertEqual(current_idx, 0)
+        self.assertEqual(char_count, 1)
+        self.assertTrue(self.task._can_continue_quest_input())
 
 
 if __name__ == "__main__":
