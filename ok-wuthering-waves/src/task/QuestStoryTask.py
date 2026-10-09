@@ -143,6 +143,20 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.goal_candidate = None
         self.last_climb_probe_time = 0.0
         self.forward_step_count: int = 0
+        self.frozen_cutscene_attempts: int = 0
+
+    def _is_letterbox_cutscene(self, frame: Optional[np.ndarray]) -> bool:
+        if frame is None or frame.size == 0:
+            return False
+        if not detect_letterbox(frame).is_letterbox:
+            return False
+        if detect_quest_beacon(frame).found:
+            return False
+        if getattr(self, "goal_seen_beacon", False) and time.time() - getattr(self, "last_beacon_seen_time", 0.0) < 8.0:
+            return False
+        if minimap_visible(frame):
+            return False
+        return True
 
     def in_team(self):
         result = super().in_team()
@@ -171,7 +185,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 is_quest_open = False
             if is_quest_open:
                 return result
-            if not detect_letterbox(frame).is_letterbox:
+            if not self._is_letterbox_cutscene(frame):
                 beacon_found = detect_quest_beacon(frame).found
                 combat_active = False
                 try:
@@ -244,7 +258,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         world_or_combat_visible = False
         if frame is not None and frame.size > 0:
             world_or_combat_visible = minimap_visible(frame) or detect_quest_beacon(frame).found or combat_active
-        if (frame is None or frame.size == 0 or detect_letterbox(frame).is_letterbox
+        if (frame is None or frame.size == 0 or self._is_letterbox_cutscene(frame)
                 or not world_or_combat_visible
                 or time.time() - getattr(self, "last_strict_team_time", 0.0) < 2.0):
             return super().load_chars()
@@ -462,14 +476,14 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                     continue
 
             # 3. 判定上下黑边剧情动画
-            letterbox_info = detect_letterbox(frame)
-            if letterbox_info.is_letterbox:
+            if self._is_letterbox_cutscene(frame):
                 self._mark_scene_transition("cutscene_started", self.STATE_LETTERBOX_CUTSCENE)
                 self.current_state = self.STATE_LETTERBOX_CUTSCENE
                 self._handle_letterbox_state(frame)
                 continue
             else:
                 self.letterbox_freeze_start_time = 0.0
+                self.frozen_cutscene_attempts = 0
 
             # 4. 判定大世界任务导航与交互
             if not self.in_team_and_world():
@@ -556,6 +570,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
     def _handle_letterbox_state(self, frame: np.ndarray):
         now = time.time()
+        self._reveal_hidden_ui()
         if self.last_frame is not None and self.last_frame.shape == frame.shape:
             is_frozen, _ = detect_screen_freeze(self.last_frame, frame, diff_threshold=2.0)
             if is_frozen:
@@ -567,12 +582,15 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                     self.log_info(
                         f"黑边动画静止已达 {freeze_duration:.1f} 秒，触发交互决策"
                     )
+                    self.frozen_cutscene_attempts = getattr(self, "frozen_cutscene_attempts", 0) + 1
                     self._trigger_ai_decision(frame, is_frozen_letterbox=True)
                     self.letterbox_freeze_start_time = now
             else:
                 self.letterbox_freeze_start_time = 0.0
+                self.frozen_cutscene_attempts = 0
         else:
             self.letterbox_freeze_start_time = 0.0
+            self.frozen_cutscene_attempts = 0
 
         self.last_frame = frame.copy()
 
@@ -1312,7 +1330,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.next_frame()
         self._read_quest_goal(self.frame, force=True)
         if (not self.is_game_window_active() or self.guidance_text != goal or getattr(self, "goal_candidate", None)
-                or detect_letterbox(self.frame).is_letterbox
+                or self._is_letterbox_cutscene(self.frame)
                 or detect_dialog_advance_indicator(self.frame).found or self.in_combat()):
             raise QuestSceneChangedError("视觉请求期间场景已经改变，重新检查任务状态")
         return result
@@ -1331,7 +1349,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                          for box in boxes if box.name and frame.shape[1] * .2 < box.x < frame.shape[1] * .8
                          and frame.shape[0] * .25 < box.y < frame.shape[0] * .85)
         phase = "world"
-        if detect_letterbox(frame).is_letterbox:
+        if self._is_letterbox_cutscene(frame):
             phase = "cutscene"
         elif detect_dialog_advance_indicator(frame).found or detect_top_left_skip_button(frame).found:
             phase = "dialog"
@@ -1404,7 +1422,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                          or (getattr(self, "goal_seen_beacon", False)
                              and time.time() - getattr(self, "last_beacon_seen_time", 0.0) < 8.0))
         return (not self.executor.paused and self.is_game_window_active()
-                and not detect_letterbox(frame).is_letterbox
+                and not self._is_letterbox_cutscene(frame)
                 and not detect_dialog_advance_indicator(frame).found
                 and not detect_top_left_skip_button(frame).found
                 and world_visible and not self.in_combat())
@@ -2414,7 +2432,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         if history and history[-1]["goal"] == self.decision_session.goal and history[-1]["location"] == location:
             progress += f":{len(history)}:{history[-1]['outcome']}"
         if is_frozen_letterbox:
-            attempts = sum(item["location"] == event and item["goal"] == self.decision_session.goal for item in self.decision_session.context())
+            attempts = getattr(self, "frozen_cutscene_attempts", 0)
             if attempts >= 3:
                 raise RuntimeError("剧情静止期间三次决策没有推进任务，停止重复操作")
             progress += f":{attempts}"
@@ -2522,11 +2540,11 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         if not is_frozen_letterbox:
             self._read_quest_goal(self.frame, force=True)
             if (self.guidance_text != goal_before_request or getattr(self, "goal_candidate", None)
-                    or detect_letterbox(self.frame).is_letterbox
+                    or self._is_letterbox_cutscene(self.frame)
                     or detect_dialog_advance_indicator(self.frame).found or self.in_combat()):
                 self.decision_session.observe(self.guidance_text, action_text, time.time())
                 return "stale"
-        elif not detect_letterbox(self.frame).is_letterbox:
+        elif not self._is_letterbox_cutscene(self.frame):
             return "stale"
         if action.action_type == "interact" and action.key == "f":
             if not has_f_button:

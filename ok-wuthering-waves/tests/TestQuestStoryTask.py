@@ -1,3 +1,4 @@
+import os
 import time
 import unittest
 import numpy as np
@@ -94,6 +95,10 @@ class TestQuestStoryTask(unittest.TestCase):
         self.task.point_approach_seconds = 0.0
         self.task.quest_combat_count = 0
         self.task.interaction_decision_waits = 0
+        self.task.forward_step_count = 0
+        self.task.frozen_cutscene_attempts = 0
+        self.task._in_liberation = False
+        self.task.last_ui_reveal_time = 0.0
 
     def test_task_states_definition(self):
         self.assertEqual(QuestStoryTask.STATE_IDLE, "IDLE")
@@ -872,6 +877,25 @@ class TestQuestStoryTask(unittest.TestCase):
         self.assertTrue(result)
         self.assertIn("PROCEED_1", clicked)
         self.assertIn("PROCEED_2", clicked)
+
+    def test_cinematic_world_state_not_treated_as_cutscene(self):
+        # 纯黑边画面（无信标、无小地图）
+        blank_cutscene = np.zeros((1080, 1920, 3), dtype=np.uint8)
+        blank_cutscene[150:930, :] = 80
+        self.assertTrue(self.task._is_letterbox_cutscene(blank_cutscene))
+
+        # 真实画面：带有上下黑边但同时存在任务信标的宽屏剧情探索画面
+        frame_path = r"C:\Users\zc\.gemini\antigravity\brain\34fd33ca-eaf9-4731-b5ab-60f54d68d68d\scratch\actual_ok_frame.png"
+        if os.path.exists(frame_path):
+            import cv2
+            real_frame = cv2.imread(frame_path)
+            self.assertFalse(self.task._is_letterbox_cutscene(real_frame))
+
+    def test_frozen_cutscene_attempts_limit(self):
+        self.task.frozen_cutscene_attempts = 3
+        with self.assertRaises(RuntimeError) as ctx:
+            QuestStoryTask._trigger_ai_decision(self.task, np.zeros((100, 100, 3), dtype=np.uint8), is_frozen_letterbox=True)
+        self.assertIn("剧情静止期间三次决策没有推进任务", str(ctx.exception))
 
 
 if __name__ == "__main__":
