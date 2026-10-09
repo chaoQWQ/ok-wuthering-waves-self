@@ -143,6 +143,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.goal_candidate = None
         self.last_climb_probe_time = 0.0
         self.forward_step_count: int = 0
+        self.held_movement_keys = set()
+        self.sleep_check_interval = .1
         self.frozen_cutscene_attempts: int = 0
 
     def _is_letterbox_cutscene(self, frame: Optional[np.ndarray]) -> bool:
@@ -294,6 +296,18 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             raise RuntimeError("无法确认游戏窗口是否位于前台") from error
 
     def run(self):
+        try:
+            self._run_quest()
+        finally:
+            self._stop_all_movement()
+
+    def sleep_check(self):
+        if self.held_movement_keys and (self.executor.paused or self.paused or not self.is_game_window_active()):
+            self._stop_all_movement()
+            self.quest_scene.input_interruptions += 1
+        super().sleep_check()
+
+    def _run_quest(self):
         WWOneTimeTask.run(self)
 
         self.ensure_in_front()
@@ -346,6 +360,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
         while not self.executor.paused:
             self.sleep(0.05)
+            if self.held_movement_keys and not self._can_continue_quest_input():
+                self._stop_all_movement()
             if not self.is_game_window_active():
                 self._stop_all_movement()
                 self._recover_game_window_focus()
@@ -595,6 +611,14 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.last_frame = frame.copy()
 
     def _handle_world_navigation_and_interaction(self, frame: np.ndarray):
+        actions_before = self.quest_scene.movement_actions
+        try:
+            self._navigate_world(frame)
+        finally:
+            if self.quest_scene.movement_actions == actions_before:
+                self._stop_all_movement()
+
+    def _navigate_world(self, frame: np.ndarray):
         if not self.is_game_window_active():
             self._stop_all_movement()
             return
@@ -613,6 +637,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
         # 0. 优先检测是否处于攀爬状态
         if climb_result.is_climbing:
+            self._stop_all_movement()
             if self.area_search is not None:
                 area = self.area_search.find_observation(frame)
                 if area is not None:
@@ -637,11 +662,14 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
         # 1. 检查是否存在 F 键交互
         has_f, action_text = self._read_interaction(frame)
+        if has_f:
+            self._stop_all_movement()
 
         if action_text != self.last_interaction_text:
             self.interaction_decision_waits = 0
         self.last_interaction_text = action_text
         if self.decision_session.observe(self.guidance_text, action_text, time.time()):
+            self._stop_all_movement()
             self.area_search = None
             self.navigation_progress = QuestProgressTracker()
             self.target_search.reset()
@@ -670,6 +698,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.last_beacon_cy_ratio = (beacon_result.y + beacon_result.height / 2) / frame.shape[0]
         else:
             self.beacon_seen_streak = 0
+            self._stop_all_movement()
 
         if self.area_search is None:
             area = None if beacon_result.found else detect_quest_area(frame)
@@ -688,6 +717,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             return
 
         current_distance = self._extract_quest_distance(frame, beacon_result)
+        if current_distance is None or current_distance <= 5:
+            self._stop_all_movement()
         self.quest_scene.distance = current_distance
         self._read_scene_coordinates(frame)
         if current_distance is None and not beacon_result.found:
@@ -843,7 +874,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 centered = True
                 if abs(beacon_cx - width / 2) > width * .18:
                     try:
-                        camera_turn = self.traversal.observe_camera((beacon_cx - width / 2) / width * 90)
+                        self._align_quest_beacon(beacon_result, sensitivity, .18)
                     except RuntimeError:
                         # 镜头调整持续无法让指引点居中：重置镜头验证并侧向绕行
                         # 重新接近，而不是终止任务。
@@ -852,20 +883,16 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                         self.navigation_progress.begin_recovery()
                         self._continue_navigation_recovery()
                         return
-                    if not camera_turn:
-                        self._refresh_traversal_observation()
-                        return
-                    self._apply_camera_turn(120 if beacon_cx > width / 2 else -120)
                     centered = False
                 elif beacon_cy < height * .15:
-                    self._apply_camera_pitch(-80)
+                    self._apply_camera_pitch(-120)
                     centered = False
                 elif beacon_cy > height * .85:
-                    self._apply_camera_pitch(80)
+                    self._apply_camera_pitch(120)
                     centered = False
                 if not centered and getattr(self, "vision_center_attempts", 0) < 8:
                     self.vision_center_attempts = getattr(self, "vision_center_attempts", 0) + 1
-                    self.sleep(0.1)
+                    self.sleep(0.04)
                     return
                 self.vision_center_attempts = 0
                 approach = self._maybe_vision_approach(frame, current_distance, beacon_result)
@@ -910,17 +937,11 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 beacon_center_x=beacon_cx,
                 camera_sensitivity=sensitivity,
                 tolerance_ratio=.06 if current_distance is not None and current_distance <= 20 else .02,
-                max_delta_x=100
+                max_delta_x=320
             )
             if turn_cmd.need_turn:
-                if not self.traversal.observe_camera(angle_error_deg):
-                    self._refresh_traversal_observation()
-                    return
-                self.target_search.next_turn(allow_high_count=True)
-                self._apply_camera_turn(turn_cmd.delta_x_pixels)
-                self.sleep(0.1)
-                if current_distance is not None and current_distance <= 20 and abs(angle_error_deg) <= 12:
-                    self._apply_movement(["w"], .12)
+                self._align_quest_beacon(
+                    beacon_result, sensitivity, .06 if current_distance is not None and current_distance <= 20 else .02)
                 return
 
             self.target_search.reset()
@@ -946,7 +967,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 self.log_info(f"距离目标 {dist_str}，快跑冲刺快速推进")
 
             duration = min(move_cmd.press_duration, .2 if effective_distance <= 5 else .4)
-            self._apply_movement(move_cmd.keys, duration)
+            self._apply_movement(move_cmd.keys, duration,
+                                 continuous=current_distance is not None and current_distance > 5 and not has_f)
             if self._navigation_stalled(current_distance):
                 self._notify_navigation_issue("任务距离与人物坐标持续无变化，判定卡住，执行侧向绕行")
                 self.navigation_progress.begin_recovery()
@@ -961,12 +983,12 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 minimap_bearing_deg=arrow_result.bearing_deg,
                 camera_sensitivity=sensitivity,
                 minimap_tolerance_deg=12 if current_distance is not None and current_distance <= 20 else 6,
-                max_delta_x=120
+                max_delta_x=320
             )
             if turn_cmd.need_turn:
                 self.target_search.next_turn(allow_high_count=True)
                 self._apply_camera_turn(turn_cmd.delta_x_pixels)
-                self.sleep(0.1)
+                self.sleep(0.04)
                 # 短步让角色采用当前镜头方向，再读取角色箭头的实际朝向。
                 self._apply_movement(["w"], .15)
                 return
@@ -1010,8 +1032,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         except RuntimeError:
             self._handle_target_search_failure(frame)
             return
-        self._apply_camera_turn(turn_pixels)
-        self.sleep(0.2)
+        self._apply_camera_turn(turn_pixels * 2)
+        self.sleep(0.05)
 
     def _read_quest_goal(self, frame: np.ndarray, force: bool = False):
         if not force and time.time() - getattr(self, "guidance_last_read", 0.0) < 2:
@@ -1421,35 +1443,67 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                          or time.time() - getattr(self, "last_world_seen_time", 0.0) < 1.0
                          or (getattr(self, "goal_seen_beacon", False)
                              and time.time() - getattr(self, "last_beacon_seen_time", 0.0) < 8.0))
-        return (not self.executor.paused and self.is_game_window_active()
+        return (not self.executor.paused and not self.paused and self.is_game_window_active()
                 and not self._is_letterbox_cutscene(frame)
                 and not detect_dialog_advance_indicator(frame).found
                 and not detect_top_left_skip_button(frame).found
                 and world_visible and not self.in_combat())
 
-    def _hold_quest_input(self, keys, duration, mouse=False):
+    def _hold_quest_input(self, keys, duration, mouse=False, continuous=False, jump=False):
         if duration <= 0:
             raise ValueError("操作持续时间必须大于零")
+        if mouse and (continuous or jump):
+            raise ValueError("连续移动和跳跃必须使用键盘按键")
+        if not continuous or set(keys) != self.held_movement_keys:
+            self._stop_all_movement()
         elapsed = 0.0
+        interruptions = self.quest_scene.input_interruptions
         pressed = []
+        completed = False
+        jumping = False
+        jump_finished = False
         try:
             for key in keys:
                 if mouse:
                     self.mouse_down(key=key)
-                else:
+                elif key not in self.held_movement_keys:
                     self.send_key_down(key)
                 pressed.append(key)
+            if not mouse:
+                self.held_movement_keys = set(keys) & {"w", "a", "s", "d", "shift"}
             while elapsed < duration:
                 interval = min(.2, duration - elapsed)
+                if jump and not jump_finished:
+                    if elapsed >= .18 and not jumping:
+                        self.send_key_down("space")
+                        pressed.append("space")
+                        jumping = True
+                    if jumping:
+                        interval = min(interval, .26 - elapsed)
+                    else:
+                        interval = min(interval, .18 - elapsed)
                 self.sleep(interval)
                 elapsed += interval
+                if jumping and elapsed >= .26:
+                    self.send_key_up("space")
+                    pressed.remove("space")
+                    jumping = False
+                    jump_finished = True
                 self.next_frame()
+                if self.quest_scene.input_interruptions != interruptions:
+                    break
                 if not self._can_continue_quest_input():
                     self.quest_scene.input_interruptions += 1
                     break
+            else:
+                completed = True
         finally:
+            retained = set(keys) if continuous and completed else set()
+            self.held_movement_keys = retained
             release_errors = []
             for key in pressed:
+                if key in retained:
+                    continue
                 try:
                     if mouse:
                         self.mouse_up(key=key)
@@ -2186,6 +2240,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         return choice
 
     def _stop_all_movement(self):
+        self.held_movement_keys = set()
         for key in ["w", "a", "s", "d", "shift", "space", "f", "e", "q", "t", "x"]:
             try:
                 self.send_key_up(key)
@@ -2235,7 +2290,37 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
         return None
 
+    def _align_quest_beacon(self, beacon, sensitivity, tolerance_ratio):
+        # 连续读取信标位置完成转向，每次输入后使用新的游戏画面。
+        if not beacon.found:
+            return
+        width = self.frame.shape[1]
+        error = (beacon.x + beacon.width / 2 - width / 2) / width * 90
+        if not self.traversal.observe_camera(error):
+            self._refresh_traversal_observation()
+            return
+        for _ in range(6):
+            if not beacon.found or not self._can_continue_quest_input():
+                return
+            width = self.frame.shape[1]
+            center_x = beacon.x + beacon.width / 2
+            command = calculate_camera_turn(
+                screen_width=width,
+                beacon_center_x=center_x,
+                camera_sensitivity=sensitivity,
+                tolerance_ratio=tolerance_ratio,
+                max_delta_x=320,
+            )
+            if not command.need_turn:
+                return
+            self.target_search.next_turn(allow_high_count=True)
+            self._apply_camera_turn(command.delta_x_pixels)
+            self.sleep(.12)
+            self.wait_until(lambda: detect_quest_beacon(self.frame).found, time_out=.4)
+            beacon = detect_quest_beacon(self.frame)
+
     def _apply_camera_turn(self, delta_x: int):
+        self._stop_all_movement()
         if not self.is_game_window_active():
             return
         if delta_x == 0:
@@ -2250,6 +2335,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             controller.move(delta_x, 0)
 
     def _apply_camera_pitch(self, delta_y: int):
+        self._stop_all_movement()
         if not self.is_game_window_active():
             return
         if delta_y == 0:
@@ -2285,12 +2371,12 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.vision_pitch_offset = 0
         self.vision_pitch_attempts = attempts + 1
         self.last_vision_pitch_time = now
-        first, second = (80, -80) if prefer_down else (-80, 80)
+        first, second = (120, -120) if prefer_down else (-120, 120)
         delta_y = first if attempts < 4 else second
         self.vision_pitch_offset = getattr(self, "vision_pitch_offset", 0) + delta_y
         self.log_debug(f"镜头未看到带距离的任务指引点，垂直调整视角 dy={delta_y}")
         self._apply_camera_pitch(delta_y)
-        self.sleep(0.15)
+        self.sleep(0.04)
         return True
 
     def _reveal_hidden_ui(self, interval: float = 1.5) -> bool:
@@ -2323,7 +2409,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.next_frame()
         return True
 
-    def _apply_movement(self, keys: list, duration: float, progress_tracker=None, jump=False):
+    def _apply_movement(self, keys: list, duration: float, progress_tracker=None, jump=False, continuous=False):
         if jump and duration < .08:
             raise ValueError("跳跃移动时间必须覆盖跳跃按键持续时间")
         if not self._can_continue_quest_input():
@@ -2337,6 +2423,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         is_forward_step = (
             not jump
             and "w" in keys
+            and duration >= .25
             and progress_tracker is None
             and self.navigation_progress.recovery_step is None
         )
@@ -2348,11 +2435,10 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
         interruptions = self.quest_scene.input_interruptions
         before = self.frame.copy() if any(key in ("w", "a", "s", "d") for key in keys) else None
-        elapsed = 0.0
+        # 跳跃前持续前进 .18 秒，按下 space .08 秒，随后保持方向键 .65 秒。
         if jump:
-            elapsed = self._hold_quest_input(list(keys) + ["space"], .08)
-        if duration > elapsed and self._can_continue_quest_input():
-            elapsed += self._hold_quest_input(keys, duration - elapsed)
+            duration = max(duration, .91)
+        elapsed = self._hold_quest_input(keys, duration, continuous=continuous, jump=jump)
         if elapsed > 0:
             self.quest_scene.movement_actions += 1
         if self.quest_scene.input_interruptions != interruptions:

@@ -64,8 +64,8 @@ class TestQuestProgressTracker(unittest.TestCase):
             tracker.observe(distance)
             actions.append(tracker.next_recovery_movement()[0])
         self.assertEqual(actions[0], ["s"])
-        self.assertEqual(actions[1], ["a"])
-        self.assertEqual(actions[2], ["w", "a"])
+        self.assertEqual(actions[1], ["d"])
+        self.assertEqual(actions[2], ["w", "d"])
         self.assertEqual(actions[3], ["w"])
         self.assertIsNone(tracker.recovery_step)
 
@@ -114,7 +114,7 @@ class TestQuestProgressTracker(unittest.TestCase):
             tracker.next_recovery_movement()
         tracker.begin_recovery(side_key="forward")
         self.assertEqual(tracker.next_recovery_movement()[0], ["s"])
-        self.assertEqual(tracker.next_recovery_movement()[0], ["d"])
+        self.assertEqual(tracker.next_recovery_movement()[0], ["a"])
 
     def test_recorded_obstruction_limits_jump_attempts(self):
         tracker = QuestProgressTracker()

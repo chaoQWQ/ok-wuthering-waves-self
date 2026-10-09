@@ -71,7 +71,7 @@ class QuestProgressTracker:
     def next_recovery_movement(self) -> tuple[list[str], float]:
         if self.recovery_step is None:
             raise RuntimeError("绕行尚未开始")
-        side_key = self.recovery_side_key or ("a" if self.recovery_count % 2 else "d")
+        side_key = self.recovery_side_key or ("d" if self.recovery_count % 2 else "a")
         if self.recovery_side_key == "s":
             movements = ((["s"], .25), (["s"], .25))
         elif self.escape_route:
