@@ -608,6 +608,7 @@ class BaseChar:
             if self.get_current_con() > con_less_than:
                 return False
         self.logger.debug(f'click_liberation start')
+        was_in_team = self.task.in_team()[0]
         start = time.time()
         last_click = 0
         clicked = False

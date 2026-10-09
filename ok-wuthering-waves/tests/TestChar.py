@@ -474,6 +474,9 @@ class TestChar(TaskTestCase):
             def next_frame(self):
                 self.clock.advance(0.05)
 
+            def sleep(self, seconds):
+                self.clock.advance(seconds)
+
             def send_key(self, key):
                 self.sent_keys.append((key, self.clock.now))
 
@@ -500,6 +503,52 @@ class TestChar(TaskTestCase):
             self.assertNotIn('f', [key for key, _ in task.sent_keys])
         finally:
             base_char_globals['time'] = original_time
+
+    def test_click_liberation_cast_out_of_team_sleeps_min_animation(self):
+        sleeps = []
+
+        class Task:
+            use_liberation = True
+            in_liberation = False
+
+            def __init__(self):
+                self.frames = 0
+                self.skip_combat_check = False
+
+            def in_team(self):
+                if self.frames == 0:
+                    return False, 0, 3
+                return self.frames >= 2, 0, 3
+
+            def next_frame(self):
+                self.frames += 1
+
+            def wait_until(self, condition, time_out=0, post_action=None):
+                return True
+
+            def sleep(self, sec):
+                sleeps.append(sec)
+
+            def add_freeze_duration(self, start, duration=-1.0, freeze_time=0.1):
+                pass
+
+        class OutOfTeamChar(BaseChar):
+            def __init__(self, task):
+                super().__init__(task, 0)
+                self.available_checks = 0
+
+            def liberation_available(self, check_color=True):
+                self.available_checks += 1
+                return self.available_checks == 1
+
+            def send_liberation_key(self, after_sleep=0, interval=-1, down_time=0.01):
+                pass
+
+        task = Task()
+        char = OutOfTeamChar(task)
+
+        self.assertTrue(char.click_liberation(animation_min_duration=0.5))
+        self.assertEqual(sleeps, [1.2])
 
     def test_click_resonance_clicks_f_during_animation_after_min_duration(self):
         class Clock:

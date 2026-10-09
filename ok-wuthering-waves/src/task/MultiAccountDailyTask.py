@@ -783,8 +783,18 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             return None
         finally:
             if opened:
-                self.send_key('esc', after_sleep=1)
-                self.wait_in_team_and_world(time_out=10, raise_if_not_found=False)
+                # A single esc right after login can be swallowed while the world
+                # is still streaming in, leaving the ESC menu open so callers
+                # misjudge "not in world". Send esc, verify the HUD is back,
+                # and retry a bounded number of times.
+                closed = False
+                for _ in range(4):
+                    self.send_key('esc', after_sleep=1)
+                    if self.wait_in_team_and_world(time_out=3, raise_if_not_found=False):
+                        closed = True
+                        break
+                if not closed:
+                    self.log_warning(self.tr('ESC menu did not close after Profile Code detection'))
 
     _click_direct = BaseWWTask.click_direct
 
