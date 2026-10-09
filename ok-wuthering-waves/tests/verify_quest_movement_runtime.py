@@ -22,6 +22,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--camera-only", action="store_true")
 parser.add_argument("--timing-only", action="store_true")
 parser.add_argument("--camera-sensitivity", type=float)
+parser.add_argument("--combat-only", action="store_true")
 arguments = parser.parse_args()
 
 from config import config
@@ -37,11 +38,21 @@ class MovementVerificationTask(QuestStoryTask):
         self.input_events = []
         self.camera_events = []
         self.camera_errors = []
+        self.attack_clicks = 0
+        self.target_attempts = 0
         self.verified = False
 
     def send_key_down(self, key, after_sleep=0):
         super().send_key_down(key, after_sleep=after_sleep)
         self.input_events.append(("down", key, time.monotonic()))
+
+    def click(self, *args, **kwargs):
+        super().click(*args, **kwargs)
+        self.attack_clicks += 1
+
+    def target_enemy(self, wait=True):
+        self.target_attempts += 1
+        return super().target_enemy(wait=wait)
 
     def send_key_up(self, key, after_sleep=0):
         super().send_key_up(key, after_sleep=after_sleep)
@@ -148,11 +159,37 @@ class MovementVerificationTask(QuestStoryTask):
         self.verified = True
         print("实际任务首次移动计时、转向排除与暂停重置检查通过", movement_seconds, flush=True)
 
+    def verify_combat(self):
+        self.wait_until(self.has_health_bar, time_out=45, raise_if_not_found=True)
+        output = root / "screenshots/quest-combat-verification"
+        output.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(output / "before.png"), self.frame)
+        target_attempts = self.target_attempts
+        if not self.in_combat():
+            raise AssertionError("识别到真实敌人血条后没有进入剧情战斗")
+        if self.target_attempts != target_attempts:
+            raise AssertionError("剧情战斗进入判断仍然尝试锁定目标")
+        char = self.get_current_char()
+        if char is None:
+            raise AssertionError("剧情战斗进入后没有当前角色")
+        self.input_events.clear()
+        self.attack_clicks = 0
+        char.perform()
+        if not self.attack_clicks and not any(event[0] == "down" for event in self.input_events):
+            raise AssertionError("真实角色战斗执行器没有发送攻击输入")
+        cv2.imwrite(str(output / "after.png"), self.frame)
+        print("真实血条进入剧情战斗与角色攻击检查通过", char.name, self.attack_clicks, self.input_events, flush=True)
+        self.verified = True
+
     def run(self):
         try:
             self.ensure_in_front()
             self.sleep(.2)
             self.next_frame()
+            if arguments.combat_only:
+                self._stop_all_movement()
+                self.verify_combat()
+                return
             self.wait_until(self._can_continue_quest_input, time_out=60, raise_if_not_found=True)
             self._stop_all_movement()
             if arguments.timing_only:

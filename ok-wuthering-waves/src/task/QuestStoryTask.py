@@ -117,6 +117,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.movement_timeout = QuestMovementTimeout()
         self.camera_alignment = QuestCameraAlignment()
         self.last_movement_hold_seconds = 0.0
+        self.last_enemy_health_seen_time = 0.0
         self.navigation_progress = QuestProgressTracker()
         self.climbing_progress = QuestProgressTracker(require_distance=False)
         self.target_search = QuestTargetSearch()
@@ -578,6 +579,41 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             except Exception:
                 self._stop_all_movement()
                 raise
+
+    def in_combat(self, target=False):
+        self.in_sleep_check = True
+        try:
+            return self.do_check_in_combat(target)
+        finally:
+            self.in_sleep_check = False
+
+    def do_check_in_combat(self, target=False):
+        if self.in_liberation:
+            return True
+        if self._in_combat and self.scene.in_combat() is not None:
+            return self.scene.in_combat()
+        if self._in_combat:
+            self.check_f_break()
+            current_char = self.get_current_char()
+            if current_char and current_char.skip_combat_check():
+                return self.scene.set_in_combat()
+        if self.has_health_bar():
+            self.last_enemy_health_seen_time = time.monotonic()
+            if not self._in_combat:
+                if not self.load_chars():
+                    raise RuntimeError("识别到敌人血条后无法加载剧情战斗角色")
+                self.has_lavitator = self.find_one('edge_levitator', threshold=0.65)
+                self._in_combat = True
+                self.log_info("识别到敌人血条，进入剧情战斗")
+            return self.scene.set_in_combat()
+        if self._in_combat:
+            if self.combat_end_condition is not None and self.combat_end_condition():
+                return self.reset_to_false(reason="end condition reached")
+            # 攻击特效短暂遮挡血条时保留战斗状态。
+            if time.monotonic() - self.last_enemy_health_seen_time < 1:
+                return self.scene.set_in_combat()
+            return self.reset_to_false(reason="enemy health bar disappeared")
+        return False
 
     def _perform_quest_combat(self):
         try:
