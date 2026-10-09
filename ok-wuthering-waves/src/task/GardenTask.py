@@ -1,4 +1,5 @@
 import re
+import time
 
 
 from ok import Logger, run_task
@@ -13,6 +14,9 @@ logger = Logger.get_logger(__name__)
 class GardenTask(WWOneTimeTask, BaseWWTask):
     GARDEN_TARGET_POINTS = re.compile('6000')
     GARDEN_SPEED_PATTERN = re.compile(r'MAX|\d+[.,]\d+', re.IGNORECASE)
+    # 乐园界面元素连续无匹配的容忍时长；正常游玩时每隔几秒就能匹配到元素
+    GARDEN_NO_MATCH_TIMEOUT = 120
+    GARDEN_NO_MATCH_LOG_INTERVAL = 15
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -35,11 +39,14 @@ class GardenTask(WWOneTimeTask, BaseWWTask):
             self.log_info('乐园任务完成, 已达到上限', notify=True)
             return
         self.click(0.246, 0.486, after_sleep=1)
+        no_match_since = time.monotonic()
+        last_no_match_log = no_match_since
         while True:
             self.sleep(0.1)
             target = self.find_best_garden_feature()
             self.sleep(0.2)
             if target:
+                no_match_since = time.monotonic()
                 self.info_set("current task", target.name)
                 if target.name == 'garden_get_skip':
                     self.sleep(1)
@@ -71,6 +78,7 @@ class GardenTask(WWOneTimeTask, BaseWWTask):
                 garden_restart = self.find_one('a_garden_restart')
                 garden_back = self.find_one('a_garden_back')
                 if garden_restart and garden_back:
+                    no_match_since = time.monotonic()
                     # 避免因点击太快，导致[挑战失败]页面中点击[返回主页]失败
                     self.sleep(2)
                     texts = self.ocr(0.373, 0.346, 0.859, 0.615)
@@ -87,6 +95,15 @@ class GardenTask(WWOneTimeTask, BaseWWTask):
                         self.click(garden_restart, after_sleep=1)
                 else:
                     self.ensure_garden_max_speed()
+                    idle_seconds = time.monotonic() - no_match_since
+                    if idle_seconds > self.GARDEN_NO_MATCH_TIMEOUT:
+                        self.screenshot('garden_page_not_detected')
+                        raise Exception(
+                            f'已 {idle_seconds:.0f} 秒未识别到任何乐园界面元素，'
+                            '乐园页面可能没有打开（检查索拉指南活动页入口是否变化），终止乐园任务以避免卡死')
+                    if time.monotonic() - last_no_match_log >= self.GARDEN_NO_MATCH_LOG_INTERVAL:
+                        last_no_match_log = time.monotonic()
+                        self.log_warning(f'已 {idle_seconds:.0f} 秒未识别到乐园界面元素，继续等待')
                 self.sleep(0.2)
         self.log_info('乐园任务完成, 已达到上限', notify=True)
 
