@@ -29,6 +29,7 @@ from src.utils.QuestAreaSearch import (
 from src.utils.QuestDecisionSession import QuestDecisionSession
 from src.utils.QuestSceneState import QuestSceneState, QuestSceneChangedError
 from src.utils.QuestTraversalController import QuestTraversalController
+from src.utils.QuestMovementTimeout import QuestMovementTimeout
 from src.utils.QuestPuzzleSession import ExplicitControlHandler, QuestPuzzleSession, PuzzleObservation, object_appearance
 from src.utils.VideoRouteValidator import coordinate_crop, parse_coordinate_text
 from src.utils.QuestNavigator import calculate_camera_turn, compute_movement_action
@@ -112,6 +113,9 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.last_search_log_time: float = 0.0
         self.last_char_switch_time: float = 0.0
         self.climbing_start_time: float = 0.0
+        self.climbing_movement_seconds = 0.0
+        self.movement_timeout = QuestMovementTimeout()
+        self.last_movement_hold_seconds = 0.0
         self.navigation_progress = QuestProgressTracker()
         self.climbing_progress = QuestProgressTracker(require_distance=False)
         self.target_search = QuestTargetSearch()
@@ -139,11 +143,13 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.puzzle = QuestPuzzleSession()
         self.puzzle_before_frame = None
         self.last_coordinate_read = 0.0
+        self.last_coordinate_valid = False
         self.puzzle_panel_active = False
         self.goal_candidate = None
         self.last_climb_probe_time = 0.0
         self.forward_step_count: int = 0
         self.held_movement_keys = set()
+        self.navigation_continuation_started = None
         self.sleep_check_interval = .1
         self.frozen_cutscene_attempts: int = 0
 
@@ -302,10 +308,37 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self._stop_all_movement()
 
     def sleep_check(self):
-        if self.held_movement_keys and (self.executor.paused or self.paused or not self.is_game_window_active()):
-            self._stop_all_movement()
-            self.quest_scene.input_interruptions += 1
+        if self.executor.paused or self.paused or not self.is_game_window_active():
+            if self.held_movement_keys:
+                self._stop_all_movement()
+                self.quest_scene.input_interruptions += 1
+            self._reset_navigation_timing()
         super().sleep_check()
+
+    def _reset_navigation_timing(self):
+        self.movement_timeout.reset(self.guidance_text)
+        self.navigation_continuation_started = None
+        self.last_coordinate_read = 0.0
+        self.last_coordinate_valid = False
+        self.climbing_movement_seconds = 0.0
+        self.climbing_start_time = 0.0
+        self.point_arrival_time = None
+        self.navigation_progress.movement_seconds = 0.0
+        self.navigation_progress.stationary_observed = False
+        self.traversal.stationary_seconds = 0.0
+        self.traversal.stationary_since = None
+
+    def _record_continued_navigation(self):
+        if self.navigation_continuation_started is not None:
+            now = time.monotonic()
+            self.movement_timeout.record_movement(self.guidance_text, now - self.navigation_continuation_started)
+            self.navigation_continuation_started = now
+
+    def _current_movement_coordinate(self):
+        if (self.last_coordinate_valid and self.traversal.last_coordinate_time is not None
+                and time.time() - self.traversal.last_coordinate_time <= 2):
+            return self.traversal.coordinate
+        return None
 
     def _run_quest(self):
         WWOneTimeTask.run(self)
@@ -353,6 +386,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.goal_candidate = None
         self.last_climb_probe_time = 0.0
         self.forward_step_count = 0
+        self._reset_navigation_timing()
         self.info_set("JEV 调用次数", "0 次")
         self.info_set("JEV 额度消耗", "0 tokens")
         self.info_set("Clef 调用次数", "0 次")
@@ -362,8 +396,10 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.sleep(0.05)
             if self.held_movement_keys and not self._can_continue_quest_input():
                 self._stop_all_movement()
+                self._reset_navigation_timing()
             if not self.is_game_window_active():
                 self._stop_all_movement()
+                self._reset_navigation_timing()
                 self._recover_game_window_focus()
                 self.sleep(0.2)
                 continue
@@ -504,6 +540,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             # 4. 判定大世界任务导航与交互
             if not self.in_team_and_world():
                 self._stop_all_movement()
+                self._reset_navigation_timing()
                 # 剧情对话的跳过按钮等 UI 会在鼠标静止后自动隐藏，轻晃鼠标让其重新显示再识别。
                 self._reveal_hidden_ui()
                 if self._handle_tutorial_panel(frame):
@@ -561,6 +598,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.next_frame()
 
     def _mark_scene_transition(self, outcome: str, state: str):
+        self._reset_navigation_timing()
         if self.current_state != state:
             self.quest_scene.transition(state)
             self.quest_scene.waiting_for = "combat_completed" if state == self.STATE_COMBAT else "scene_completed" if state == self.STATE_LETTERBOX_CUTSCENE else None
@@ -647,18 +685,20 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             now = time.time()
             self.last_climbing_seen_time = now
             if self.climbing_start_time == 0.0:
+                self._reset_navigation_timing()
                 self.climbing_start_time = now
+                self.climbing_movement_seconds = 0.0
                 self.climbing_progress = QuestProgressTracker(require_distance=False)
                 self.navigation_progress.recovery_step = None
                 self.navigation_progress.movement_seconds = 0.0
-            climbing_duration = now - self.climbing_start_time
+            climbing_duration = self.climbing_movement_seconds
             self._handle_climbing_state(frame, climbing_duration)
             return
         else:
             if self.climbing_start_time != 0.0:
-                self.navigation_progress.movement_seconds = 0.0
-                self.navigation_progress.stationary_observed = False
+                self._reset_navigation_timing()
             self.climbing_start_time = 0.0
+            self.climbing_movement_seconds = 0.0
 
         # 1. 检查是否存在 F 键交互
         has_f, action_text = self._read_interaction(frame)
@@ -670,6 +710,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.last_interaction_text = action_text
         if self.decision_session.observe(self.guidance_text, action_text, time.time()):
             self._stop_all_movement()
+            self._reset_navigation_timing()
             self.area_search = None
             self.navigation_progress = QuestProgressTracker()
             self.target_search.reset()
@@ -717,6 +758,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             return
 
         current_distance = self._extract_quest_distance(frame, beacon_result)
+        if current_distance is None or current_distance > 2:
+            self.point_arrival_time = None
         if current_distance is None or current_distance <= 5:
             self._stop_all_movement()
         self.quest_scene.distance = current_distance
@@ -1072,6 +1115,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                     )
                     break
         text = quest_goal_from_lines([box.name for box in boxes if getattr(box, "x", 0) <= frame.shape[1] * .05])
+        previous_goal = self.guidance_text
         if text:
             if not self.guidance_text or text == self.guidance_text:
                 self.guidance_text = text
@@ -1081,6 +1125,9 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 self.goal_candidate = None
             else:
                 self.goal_candidate = text
+        if self.guidance_text != previous_goal or self.goal_candidate:
+            self._stop_all_movement()
+            self._reset_navigation_timing()
         self.guidance_last_read = time.time()
 
     def _handle_tutorial_panel(self, frame: np.ndarray) -> bool:
@@ -1226,9 +1273,9 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             box.width, box.height = round(box.width / scale), round(box.height / scale)
         return boxes
 
-    def _read_scene_coordinates(self, frame):
+    def _read_scene_coordinates(self, frame, force=False):
         now = time.time()
-        if now - getattr(self, "last_coordinate_read", 0.0) < 1:
+        if not force and now - getattr(self, "last_coordinate_read", 0.0) < 1:
             return
         import cv2
         self.last_coordinate_read = now
@@ -1242,6 +1289,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 coordinate = parse_coordinate_text(match[0])
                 break
         traversal = getattr(self, "traversal", None)
+        self.last_coordinate_valid = coordinate is not None
         if traversal is not None:
             previous = traversal.coordinate
             traversal.record_coordinate(coordinate, now)
@@ -1251,50 +1299,19 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                     traversal.moved_to_new_location()
 
     def _navigation_stalled(self, current_distance: Optional[float]) -> bool:
-        """撞墙判定：任务距离与人物坐标两个信号同时持续无变化才判卡。
-
-        任一信号出现进展（距离较窗口基准缩减 0.5 米，或坐标位移 0.5 米）
-        即重置 6 秒观察窗口；两个信号在整个窗口内都无变化才触发绕行。
-        信号缺失（面板无数值、坐标 OCR 未读到）时不阻断判定，按无变化计。
-        """
-        import math
-        now = time.time()
-        sample_distance = current_distance
-        sample_coordinate = self.traversal.coordinate
-        if sample_distance is None and sample_coordinate is None:
-            # 两个信号都缺失，无法判定，重置后等待下一次有效采样。
-            self.stall_base_distance = None
-            self.stall_base_coordinate = None
-            self.stall_since = None
+        self._record_continued_navigation()
+        if self.movement_timeout.movement_seconds >= 6:
+            self._stop_all_movement()
+            frame = self.next_frame()
+            self._read_quest_goal(frame, force=True)
+            self._read_scene_coordinates(frame, force=True)
+            current_distance = self._extract_quest_distance(frame, detect_quest_beacon(frame))
+        if self.goal_candidate or not self._can_continue_quest_input():
+            self._stop_all_movement()
+            self._reset_navigation_timing()
             return False
-        base_distance = getattr(self, "stall_base_distance", None)
-        base_coordinate = getattr(self, "stall_base_coordinate", None)
-        # 信号首次可用时采纳为基准，保证窗口内比较始终有效。
-        if base_distance is None and sample_distance is not None:
-            self.stall_base_distance = base_distance = sample_distance
-        if base_coordinate is None and sample_coordinate is not None:
-            self.stall_base_coordinate = base_coordinate = sample_coordinate
-        progressed = (
-            (sample_distance is not None and base_distance is not None
-             and sample_distance <= base_distance - 0.5)
-            or (sample_coordinate is not None and base_coordinate is not None
-                and math.dist(sample_coordinate, base_coordinate) >= 0.5)
-        )
-        if progressed:
-            self.stall_base_distance = sample_distance
-            self.stall_base_coordinate = sample_coordinate
-            self.stall_since = now
-            return False
-        stall_since = getattr(self, "stall_since", None)
-        if stall_since is None:
-            self.stall_since = now
-            return False
-        if now - stall_since >= 6.0:
-            self.stall_base_distance = None
-            self.stall_base_coordinate = None
-            self.stall_since = None
-            return True
-        return False
+        return self.movement_timeout.observe(
+            self.guidance_text, current_distance, self._current_movement_coordinate())
 
     def _minimap_ring_hint(self, frame: np.ndarray) -> bool:
         """宽松判定小地图上是否存在任务黄圈（范围圈任务特征）。
@@ -1443,7 +1460,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                          or time.time() - getattr(self, "last_world_seen_time", 0.0) < 1.0
                          or (getattr(self, "goal_seen_beacon", False)
                              and time.time() - getattr(self, "last_beacon_seen_time", 0.0) < 8.0))
-        return (not self.executor.paused and not self.paused and self.is_game_window_active()
+        return (not self.executor.paused and not self.paused and not self.goal_candidate and self.is_game_window_active()
                 and not self._is_letterbox_cutscene(frame)
                 and not detect_dialog_advance_indicator(frame).found
                 and not detect_top_left_skip_button(frame).found
@@ -1462,6 +1479,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         completed = False
         jumping = False
         jump_finished = False
+        hold_started = None
         try:
             for key in keys:
                 if mouse:
@@ -1471,6 +1489,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 pressed.append(key)
             if not mouse:
                 self.held_movement_keys = set(keys) & {"w", "a", "s", "d", "shift"}
+            hold_started = time.monotonic()
             while elapsed < duration:
                 interval = min(.2, duration - elapsed)
                 if jump and not jump_finished:
@@ -1498,6 +1517,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             else:
                 completed = True
         finally:
+            self.last_movement_hold_seconds = 0.0 if hold_started is None else time.monotonic() - hold_started
             retained = set(keys) if continuous and completed else set()
             self.held_movement_keys = retained
             release_errors = []
@@ -1693,7 +1713,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self._read_scene_coordinates(frame)
         if climbing_duration > 60:
             self._stop_all_movement()
-            raise RuntimeError("攀爬超过60秒仍未抵达通路，需要重新确认地形")
+            raise RuntimeError("累计攀爬移动超过60秒仍未抵达通路，需要重新确认地形")
         self._apply_movement(["w"], .3, progress_tracker=self.climbing_progress)
         if self.quest_scene.height_progress is not None and self.quest_scene.height_progress > 0:
             self.traversal.failed_actions.pop("climb_lateral", None)
@@ -2240,6 +2260,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         return choice
 
     def _stop_all_movement(self):
+        self._record_continued_navigation()
+        self.navigation_continuation_started = None
         self.held_movement_keys = set()
         for key in ["w", "a", "s", "d", "shift", "space", "f", "e", "q", "t", "x"]:
             try:
@@ -2414,6 +2436,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             raise ValueError("跳跃移动时间必须覆盖跳跃按键持续时间")
         if not self._can_continue_quest_input():
             self._stop_all_movement()
+            self._reset_navigation_timing()
             return
         if not keys:
             return
@@ -2434,6 +2457,17 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 jump = True
 
         interruptions = self.quest_scene.input_interruptions
+        timed_navigation = (progress_tracker is None and self.area_search is None
+                            and self.navigation_progress.recovery_step is None and "w" in keys
+                            and self.quest_scene.phase != "climbing")
+        movement_goal = self.guidance_text
+        if timed_navigation:
+            self._record_continued_navigation()
+            self.navigation_continuation_started = None
+            if not self.last_coordinate_valid:
+                self._read_scene_coordinates(self.frame)
+            self.movement_timeout.begin_movement(
+                movement_goal, self.quest_scene.distance, self._current_movement_coordinate())
         before = self.frame.copy() if any(key in ("w", "a", "s", "d") for key in keys) else None
         # 跳跃前持续前进 .18 秒，按下 space .08 秒，随后保持方向键 .65 秒。
         if jump:
@@ -2442,8 +2476,15 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         if elapsed > 0:
             self.quest_scene.movement_actions += 1
         if self.quest_scene.input_interruptions != interruptions:
+            self._reset_navigation_timing()
             self.traversal.invalidate()
             return
+        if timed_navigation:
+            self.movement_timeout.record_movement(movement_goal, self.last_movement_hold_seconds)
+            if continuous and "w" in self.held_movement_keys:
+                self.navigation_continuation_started = time.monotonic()
+        if progress_tracker is self.climbing_progress:
+            self.climbing_movement_seconds += self.last_movement_hold_seconds
         if self.area_search is not None and progress_tracker is None and elapsed > 0:
             self.area_search.record_movement(keys, elapsed)
         if before is not None:

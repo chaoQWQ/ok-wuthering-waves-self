@@ -4,6 +4,7 @@ from pathlib import Path
 import json
 import math
 import sys
+import threading
 import time
 
 import cv2
@@ -19,6 +20,7 @@ sys.stdout = report.open("w", encoding="utf-8", buffering=1)
 sys.stderr = sys.stdout
 parser = argparse.ArgumentParser()
 parser.add_argument("--camera-only", action="store_true")
+parser.add_argument("--timing-only", action="store_true")
 arguments = parser.parse_args()
 
 from config import config
@@ -92,6 +94,44 @@ class MovementVerificationTask(QuestStoryTask):
             raise AssertionError("实际镜头调整没有让任务信标进入居中范围")
         self.verified = True
 
+    def verify_timing(self):
+        self._read_quest_goal(self.frame, force=True)
+        if self.goal_candidate:
+            self._read_quest_goal(self.frame, force=True)
+        if not self.guidance_text or self.goal_candidate:
+            raise AssertionError("实际游戏任务提示尚未确认")
+        self._reset_navigation_timing()
+        self.sleep(6.1)
+        self.next_frame()
+        self._read_quest_goal(self.frame, force=True)
+        if self.goal_candidate:
+            self._read_quest_goal(self.frame, force=True)
+        self._read_scene_coordinates(self.frame, force=True)
+        self.quest_scene.distance = self._extract_quest_distance(self.frame, detect_quest_beacon(self.frame))
+        if self._navigation_stalled(self.quest_scene.distance) or self.movement_timeout.started:
+            raise AssertionError("第一次移动之前已经开始计算无变化超时")
+        self._apply_movement(["w"], .2)
+        if not self.movement_timeout.started or self.movement_timeout.movement_seconds <= 0:
+            raise AssertionError("实际任务第一次移动没有开始有效移动计时")
+        movement_seconds = self.movement_timeout.movement_seconds
+        self._apply_camera_turn(40)
+        self.sleep(.2)
+        self._apply_camera_turn(-40)
+        self.sleep(.2)
+        if self.movement_timeout.movement_seconds != movement_seconds:
+            raise AssertionError("实际镜头转向时间进入了无变化超时计时")
+        resume = threading.Timer(.5, self.unpause)
+        resume.start()
+        try:
+            self.pause()
+        finally:
+            resume.cancel()
+            resume.join()
+        if self.movement_timeout.started or self.movement_timeout.movement_seconds != 0:
+            raise AssertionError("实际任务暂停后没有清除移动计时")
+        self.verified = True
+        print("实际任务首次移动计时、转向排除与暂停重置检查通过", movement_seconds, flush=True)
+
     def run(self):
         try:
             self.ensure_in_front()
@@ -99,6 +139,9 @@ class MovementVerificationTask(QuestStoryTask):
             self.next_frame()
             self.wait_until(self._can_continue_quest_input, time_out=60, raise_if_not_found=True)
             self._stop_all_movement()
+            if arguments.timing_only:
+                self.verify_timing()
+                return
             if arguments.camera_only:
                 self.verify_camera()
                 return
