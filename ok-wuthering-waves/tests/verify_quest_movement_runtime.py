@@ -21,6 +21,7 @@ sys.stderr = sys.stdout
 parser = argparse.ArgumentParser()
 parser.add_argument("--camera-only", action="store_true")
 parser.add_argument("--timing-only", action="store_true")
+parser.add_argument("--camera-sensitivity", type=float)
 arguments = parser.parse_args()
 
 from config import config
@@ -35,6 +36,7 @@ class MovementVerificationTask(QuestStoryTask):
         super().__init__(*args, **kwargs)
         self.input_events = []
         self.camera_events = []
+        self.camera_errors = []
         self.verified = False
 
     def send_key_down(self, key, after_sleep=0):
@@ -46,6 +48,8 @@ class MovementVerificationTask(QuestStoryTask):
         self.input_events.append(("up", key, time.monotonic()))
 
     def _apply_camera_turn(self, delta_x):
+        beacon = detect_quest_beacon(self.frame)
+        self.camera_errors.append(beacon.x + beacon.width / 2 - self.frame.shape[1] / 2 if beacon.found else None)
         super()._apply_camera_turn(delta_x)
         self.camera_events.append((delta_x, time.monotonic()))
 
@@ -64,6 +68,7 @@ class MovementVerificationTask(QuestStoryTask):
             self.next_frame()
         output = root / "screenshots/quest-camera-verification"
         output.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(output / "before.png"), self.frame)
         beacon = detect_quest_beacon(self.frame)
         if not beacon.found:
             raise AssertionError("当前游戏画面没有可用于镜头转向验证的任务信标")
@@ -78,8 +83,15 @@ class MovementVerificationTask(QuestStoryTask):
         cv2.imwrite(str(output / "before.png"), self.frame)
         initial_error = abs(beacon.x + beacon.width / 2 - width / 2)
         self.camera_events.clear()
+        self.camera_errors.clear()
         start = time.monotonic()
-        self._align_quest_beacon(beacon, float(self.config.get("Camera Sensitivity", 1.0)), .02)
+        sensitivity = (float(self.config.get("Camera Sensitivity", 1.0))
+                       if arguments.camera_sensitivity is None else arguments.camera_sensitivity)
+        for _ in range(3):
+            self._align_quest_beacon(beacon, sensitivity, .02)
+            beacon = detect_quest_beacon(self.frame)
+            if not beacon.found or abs(beacon.x + beacon.width / 2 - width / 2) <= width * .02:
+                break
         elapsed = time.monotonic() - start
         result = detect_quest_beacon(self.frame)
         cv2.imwrite(str(output / "after.png"), self.frame)
@@ -87,11 +99,15 @@ class MovementVerificationTask(QuestStoryTask):
             raise AssertionError("实际转向后无法确认任务信标")
         final_error = abs(result.x + result.width / 2 - width / 2)
         evidence = {"initial_error_pixels": initial_error, "final_error_pixels": final_error,
-                    "seconds": elapsed, "turns": self.camera_events}
+                    "seconds": elapsed, "sensitivity": sensitivity, "turns": self.camera_events,
+                    "signed_errors_pixels": self.camera_errors + [result.x + result.width / 2 - width / 2]}
         (output / "camera-events.json").write_text(json.dumps(evidence, indent=2), encoding="utf-8")
         print("实际镜头转向检查", evidence, flush=True)
         if not self.camera_events or final_error > width * .02 or final_error >= initial_error:
             raise AssertionError("实际镜头调整没有让任务信标进入居中范围")
+        for previous, current in zip(self.camera_events, self.camera_events[1:]):
+            if previous[0] * current[0] < 0 and abs(current[0]) > max(1, abs(previous[0]) // 2):
+                raise AssertionError("实际越过目标后的反向转向幅度没有缩小")
         self.verified = True
 
     def verify_timing(self):
@@ -211,9 +227,7 @@ class MovementVerificationTask(QuestStoryTask):
             print("实际游戏连续前进、两步一跳和跳跃期间保持前进检查通过", flush=True)
         finally:
             self._stop_all_movement()
-            frame = self.executor.nullable_frame()
-            if frame is not None:
-                cv2.imwrite(str(root / "screenshots/quest-verification-final.png"), frame)
+            cv2.imwrite(str(root / "screenshots/quest-verification-final.png"), self.frame)
 
 
 if not is_admin():

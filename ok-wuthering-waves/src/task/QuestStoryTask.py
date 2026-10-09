@@ -32,7 +32,7 @@ from src.utils.QuestTraversalController import QuestTraversalController
 from src.utils.QuestMovementTimeout import QuestMovementTimeout
 from src.utils.QuestPuzzleSession import ExplicitControlHandler, QuestPuzzleSession, PuzzleObservation, object_appearance
 from src.utils.VideoRouteValidator import coordinate_crop, parse_coordinate_text
-from src.utils.QuestNavigator import calculate_camera_turn, compute_movement_action
+from src.utils.QuestNavigator import QuestCameraAlignment, calculate_camera_turn, compute_movement_action
 from src.utils.QuestOcrPrivacy import (
     OPTIONAL_QUEST_MARKER,
     is_named_quest_interaction,
@@ -115,6 +115,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.climbing_start_time: float = 0.0
         self.climbing_movement_seconds = 0.0
         self.movement_timeout = QuestMovementTimeout()
+        self.camera_alignment = QuestCameraAlignment()
         self.last_movement_hold_seconds = 0.0
         self.navigation_progress = QuestProgressTracker()
         self.climbing_progress = QuestProgressTracker(require_distance=False)
@@ -317,6 +318,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
     def _reset_navigation_timing(self):
         self.movement_timeout.reset(self.guidance_text)
+        self.camera_alignment.reset()
         self.navigation_continuation_started = None
         self.last_coordinate_read = 0.0
         self.last_coordinate_valid = False
@@ -2316,23 +2318,20 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         # 连续读取信标位置完成转向，每次输入后使用新的游戏画面。
         if not beacon.found:
             return
-        width = self.frame.shape[1]
-        error = (beacon.x + beacon.width / 2 - width / 2) / width * 90
-        if not self.traversal.observe_camera(error):
-            self._refresh_traversal_observation()
-            return
-        for _ in range(6):
+        for attempt in range(7):
             if not beacon.found or not self._can_continue_quest_input():
+                self.camera_alignment.reset()
                 return
             width = self.frame.shape[1]
             center_x = beacon.x + beacon.width / 2
-            command = calculate_camera_turn(
-                screen_width=width,
-                beacon_center_x=center_x,
-                camera_sensitivity=sensitivity,
-                tolerance_ratio=tolerance_ratio,
-                max_delta_x=320,
-            )
+            error = (center_x - width / 2) / width * 90
+            if not self.traversal.observe_camera(error, tolerance=tolerance_ratio * 90):
+                self.camera_alignment.reset()
+                self._refresh_traversal_observation()
+                return
+            if attempt == 6:
+                return
+            command = self.camera_alignment.next_turn(width, center_x, sensitivity, tolerance_ratio)
             if not command.need_turn:
                 return
             self.target_search.next_turn(allow_high_count=True)
@@ -2357,6 +2356,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             controller.move(delta_x, 0)
 
     def _apply_camera_pitch(self, delta_y: int):
+        self.camera_alignment.reset()
         self._stop_all_movement()
         if not self.is_game_window_active():
             return
@@ -2440,6 +2440,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             return
         if not keys:
             return
+        self.camera_alignment.reset()
 
         # 普通向前移动：每2步自动跳跃一次，减少被地形卡住的概率。
         # 仅计主导航的向前步（含 w、非跳跃、非绕行recovery阶段）。

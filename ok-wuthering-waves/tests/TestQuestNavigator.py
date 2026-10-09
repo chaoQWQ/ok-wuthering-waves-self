@@ -1,12 +1,86 @@
 import unittest
 
 from src.utils.QuestNavigator import (
+    QuestCameraAlignment,
     calculate_camera_turn,
     compute_movement_action,
 )
+from src.utils.QuestSceneState import QuestSceneState
+from src.utils.QuestTraversalController import QuestTraversalController
 
 
 class TestQuestNavigator(unittest.TestCase):
+
+    def test_alignment_keeps_large_turn_for_distant_target(self):
+        alignment = QuestCameraAlignment()
+        self.assertEqual(alignment.next_turn(1920, 1600, 1, .02).delta_x_pixels, 320)
+
+    def test_alignment_uses_observed_response_after_crossing_center(self):
+        alignment = QuestCameraAlignment()
+        first = alignment.next_turn(1920, 1110, 1, .02)
+        second = alignment.next_turn(1920, 900, 1, .02)
+        self.assertEqual(first.delta_x_pixels, 150)
+        self.assertEqual(second.delta_x_pixels, -34)
+        self.assertLessEqual(abs(second.delta_x_pixels), abs(first.delta_x_pixels) / 2)
+        centered = alignment.next_turn(1920, 964, 1, .02)
+        self.assertFalse(centered.need_turn)
+
+    def test_alignment_reduces_each_reversed_turn(self):
+        alignment = QuestCameraAlignment()
+        previous_delta = None
+        for center in (1080, 840, 1080, 840):
+            command = alignment.next_turn(1920, center, 4, .02)
+            if previous_delta is not None:
+                self.assertLessEqual(abs(command.delta_x_pixels), abs(previous_delta) / 2)
+                self.assertLess(command.delta_x_pixels * previous_delta, 0)
+            previous_delta = command.delta_x_pixels
+
+    def test_alignment_reset_discards_previous_view_response(self):
+        alignment = QuestCameraAlignment()
+        alignment.next_turn(1920, 1110, 1, .02)
+        alignment.next_turn(1920, 900, 1, .02)
+        alignment.reset()
+        self.assertEqual(alignment.next_turn(1920, 1110, 1, .02).delta_x_pixels, 150)
+        alignment.next_turn(1280, 900, 1, .02)
+        self.assertIsNone(alignment.response_per_pixel)
+
+    def test_single_large_target_change_has_limited_effect_on_response(self):
+        alignment = QuestCameraAlignment()
+        alignment.next_turn(1920, 1110, 1, .02)
+        alignment.next_turn(1920, 900, 1, .02)
+        previous_response = alignment.response_per_pixel
+        command = alignment.next_turn(1920, 1470, 1, .02)
+        self.assertLessEqual(alignment.response_per_pixel, previous_response * 2)
+        self.assertGreater(command.delta_x_pixels, 1)
+
+    def test_alignment_invalid_sensitivity_fails(self):
+        for sensitivity in (0, -1, float("nan"), float("inf")):
+            with self.subTest(sensitivity=sensitivity):
+                with self.assertRaises(ValueError):
+                    QuestCameraAlignment().next_turn(1920, 1200, sensitivity, .02)
+
+    def test_camera_centering_clears_previous_failure_counts(self):
+        controller = QuestTraversalController(QuestSceneState())
+        controller.observe_camera(10)
+        controller.observe_camera(10)
+        self.assertFalse(controller.observe_camera(10))
+        self.assertEqual(controller.observation_attempts, 1)
+        self.assertTrue(controller.observe_camera(1.5, tolerance=1.8))
+        self.assertEqual(controller.camera_failures, 0)
+        self.assertEqual(controller.observation_attempts, 0)
+
+    def test_small_camera_improvement_clears_previous_failure_counts(self):
+        controller = QuestTraversalController(QuestSceneState())
+        controller.observe_camera(2.4)
+        controller.observe_camera(2.4)
+        self.assertTrue(controller.observe_camera(2.1, tolerance=1.8))
+        self.assertEqual(controller.camera_failures, 0)
+
+    def test_unchanged_camera_still_requests_new_observation(self):
+        controller = QuestTraversalController(QuestSceneState())
+        self.assertTrue(controller.observe_camera(10, tolerance=1.8))
+        self.assertTrue(controller.observe_camera(10, tolerance=1.8))
+        self.assertFalse(controller.observe_camera(10, tolerance=1.8))
 
     def test_camera_turn_with_beacon_centered(self):
         screen_width = 1920

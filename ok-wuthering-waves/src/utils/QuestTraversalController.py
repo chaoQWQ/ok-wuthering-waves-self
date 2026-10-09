@@ -114,10 +114,20 @@ class QuestTraversalController:
             self.stationary_since = None
             self.stationary_seconds = 0.0
 
-    def observe_camera(self, error: float):
+    def observe_camera(self, error: float, tolerance: float = 0):
         error = abs(error)
+        if error <= tolerance:
+            self.camera_error = None
+            self.camera_failures = 0
+            self.observation_attempts = 0
+            return True
         if self.camera_error is not None:
-            self.camera_failures = self.camera_failures + 1 if error >= self.camera_error - 1 else 0
+            improvement = self.camera_error - error
+            if improvement >= max(.05, min(1, self.camera_error * .1)):
+                self.camera_failures = 0
+                self.observation_attempts = 0
+            else:
+                self.camera_failures += 1
         self.camera_error = error
         if self.camera_failures >= 2:
             self.camera_error = None

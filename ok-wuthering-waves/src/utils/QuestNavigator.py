@@ -17,6 +17,58 @@ class MovementActionCommand:
     press_duration: float
 
 
+@dataclass
+class QuestCameraAlignment:
+    screen_width: Optional[int] = None
+    previous_error: Optional[float] = None
+    previous_delta: Optional[int] = None
+    response_per_pixel: Optional[float] = None
+
+    def reset(self):
+        self.screen_width = None
+        self.previous_error = None
+        self.previous_delta = None
+        self.response_per_pixel = None
+
+    def next_turn(self, screen_width, center_x, sensitivity, tolerance_ratio):
+        if not math.isfinite(sensitivity) or sensitivity <= 0:
+            raise ValueError("镜头旋转灵敏度必须为有限的正数")
+        if self.screen_width != screen_width:
+            self.reset()
+            self.screen_width = screen_width
+        command = calculate_camera_turn(
+            screen_width, beacon_center_x=center_x, camera_sensitivity=sensitivity,
+            tolerance_ratio=tolerance_ratio, max_delta_x=320,
+        )
+        if not command.need_turn:
+            self.reset()
+            return command
+        error = center_x - screen_width / 2
+        reversed_direction = self.previous_error is not None and error * self.previous_error < 0
+        if self.previous_delta is not None:
+            response = (self.previous_error - error) / self.previous_delta
+            if response > 0 and abs(self.previous_error - error) >= 2:
+                if self.response_per_pixel is None:
+                    self.response_per_pixel = response
+                else:
+                    # 限制单次画面变化对响应估计的影响。
+                    response = max(self.response_per_pixel / 2, min(self.response_per_pixel * 2, response))
+                    if reversed_direction:
+                        self.response_per_pixel = max(self.response_per_pixel, response)
+                    else:
+                        self.response_per_pixel = (self.response_per_pixel + response) / 2
+        magnitude = max(1, abs(command.delta_x_pixels))
+        if self.response_per_pixel is not None:
+            # 根据实际转向响应接近中心，保留距离供下一次观察确认。
+            magnitude = min(magnitude, max(1, int(abs(error) / self.response_per_pixel * .8)))
+        if reversed_direction:
+            magnitude = min(magnitude, max(1, abs(self.previous_delta) // 2))
+        delta = magnitude if error > 0 else -magnitude
+        self.previous_error = error
+        self.previous_delta = delta
+        return CameraTurnCommand(delta, True, "right" if delta > 0 else "left")
+
+
 def calculate_camera_turn(
     screen_width: int,
     beacon_center_x: Optional[int] = None,
