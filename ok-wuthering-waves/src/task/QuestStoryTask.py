@@ -570,6 +570,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                     self.sleep(0.5)
                 self.traversal.reset_goal()
                 self.puzzle.reset_goal()
+                self.area_search = None
+                self.quest_area_goal = None
                 # 绕行上限触发后计数已满，先清空循环计数再开新绕行，
                 # 避免 begin_recovery 在降级路径内二次抛出。
                 self.navigation_progress.reset_cycle()
@@ -2814,6 +2816,10 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.confirm_dialog_checked = True
             return True
         if skip_button := self.find_one('skip_quest_confirm', threshold=0.8):
+            self.sleep(0.2)
+            self.click(skip_button)
+            return True
+        if skip_button := self.find_one('skip_quest_confirm_new', threshold=0.8):
             self.sleep(0.2)
             self.click(skip_button)
             return True

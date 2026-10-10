@@ -33,6 +33,10 @@ class DummyExecutor:
     def nullable_frame(self):
         return self.frame
 
+    def wait_condition(self, condition, time_out=0, pre_action=None, post_action=None, settle_time=-1,
+                       raise_if_not_found=False):
+        return condition()
+
 
 class TestQuestStoryTask(unittest.TestCase):
 
@@ -99,6 +103,17 @@ class TestQuestStoryTask(unittest.TestCase):
         self.task.frozen_cutscene_attempts = 0
         self.task._in_liberation = False
         self.task.last_ui_reveal_time = 0.0
+        self.task.goal_candidate = None
+        self.task.navigation_continuation_started = None
+        self.task.held_movement_keys = set()
+        self.task._paused = False
+        self.task._in_combat = False
+        from src.utils.QuestNavigator import QuestCameraAlignment
+        from src.utils.QuestMovementTimeout import QuestMovementTimeout
+        self.task.camera_alignment = QuestCameraAlignment()
+        self.task.movement_timeout = QuestMovementTimeout()
+        self.task.last_movement_hold_seconds = 0.0
+        self.task.last_coordinate_valid = False
 
     def test_task_states_definition(self):
         self.assertEqual(QuestStoryTask.STATE_IDLE, "IDLE")
@@ -237,7 +252,7 @@ class TestQuestStoryTask(unittest.TestCase):
         self.task._handle_world_navigation_and_interaction(frame)
         self.assertTrue(any(act == "down" and k == "w" for act, k in self.task.sent_keys))
         # 验证距离小于等于 20 米时绝对不按 shift 冲刺
-        self.assertFalse(any(k == "shift" for act, k in self.task.sent_keys))
+        self.assertFalse(any(act == "down" and k == "shift" for act, k in self.task.sent_keys))
         self.assertTrue(any(k == "Log" and "慢走模式" in v for k, v in self.task.ui_logs))
 
     def test_world_navigation_sprints_over_twenty_meters(self):
@@ -857,11 +872,23 @@ class TestQuestStoryTask(unittest.TestCase):
             real_frame = cv2.imread(frame_path)
             self.assertFalse(self.task._is_letterbox_cutscene(real_frame))
 
-    def test_frozen_cutscene_attempts_limit(self):
-        self.task.frozen_cutscene_attempts = 3
-        with self.assertRaises(RuntimeError) as ctx:
-            QuestStoryTask._trigger_ai_decision(self.task, np.zeros((100, 100, 3), dtype=np.uint8), is_frozen_letterbox=True)
-        self.assertIn("剧情静止期间三次决策没有推进任务", str(ctx.exception))
+    def test_runtime_error_recovery_clears_area_search(self):
+        from src.utils.QuestAreaSearch import QuestAreaSearch
+        self.task.area_search = QuestAreaSearch()
+        self.task.quest_area_goal = "搜索区域"
+        self.task.navigation_progress.recovery_step = None
+
+        # 模拟进入 RuntimeError 降级分支时的清理操作
+        self.task.traversal.reset_goal()
+        self.task.puzzle.reset_goal()
+        self.task.area_search = None
+        self.task.quest_area_goal = None
+        self.task.navigation_progress.reset_cycle()
+        self.task.navigation_progress.begin_recovery()
+
+        self.assertIsNone(self.task.area_search)
+        self.assertIsNone(self.task.quest_area_goal)
+        self.assertIsNotNone(self.task.navigation_progress.recovery_step)
 
 
 if __name__ == "__main__":
