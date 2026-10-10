@@ -1,4 +1,5 @@
 import unittest
+from unittest import mock
 from unittest.mock import Mock
 
 from ok import TaskDisabledException
@@ -12,6 +13,7 @@ from src.task.MultiAccountDailyTask import (
     normalize_account_name,
     normalize_profile_code,
 )
+from src.task.WWOneTimeTask import WWOneTimeTask
 
 
 class TestMultiAccountDailyTask(unittest.TestCase):
@@ -188,13 +190,23 @@ class TestMultiAccountDailyTask(unittest.TestCase):
                 self.done_set = set()
                 self.failed_set = set()
                 self.config = {}
+                self._daily_date = 'test-day'
+                self._account_state = Mock()
+                self._account_state.statuses.return_value = {}
 
             _mark_failed = MultiAccountDailyTask._mark_failed
+            _update_daily_status_info = MultiAccountDailyTask._update_daily_status_info
             _is_done = MultiAccountDailyTask._is_done
             _is_skipped = MultiAccountDailyTask._is_skipped
 
             def log_info(self, *args):
                 pass
+
+            def info_set(self, *args):
+                pass
+
+            def tr(self, message):
+                return message
 
         task = FakeTask()
         task._mark_failed('185****6758')
@@ -260,6 +272,12 @@ class TestMultiAccountDailyTask(unittest.TestCase):
             _apply_daily_overrides = MultiAccountDailyTask._apply_daily_overrides
             _restore_daily_overrides = MultiAccountDailyTask._restore_daily_overrides
 
+            def __init__(self):
+                self._current_email_result = {'account': '185****0362'}
+                self._daily_date = 'test-day'
+                self._account_state = Mock()
+                self._account_state.completed.return_value = set()
+
             def get_task_by_class(self, task_class):
                 return daily
 
@@ -309,6 +327,15 @@ class TestMultiAccountDailyTask(unittest.TestCase):
             _apply_daily_overrides = MultiAccountDailyTask._apply_daily_overrides
             _restore_daily_overrides = MultiAccountDailyTask._restore_daily_overrides
 
+            def __init__(self):
+                self._current_email_result = {'account': 'test'}
+                self._daily_date = 'test-day'
+                self._account_state = Mock()
+                self._account_state.completed.return_value = set()
+
+            def log_error(self, *args):
+                pass
+
             def get_task_by_class(self, task_class):
                 return daily
 
@@ -335,6 +362,9 @@ class TestMultiAccountDailyTask(unittest.TestCase):
                 self.in_world = False
                 self.actions = []
 
+            def _login_combo(self):
+                return None
+
             def do_find_account_drop_down(self):
                 return None
 
@@ -352,6 +382,63 @@ class TestMultiAccountDailyTask(unittest.TestCase):
         MultiAccountDailyTask._open_account_login_for_reselection(task)
 
         self.assertEqual(task.actions, [('ensure_main', 180), ('_switch_to_login', None)])
+
+    def test_reselection_skips_ensure_main_when_already_in_world(self):
+        class FakeTask:
+            def __init__(self):
+                self.actions = []
+
+            def _login_combo(self):
+                return None
+
+            def do_find_account_drop_down(self):
+                return None
+
+            def in_team_and_world(self):
+                return True
+
+            def ensure_main(self, time_out):
+                self.actions.append(('ensure_main', time_out))
+
+            def _switch_to_login(self):
+                self.actions.append(('_switch_to_login', None))
+
+        task = FakeTask()
+        MultiAccountDailyTask._open_account_login_for_reselection(task)
+
+        self.assertEqual(task.actions, [('_switch_to_login', None)])
+
+    def test_run_accounts_switches_account_before_first_selection(self):
+        calls = []
+
+        class FakeTask:
+            def _login_combo(self):
+                return None
+
+            def do_find_account_drop_down(self):
+                return False
+
+            def _open_account_login_for_reselection(self):
+                calls.append('switch_first')
+
+            def _select_and_login_account(self):
+                calls.append('select')
+                return None
+
+            def _load_daily_state(self):
+                calls.append('load_state')
+
+            def log_info(self, *args):
+                pass
+
+            def tr(self, message):
+                return message
+
+        task = FakeTask()
+        with mock.patch.object(WWOneTimeTask, 'run', lambda self: calls.append('ww_run')):
+            MultiAccountDailyTask._run_accounts(task)
+
+        self.assertEqual(calls, ['ww_run', 'load_state', 'switch_first', 'select'])
 
     def test_world_profile_code_matches_configured_suffix_and_closes_esc(self):
         class TextBox:

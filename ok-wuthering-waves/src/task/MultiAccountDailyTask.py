@@ -580,19 +580,22 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
     def _run_accounts(self):
         WWOneTimeTask.run(self)
         self._load_daily_state()
+        # 账号执行顺序严格按账号列表（账号配置）顺序：开始前必须停在账号列表。
+        # 刚进入游戏时若已处于登录状态，先登出切换账号再继续。
+        if not (self._login_combo() or self.do_find_account_drop_down()):
+            self.log_info('开始执行前先切换账号，确保严格按账号配置顺序执行日常')
+            self._open_account_login_for_reselection()
         # Keep the selected login-list account for completion bookkeeping.  It
         # is deliberately not used to choose DailyTask settings; those are
         # resolved from the in-game ESC Profile Code below.
-        initial_account = None
-        if self._login_combo() or self.do_find_account_drop_down():
-            initial_account = self._select_and_login_account()
-            if initial_account is None:
-                return
-            self.log_info(
-                self.tr('Detected initial account before DailyTask: {account}').format(
-                    account=initial_account or '(unknown)'
-                )
+        initial_account = self._select_and_login_account()
+        if initial_account is None:
+            return
+        self.log_info(
+            self.tr('Detected initial account before DailyTask: {account}').format(
+                account=initial_account
             )
+        )
 
         daily_succeeded = False
         needs_reselection = False
