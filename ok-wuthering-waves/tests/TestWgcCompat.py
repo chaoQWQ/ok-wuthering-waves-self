@@ -119,6 +119,65 @@ class TestWgcCompat(unittest.TestCase):
         self.assertIsNone(mock_capture.session)
         self.assertEqual(mock_capture.capture_hwnd, 0)
 
+    @unittest.skipUnless(sys.platform == "win32", "PostMessage is a Windows-only interaction API")
+    def test_post_message_foreground_compat_suppresses_wm_activate_and_guards_background_input(self):
+        from unittest.mock import patch
+        import win32con
+        from ok.device.interaction_methods.post_message import PostMessageInteraction
+        from src.utils.wgc_compat import _enable_post_message_foreground_compat
+
+        self.assertTrue(_enable_post_message_foreground_compat())
+        self.assertTrue(getattr(PostMessageInteraction, "_okww_foreground_compat", False))
+
+        class FakeHwndWindow:
+            def __init__(self, foreground=True, bring_succeeds=False):
+                self.hwnd = 1001
+                self.top_hwnd = 1001
+                self.foreground = foreground
+                self.bring_succeeds = bring_succeeds
+                self.bring_calls = 0
+
+            def is_foreground(self):
+                return self.foreground
+
+            def bring_to_front(self):
+                self.bring_calls += 1
+                if self.bring_succeeds:
+                    self.foreground = True
+                return self.bring_succeeds
+
+        fg_window = FakeHwndWindow(foreground=True)
+        interaction = PostMessageInteraction(Mock(), fg_window)
+
+        with patch("win32gui.PostMessage") as mock_post:
+            self.assertTrue(interaction.try_activate())
+            self.assertEqual(fg_window.bring_calls, 0)
+            mock_post.assert_not_called()
+
+            interaction.post(win32con.WM_ACTIVATE, win32con.WA_ACTIVE, 0)
+            mock_post.assert_not_called()
+
+            interaction.post(win32con.WM_KEYDOWN, 0x45, 0x1E0001)
+            mock_post.assert_called_once_with(1001, win32con.WM_KEYDOWN, 0x45, 0x1E0001)
+
+        bg_window = FakeHwndWindow(foreground=False, bring_succeeds=False)
+        bg_interaction = PostMessageInteraction(Mock(), bg_window)
+        with patch("win32gui.PostMessage") as mock_post, patch("time.sleep"):
+            bg_interaction.post(win32con.WM_KEYDOWN, 0x45, 0x1E0001)
+            self.assertEqual(bg_window.bring_calls, 1)
+            mock_post.assert_not_called()
+
+            bg_interaction.post(win32con.WM_KEYUP, 0x45, 0xC01E0001)
+            mock_post.assert_called_once_with(1001, win32con.WM_KEYUP, 0x45, 0xC01E0001)
+
+        recover_window = FakeHwndWindow(foreground=False, bring_succeeds=True)
+        recover_interaction = PostMessageInteraction(Mock(), recover_window)
+        with patch("win32gui.PostMessage") as mock_post, patch("time.sleep"):
+            recover_interaction.post(win32con.WM_KEYDOWN, 0x45, 0x1E0001)
+            self.assertEqual(recover_window.bring_calls, 1)
+            mock_post.assert_called_once_with(1001, win32con.WM_KEYDOWN, 0x45, 0x1E0001)
+
 
 if __name__ == "__main__":
     unittest.main()
+

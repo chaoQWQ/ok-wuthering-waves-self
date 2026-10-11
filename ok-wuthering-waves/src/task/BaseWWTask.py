@@ -32,6 +32,10 @@ class LoginTimeoutError(TimeoutError):
     pass
 
 
+class GameWindowDisconnectedError(TaskDisabledException):
+    pass
+
+
 class BaseWWTask(BaseTask):
     map_zoomed = False
 
@@ -41,18 +45,36 @@ class BaseWWTask(BaseTask):
 
     def send_key_down(self, key, *args, **kwargs):
         record_input(self, 'key_down', key)
+        held_keys = getattr(self, '_held_keys', None)
+        if held_keys is None:
+            held_keys = set()
+            self._held_keys = held_keys
+        held_keys.add(str(key))
         return super().send_key_down(key, *args, **kwargs)
 
     def send_key_up(self, key, *args, **kwargs):
         record_input(self, 'key_up', key)
+        held_keys = getattr(self, '_held_keys', None)
+        if held_keys is not None:
+            held_keys.discard(str(key))
         return super().send_key_up(key, *args, **kwargs)
 
     def mouse_down(self, *args, **kwargs):
-        record_input(self, 'mouse_down', kwargs.get('key', 'left'))
+        btn = str(kwargs.get('key', 'left'))
+        record_input(self, 'mouse_down', btn)
+        held_buttons = getattr(self, '_held_mouse_buttons', None)
+        if held_buttons is None:
+            held_buttons = set()
+            self._held_mouse_buttons = held_buttons
+        held_buttons.add(btn)
         return super().mouse_down(*args, **kwargs)
 
     def mouse_up(self, *args, **kwargs):
-        record_input(self, 'mouse_up', kwargs.get('key', 'left'))
+        btn = str(kwargs.get('key', 'left'))
+        record_input(self, 'mouse_up', btn)
+        held_buttons = getattr(self, '_held_mouse_buttons', None)
+        if held_buttons is not None:
+            held_buttons.discard(btn)
         return super().mouse_up(*args, **kwargs)
 
     def __init__(self, *args, **kwargs):
@@ -67,6 +89,8 @@ class BaseWWTask(BaseTask):
         # not forcibly steal window focus; MultiAccountDailyTask enables it temporarily
         # during account-switching where foreground focus is required.
         self._allow_bring_to_front = False
+        self._held_keys = set()
+        self._held_mouse_buttons = set()
 
     @property
     def logged_in(self):
@@ -75,6 +99,40 @@ class BaseWWTask(BaseTask):
     @logged_in.setter
     def logged_in(self, value):
         og.my_app.logged_in = value
+
+    def _check_and_recover_window_focus(self):
+        executor = getattr(self, 'executor', None)
+        dm = getattr(executor, 'device_manager', None) if executor else None
+        hwnd_window = getattr(dm, 'hwnd_window', None) if dm else None
+        if hwnd_window is None:
+            return
+        is_foreground = getattr(hwnd_window, 'is_foreground', None)
+        if not callable(is_foreground):
+            return
+        try:
+            fg = is_foreground()
+        except Exception:
+            return
+        if fg is not False:
+            return
+        held_keys = list(getattr(self, '_held_keys', ()))
+        held_buttons = list(getattr(self, '_held_mouse_buttons', ()))
+        for key in held_keys:
+            try:
+                self.send_key_up(key)
+            except Exception:
+                pass
+        for btn in held_buttons:
+            try:
+                self.mouse_up(key=btn)
+            except Exception:
+                pass
+        bring_to_front = getattr(hwnd_window, 'bring_to_front', None)
+        if callable(bring_to_front):
+            try:
+                bring_to_front()
+            except Exception:
+                pass
 
     def _raise_if_game_window_disconnected(self):
         """Stop task input immediately after the game HWND disappears.
@@ -94,12 +152,13 @@ class BaseWWTask(BaseTask):
             is_connected = False
         if not is_connected:
             self.log_error('Game window disconnected; stopping task input')
-            # Raising alone leaves the one-time task enabled, so the executor
-            # can immediately select it again against the same missing window.
-            stop_current_task = getattr(executor, 'stop_current_task', None)
-            if callable(stop_current_task):
-                stop_current_task()
-            raise TaskDisabledException()
+            if getattr(executor, '_multi_account_disconnect_recovery', False) is not True:
+                # Raising alone leaves the one-time task enabled, so the executor
+                # can immediately select it again against the same missing window.
+                stop_current_task = getattr(executor, 'stop_current_task', None)
+                if callable(stop_current_task):
+                    stop_current_task()
+            raise GameWindowDisconnectedError()
 
     @property
     def frame(self):
@@ -107,6 +166,7 @@ class BaseWWTask(BaseTask):
         return self.executor.frame
 
     def next_frame(self, time_out=6):
+        self._check_and_recover_window_focus()
         frame = self.executor.next_frame(time_out=time_out)
         if frame is None:
             self._raise_if_game_window_disconnected()

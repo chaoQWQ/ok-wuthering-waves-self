@@ -18,7 +18,12 @@ from src.task.DailyTask import (
 )
 from src.task.WWOneTimeTask import WWOneTimeTask
 from src.task.BaseCombatTask import BaseCombatTask
-from src.task.BaseWWTask import LOGIN_TEXTS, BaseWWTask, LoginTimeoutError
+from src.task.BaseWWTask import (
+    GameWindowDisconnectedError,
+    LOGIN_TEXTS,
+    BaseWWTask,
+    LoginTimeoutError,
+)
 from src.task.MouseResetTask import MouseResetTask
 from src.task.NightmareNestTask import NightmareNestTask
 from src.utils.wgc_compat import enable_windows_graphics_capture
@@ -519,6 +524,16 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         previous_targets = getattr(nest_task, 'farm_targets_override', None)
         targets_were_overridden = 'farm_targets_override' in nest_task.__dict__
         nest_task.farm_targets_override = ['Tacet Discord Nest']
+        executor = getattr(self, 'executor', None)
+        executor_dict = getattr(executor, '__dict__', None) if executor is not None else None
+        had_disconnect_recovery = executor_dict is not None and '_multi_account_disconnect_recovery' in executor_dict
+        previous_disconnect_recovery = (
+            getattr(executor, '_multi_account_disconnect_recovery', False)
+            if executor is not None else False
+        )
+        if executor is not None:
+            executor._multi_account_disconnect_recovery = True
+        self._last_account_disconnected = False
         try:
             self.run_task_by_class(DailyTask)
             return True
@@ -528,6 +543,17 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             raise
         except AccountConfigNotDetected:
             raise
+        except GameWindowDisconnectedError as e:
+            if getattr(self, 'enabled', True) is False:
+                raise
+            self._last_account_disconnected = True
+            self.log_error(
+                self.tr('DailyTask failed for account {account}, continuing to next account').format(
+                    account=resolved_account or '(current)'
+                ),
+                e,
+            )
+            return False
         except TaskDisabledException:
             raise
         except Exception as e:
@@ -540,6 +566,11 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             self.screenshot('daily_task_failed')
             return False
         finally:
+            if executor is not None:
+                if had_disconnect_recovery:
+                    executor._multi_account_disconnect_recovery = previous_disconnect_recovery
+                elif executor_dict is not None:
+                    executor_dict.pop('_multi_account_disconnect_recovery', None)
             if targets_were_overridden:
                 nest_task.farm_targets_override = previous_targets
             else:
@@ -653,8 +684,16 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
                 self._account_state.record(
                     self._daily_date, [normalize_account_name(processed_account)], 'login_timeout'
                 )
+        crash_retried = set()
         if daily_succeeded:
             self._mark_done(processed_account)
+        elif (
+            getattr(self, '_last_account_disconnected', False)
+            and processed_account
+            and normalize_account_name(processed_account) not in crash_retried
+        ):
+            crash_retried.add(normalize_account_name(processed_account))
+            self.log_warning(f'账号 {processed_account} 执行期间游戏窗口断开，重启后重试该账号')
         else:
             self._mark_failed(processed_account)
 
@@ -667,14 +706,20 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             daily_succeeded = self._run_daily_for_account(next_account)
             if daily_succeeded:
                 self._mark_done(next_account)
+            elif (
+                getattr(self, '_last_account_disconnected', False)
+                and normalize_account_name(next_account) not in crash_retried
+            ):
+                crash_retried.add(normalize_account_name(next_account))
+                self.log_warning(f'账号 {next_account} 执行期间游戏窗口断开，重启后重试该账号')
             else:
                 self._mark_failed(next_account)
             self._return_to_account_list(restart=not daily_succeeded)
 
     def _return_to_account_list(self, restart=False):
-        if self._login_combo() or self.do_find_account_drop_down():
-            return
         if not restart:
+            if self._login_combo() or self.do_find_account_drop_down():
+                return
             self.ensure_main(time_out=100)
             self._switch_to_login()
             return

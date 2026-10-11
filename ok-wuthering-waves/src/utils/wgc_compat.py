@@ -185,6 +185,91 @@ def _defer_capture_until_hwnd(device_manager, device_logger=None) -> bool:
     return True
 
 
+def _enable_post_message_foreground_compat() -> bool:
+    """Prevent fake WM_ACTIVATE messages and background PostMessage inputs.
+
+    1. When the game window is already in the foreground, sending
+       ``WM_ACTIVATE(WA_ACTIVE)`` before every key press and click is
+       redundant.
+    2. When the game window loses foreground focus (``is_foreground() is False``),
+       posting ``WM_ACTIVATE(WA_ACTIVE)`` and input messages to the background
+       window conflicts with ``GetForegroundWindow()`` and triggers an
+       unhandled C++ exception in the anti-cheat companion thread within a few
+       seconds.  Bring the window back to the foreground natively via
+       ``bring_to_front()`` before sending active inputs, and drop active
+       inputs if the window remains in the background.
+    """
+    try:
+        import time
+        import win32con
+        from ok.device.interaction_methods.post_message import (
+            PostMessageInteraction,
+            logger as post_logger,
+        )
+    except Exception:
+        return False
+
+    if getattr(PostMessageInteraction, "_okww_foreground_compat", False):
+        return True
+
+    release_messages = {
+        win32con.WM_KEYUP,
+        getattr(win32con, "WM_SYSKEYUP", 0x0105),
+        win32con.WM_LBUTTONUP,
+        win32con.WM_RBUTTONUP,
+        win32con.WM_MBUTTONUP,
+    }
+    original_post = PostMessageInteraction.post
+
+    def foreground_try_activate(self) -> bool:
+        hwnd_window = getattr(self, "hwnd_window", None)
+        if hwnd_window is None:
+            return True
+        is_foreground = getattr(hwnd_window, "is_foreground", None)
+        if not callable(is_foreground):
+            return True
+        fg = is_foreground()
+        if not isinstance(fg, bool):
+            return True
+        if fg:
+            return True
+        bring_to_front = getattr(hwnd_window, "bring_to_front", None)
+        if callable(bring_to_front):
+            try:
+                bring_to_front()
+            except Exception as error:
+                post_logger.debug(f"bring_to_front failed during input: {error}")
+            for _ in range(5):
+                if is_foreground() is True:
+                    return True
+                time.sleep(0.05)
+        return is_foreground() is True
+
+    def foreground_activate(self, hwnd=None):
+        return foreground_try_activate(self)
+
+    def foreground_deactivate(self, hwnd=None):
+        return None
+
+    def foreground_post(self, message, wParam=0, lParam=0, hwnd=None):
+        if message == win32con.WM_ACTIVATE:
+            return None
+        if message not in release_messages:
+            if not foreground_try_activate(self):
+                post_logger.debug(
+                    f"skip PostMessage {message:#x} while game window is in background"
+                )
+                return None
+        return original_post(self, message, wParam=wParam, lParam=lParam, hwnd=hwnd)
+
+    PostMessageInteraction.try_activate = foreground_try_activate
+    PostMessageInteraction.activate = foreground_activate
+    PostMessageInteraction.deactivate = foreground_deactivate
+    PostMessageInteraction.post = foreground_post
+    PostMessageInteraction._okww_foreground_compat = True
+    return True
+
+
 def enable_windows_graphics_capture() -> bool:
     """Apply compatibility fixes when upstream says WGC is supported."""
 
@@ -199,6 +284,7 @@ def enable_windows_graphics_capture() -> bool:
         # The minimap uses ok-script's native GDI overlay. Apply this before
         # the application constructs that overlay, independently of WGC.
         _enable_overlay_owner_compat()
+        _enable_post_message_foreground_compat()
         available = bool(window.windows_graphics_available())
         if available:
             _enable_wgc_deadlock_and_stability_compat()
@@ -209,3 +295,4 @@ def enable_windows_graphics_capture() -> bool:
         return available
     except Exception:
         return False
+

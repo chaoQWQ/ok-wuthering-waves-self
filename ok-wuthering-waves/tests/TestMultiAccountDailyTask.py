@@ -844,6 +844,111 @@ class TestMultiAccountDailyTask(unittest.TestCase):
         self.assertEqual(len(task.direct_clicked), 1)
         self.assertEqual(task.direct_clicked[0][0].name, "登录")
 
+    def test_focus_loss_releases_held_inputs_and_restores_foreground(self):
+        class FakeHwndWindow:
+            def __init__(self):
+                self.foreground = False
+                self.brought_to_front = 0
+
+            def is_foreground(self):
+                return self.foreground
+
+            def bring_to_front(self):
+                self.brought_to_front += 1
+                self.foreground = True
+                return True
+
+        class FakeDeviceManager:
+            def __init__(self):
+                self.hwnd_window = FakeHwndWindow()
+
+        class FakeExecutor:
+            def __init__(self):
+                self.device_manager = FakeDeviceManager()
+
+        class FakeTask:
+            def __init__(self):
+                self.executor = FakeExecutor()
+                self._held_keys = {'s', 'w'}
+                self._held_mouse_buttons = {'right'}
+                self.released_keys = []
+                self.released_buttons = []
+
+            def send_key_up(self, key):
+                self._held_keys.discard(key)
+                self.released_keys.append(key)
+
+            def mouse_up(self, key='left'):
+                self._held_mouse_buttons.discard(key)
+                self.released_buttons.append(key)
+
+        task = FakeTask()
+        BaseWWTask._check_and_recover_window_focus(task)
+
+        self.assertEqual(set(task.released_keys), {'s', 'w'})
+        self.assertEqual(task.released_buttons, ['right'])
+        self.assertEqual(task._held_keys, set())
+        self.assertEqual(task._held_mouse_buttons, set())
+        self.assertEqual(task.executor.device_manager.hwnd_window.brought_to_front, 1)
+
+    def test_multi_account_disconnect_recovery_does_not_stop_executor_and_triggers_restart(self):
+        from src.task.BaseWWTask import GameWindowDisconnectedError
+
+        class FakeDailyTask:
+            def __init__(self):
+                self.config = {}
+                self._allow_bring_to_front = False
+
+        daily = FakeDailyTask()
+
+        class FakeExecutor:
+            def __init__(self):
+                self.stopped = False
+
+            def connected(self):
+                return False
+
+            def stop_current_task(self):
+                self.stopped = True
+
+        class FakeTask:
+            config = {}
+            enabled = True
+            _get_account_overrides = MultiAccountDailyTask._get_account_overrides
+            _account_overrides_required = MultiAccountDailyTask._account_overrides_required
+            _apply_daily_overrides = MultiAccountDailyTask._apply_daily_overrides
+            _restore_daily_overrides = MultiAccountDailyTask._restore_daily_overrides
+
+            def __init__(self):
+                self.executor = FakeExecutor()
+                self.screenshots = []
+                self.errors = []
+
+            def get_task_by_class(self, task_class):
+                return daily
+
+            def run_task_by_class(self, task_class):
+                BaseWWTask._raise_if_game_window_disconnected(self)
+
+            def log_error(self, *args):
+                self.errors.append(args)
+
+            def screenshot(self, name):
+                self.screenshots.append(name)
+
+            def tr(self, message):
+                return message
+
+        task = FakeTask()
+        result = MultiAccountDailyTask._execute_daily_for_account(task, '185****6758')
+
+        self.assertFalse(result)
+        self.assertTrue(task._last_account_disconnected)
+        self.assertFalse(task.executor.stopped)
+        self.assertEqual(task.screenshots, [])
+        self.assertNotIn('_multi_account_disconnect_recovery', task.executor.__dict__)
+
 
 if __name__ == "__main__":
     unittest.main()
+
