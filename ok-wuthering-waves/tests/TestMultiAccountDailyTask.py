@@ -184,6 +184,111 @@ class TestMultiAccountDailyTask(unittest.TestCase):
 
         self.assertIsNone(MultiAccountDailyTask._click_account_in_list(FakeTask()))
 
+    def test_select_account_by_combo_follows_configured_slot_order(self):
+        selected_indices = []
+
+        class FakeTask:
+            def __init__(self):
+                self.done_set = set()
+                self.failed_set = set()
+                self.all_accounts = set()
+                self.config = {
+                    'Account 1 Daily Task Override': True,
+                    'Account 1 Keyword': '6758',
+                    'Account 2 Daily Task Override': True,
+                    'Account 2 Keyword': '0362',
+                    'Account 3 Daily Task Override': True,
+                    'Account 3 Keyword': '1892',
+                }
+
+            _is_done = MultiAccountDailyTask._is_done
+            _is_skipped = MultiAccountDailyTask._is_skipped
+
+            def info_set(self, *args):
+                pass
+
+            def log_info(self, *args):
+                pass
+
+            def tr(self, message):
+                return message
+
+        task = FakeTask()
+        combo_order = ['134****1892', '185****6758', '185****o362']
+
+        def fake_select(combo, index):
+            selected_indices.append(index)
+            return True
+
+        with mock.patch('src.task.MultiAccountDailyTask.combo_items', return_value=combo_order), \
+             mock.patch('src.task.MultiAccountDailyTask.select_combo_item', side_effect=fake_select):
+            first = MultiAccountDailyTask._select_account_by_combo(task, 100)
+            task.done_set.add(normalize_account_name(first))
+            second = MultiAccountDailyTask._select_account_by_combo(task, 100)
+            task.done_set.add(normalize_account_name(second))
+            third = MultiAccountDailyTask._select_account_by_combo(task, 100)
+            task.done_set.add(normalize_account_name(third))
+            fourth = MultiAccountDailyTask._select_account_by_combo(task, 100)
+
+        self.assertEqual([first, second, third, fourth], ['185****6758', '185****o362', '134****1892', None])
+        self.assertEqual(selected_indices, [1, 2, 0])
+
+    def test_click_account_in_list_follows_configured_slot_order(self):
+        class AccountBox:
+            def __init__(self, name):
+                self.name = name
+
+        class FakeTask:
+            def __init__(self):
+                self.done_set = set()
+                self.failed_set = set()
+                self.all_accounts = set()
+                self.clicked = []
+                self.config = {
+                    'Account 1 Daily Task Override': True,
+                    'Account 1 Keyword': '6758',
+                    'Account 2 Daily Task Override': True,
+                    'Account 2 Keyword': '0362',
+                    'Account 3 Daily Task Override': True,
+                    'Account 3 Keyword': '1892',
+                }
+
+            _is_done = MultiAccountDailyTask._is_done
+            _is_skipped = MultiAccountDailyTask._is_skipped
+            _click_direct = MultiAccountDailyTask._click_direct
+
+            def ocr(self, match=None):
+                return [
+                    AccountBox('134****1892'),
+                    AccountBox('185****6758'),
+                    AccountBox('185****o362'),
+                ]
+
+            def info_set(self, *args):
+                pass
+
+            def click(self, account, after_sleep=0):
+                self.clicked.append(account.name)
+
+            def log_info(self, *args):
+                pass
+
+            def log_warning(self, *args):
+                pass
+
+            def tr(self, message):
+                return message
+
+        task = FakeTask()
+        first = MultiAccountDailyTask._click_account_in_list(task)
+        task.done_set.add(normalize_account_name(first))
+        second = MultiAccountDailyTask._click_account_in_list(task)
+        task.done_set.add(normalize_account_name(second))
+        third = MultiAccountDailyTask._click_account_in_list(task)
+
+        self.assertEqual([first, second, third], ['185****6758', '185****o362', '134****1892'])
+        self.assertEqual(task.clicked, ['185****6758', '185****o362', '134****1892'])
+
     def test_failed_account_is_not_reported_completed_but_is_not_retried(self):
         class FakeTask:
             def __init__(self):

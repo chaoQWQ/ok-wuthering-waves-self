@@ -141,6 +141,26 @@ def normalize_profile_code(value):
     return re.sub(r'\D', '', str(value).upper().replace('O', '0'))
 
 
+def configured_account_slot(config, account):
+    normalized = normalize_account_name(account)
+    if not normalized or not config:
+        return None
+    for n in range(1, NUM_ACCOUNT_SLOTS + 1):
+        if not config.get(_slot_enable(n)):
+            continue
+        keyword = normalize_account_name((config.get(_slot_keyword(n)) or '').strip())
+        if keyword and (keyword in normalized or normalized in keyword):
+            return n
+    return None
+
+
+def account_order_key(config, account, index):
+    slot = configured_account_slot(config, account)
+    if slot is not None:
+        return (0, slot, index)
+    return (1, NUM_ACCOUNT_SLOTS + 1, index)
+
+
 class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
 
     def __init__(self, *args, **kwargs):
@@ -731,7 +751,12 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         for name in accounts:
             self.all_accounts.add(normalize_account_name(name))
         self.info_set('All Accounts', self.all_accounts)
-        for index, name in enumerate(accounts):
+        config = getattr(self, 'config', None)
+        ordered_accounts = sorted(
+            enumerate(accounts),
+            key=lambda item: account_order_key(config, item[1], item[0]),
+        )
+        for index, name in ordered_accounts:
             if self._is_done(name):
                 continue
             if not select_combo_item(combo, index):
@@ -805,14 +830,20 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         accounts = self.ocr(match=account_pattern)
         if not accounts:
             return None
-        next_account = None
-        # self.screenshot('_click_account_in_list')
         for account in accounts:
             self.all_accounts.add(normalize_account_name(account.name))
             self.info_set('All Accounts', self.all_accounts)
-            if next_account is None and not self._is_done(account.name):
+        config = getattr(self, 'config', None)
+        ordered_accounts = sorted(
+            enumerate(accounts),
+            key=lambda item: account_order_key(config, item[1].name, item[0]),
+        )
+        next_account = None
+        for _, account in ordered_accounts:
+            if not self._is_done(account.name):
                 next_account = account.name
                 self._click_direct(account, after_sleep=2)
+                break
         self.log_info(self.tr('Click next account: {account}').format(account=next_account))
         # A loaded account list with no eligible entry is a successful terminal
         # state, not a reason to keep waiting until wait_until raises a timeout.
