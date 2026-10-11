@@ -290,6 +290,8 @@ class BigmapLineWindow(MinimapDirectionWindow):
         self._routes_requested.emit(tuple(geometry), tuple(layers))
 
     def _do_routes(self, geometry, layers):
+        if self.isVisible() and self.geometry().getRect() == tuple(geometry) and self._path_layers == layers:
+            return
         if self.geometry().getRect() != tuple(geometry):
             self.setGeometry(*geometry)
         self._path_layers = layers
@@ -306,6 +308,7 @@ class BigmapLineWindow(MinimapDirectionWindow):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         try:
+            painter.setClipRect(self.rect())
             paint_path_layers(painter, self._path_layers, draw_nodes=False)
         finally:
             painter.end()

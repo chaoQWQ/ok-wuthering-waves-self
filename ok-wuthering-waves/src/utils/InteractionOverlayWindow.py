@@ -43,6 +43,8 @@ from __future__ import annotations
 
 import ctypes
 import logging
+import time
+import threading
 from typing import List, NamedTuple, Optional, Sequence, Tuple, Union
 
 from PySide6.QtCore import QRect, Qt, QTimer, Signal, QPoint
@@ -166,13 +168,13 @@ class InteractionOverlayWindow(QWidget):
     # 合并渲染帧信号：把内容 + 气泡 + 路线 + 命中区在同一个 GUI 事件里原子更新，
     # 避免 render_items / update_mask 两个独立排队信号产生的半更新中间帧
     # （不确定问题1：拖动路线卡顿/先画中间状态）。
-    _frame_requested = Signal(object, object, object, object, object, object)
+    _frame_requested = Signal(int)
     # 几何设置信号：set_window_geometry 可能在 ok 任务线程被调用，但 QWidget.setGeometry
     # 必须在 GUI 线程执行；拖动游戏窗口时几何持续变化，若在任务线程直接 setGeometry 会
     # 跨线程触发窗口系统调用而卡死（无栈挂起）。故经排队信号派发到 GUI 线程。
     _geometry_requested = Signal(int, int, int, int)
     _show_requested = Signal()
-    _hide_requested = Signal()
+    _hide_requested = Signal(int)
 
     def __init__(self, x: int = 0, y: int = 0, width: int = 0, height: int = 0,
                  parent=None):
@@ -209,6 +211,15 @@ class InteractionOverlayWindow(QWidget):
         # Hit_Box rectangles paired with z order, for click hit-testing; aligned
         # by index with ``_draw_items``.
         self._hitboxes_with_z: List[Tuple[Rect, int]] = []
+        self._motion_frame = None
+        self._pending_frame = None
+        self._frame_lock = threading.Lock()
+        self._frame_epoch = 0
+        self._motion_key = None
+        self._last_mask_region = None
+        self._motion_timer = QTimer(self)
+        self._motion_timer.setInterval(33)
+        self._motion_timer.timeout.connect(self._refresh_motion)
 
         # Pending left single-click state for the 500ms double-click timer.
         self._click_timer = QTimer(self)
@@ -220,10 +231,10 @@ class InteractionOverlayWindow(QWidget):
         # Marshal public calls onto the GUI thread.
         self._render_requested.connect(self._do_render, Qt.QueuedConnection)
         self._mask_requested.connect(self._do_mask, Qt.QueuedConnection)
-        self._frame_requested.connect(self._do_frame, Qt.QueuedConnection)
+        self._frame_requested.connect(self._consume_frame, Qt.QueuedConnection)
         self._geometry_requested.connect(self._do_set_geometry, Qt.QueuedConnection)
         self._show_requested.connect(self._do_show, Qt.QueuedConnection)
-        self._hide_requested.connect(self._do_hide, Qt.QueuedConnection)
+        self._hide_requested.connect(self._consume_hide, Qt.QueuedConnection)
         self._sections_requested.connect(self._do_sections, Qt.QueuedConnection)
         self._section_choices = ()
         self.section_selector = QComboBox(self)
@@ -305,7 +316,7 @@ class InteractionOverlayWindow(QWidget):
         self._mask_requested.emit(list(hitboxes) if hitboxes else [])
 
     def render_frame(self, draw_items, bubble=None, path_layers=(),
-                     hitboxes=(), target_marker=None, status_lines=()) -> None:
+                     hitboxes=(), target_marker=None, status_lines=(), viewport=None) -> None:
         """一次性合并更新内容 + 气泡 + 路线 + 命中区 + 目标高亮 + 状态面板（原子帧）。
 
         把原来 :meth:`render_items` 与 :meth:`update_mask` 两次跨线程排队信号合并为
@@ -320,14 +331,30 @@ class InteractionOverlayWindow(QWidget):
         输出）。大地图场景每帧下发，绘制在客户区左下角，且面板矩形会并入 ``setMask``
         的 ``QRegion`` 以免被裁剪不显示（Requirements 12.1, 12.3, 12.8, 12.9）。
         """
-        self._frame_requested.emit(
+        frame = (
             list(draw_items) if draw_items else [],
             bubble,
             tuple(path_layers) if path_layers else (),
             list(hitboxes) if hitboxes else [],
             tuple(target_marker) if target_marker is not None else None,
             tuple(status_lines) if status_lines else (),
+            viewport,
         )
+        with self._frame_lock:
+            notify = self._pending_frame is None
+            self._pending_frame = frame
+            epoch = self._frame_epoch
+        if notify:
+            self._frame_requested.emit(epoch)
+
+    def _consume_frame(self, epoch):
+        with self._frame_lock:
+            if epoch != self._frame_epoch:
+                return
+            frame = self._pending_frame
+            self._pending_frame = None
+        if frame is not None:
+            self._do_frame(*frame)
 
     def show_overlay(self) -> None:
         """Show the overlay when entering Bigmap_Mode."""
@@ -339,7 +366,17 @@ class InteractionOverlayWindow(QWidget):
         Clears items / bubble / mask so nothing interactive lingers
         (Requirement 1.8).
         """
-        self._hide_requested.emit()
+        with self._frame_lock:
+            self._frame_epoch += 1
+            epoch = self._frame_epoch
+            self._pending_frame = None
+        self._hide_requested.emit(epoch)
+
+    def _consume_hide(self, epoch):
+        with self._frame_lock:
+            if epoch != self._frame_epoch:
+                return
+        self._do_hide()
 
     # ------------------------------------------------------------------
     # GUI-thread slots
@@ -382,7 +419,7 @@ class InteractionOverlayWindow(QWidget):
         return normalized
 
     def _do_frame(self, draw_items, bubble, path_layers, hitboxes,
-                  target_marker=None, status_lines=()) -> None:
+                  target_marker=None, status_lines=(), viewport=None) -> None:
         """合并帧槽：在同一个 GUI 事件里原子设置内容 + 气泡 + 路线 + 命中掩码 + 状态面板。
 
         等价于把 :meth:`_do_render` 与 :meth:`_do_mask` 的工作合并为一次：先设置
@@ -398,8 +435,50 @@ class InteractionOverlayWindow(QWidget):
         self._hitboxes_with_z = self._normalize_hitboxes(hitboxes)
         self._target_marker = tuple(target_marker) if target_marker is not None else None
         self._status_lines = tuple(status_lines) if status_lines else ()
+        self._motion_key = None
+        if viewport is False:
+            self._motion_frame = None
+            self._motion_timer.stop()
+        elif viewport is not None:
+            self._motion_frame = (tuple(draw_items), tuple(self._hitboxes_with_z),
+                                  target_marker, viewport, time.monotonic())
+            self._motion_timer.start()
+        elif self._motion_frame is not None:
+            previous = self._motion_frame
+            self._motion_frame = (tuple(draw_items), tuple(self._hitboxes_with_z),
+                                  target_marker, previous[3], previous[4])
         self._apply_composed_mask()
         self.update()
+
+    def _refresh_motion(self):
+        if self._motion_frame is None or not self.isVisible():
+            return
+        items, boxes, marker, viewport, published_at = self._motion_frame
+        estimator, origin, scale, line_window, layers = viewport
+        state = estimator.state()
+        if state is None or state.confidence < 0.25 or time.monotonic() - published_at > 3.0:
+            self._do_hide()
+            if line_window is not None:
+                line_window._do_hide()
+            return
+        key = (state.center, state.game_scale)
+        if key == self._motion_key:
+            return
+        self._motion_key = key
+        from src.utils.OverlayMotion import transform_overlay
+        projected, hitboxes, target, routes = transform_overlay(
+            items, boxes, marker, layers, origin, scale, state.center,
+            state.game_scale, (self.width(), self.height()),
+        )
+        self._draw_items = projected
+        self._hitboxes_with_z = hitboxes
+        self._target_marker = target
+        if state.source != 'match':
+            self._bubble = None
+        self._apply_composed_mask()
+        self.update()
+        if line_window is not None:
+            line_window._do_routes(self.geometry().getRect(), routes)
 
     def _compose_mask_region(self) -> QRegion:
         """Compose the window mask from hit-boxes, route strokes and the bubble.
@@ -468,6 +547,9 @@ class InteractionOverlayWindow(QWidget):
     def _apply_composed_mask(self) -> None:
         """Recompose and apply the window mask, clearing it when empty."""
         region = self._compose_mask_region()
+        if region == self._last_mask_region:
+            return
+        self._last_mask_region = region
         if region.isEmpty():
             self.clearMask()
         else:
@@ -481,6 +563,10 @@ class InteractionOverlayWindow(QWidget):
         if not self.isVisible():
             self.show()
     def _do_hide(self) -> None:
+        self._motion_timer.stop()
+        self._motion_frame = None
+        self._motion_key = None
+        self._last_mask_region = None
         self._cancel_pending_click()
         self._draw_items = []
         self._path_layers = ()
