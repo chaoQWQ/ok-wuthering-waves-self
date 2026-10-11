@@ -1,9 +1,10 @@
-"""Bounded, passive flight recorder. Never captures frames or sends game input."""
 import hashlib
 import json
 import logging
 import os
 from collections import deque
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
 from queue import Empty, Full, Queue
@@ -13,6 +14,9 @@ import threading
 import time
 import uuid
 import xml.etree.ElementTree as ET
+
+_input_context = ContextVar('fault_input_context', default=None)
+_post_context = ContextVar('fault_post_context', default=None)
 
 
 def redact(text):
@@ -35,7 +39,11 @@ class FaultRecorder(logging.Handler):
         self.exit_event = exit_event or threading.Event()
         self.retention = retention
         self.max_disk_bytes = 64 * 1024 * 1024
-        self.events = deque(maxlen=2000)
+        self.events = deque(maxlen=20000)
+        self.counters = {}
+        self.evicted_events = 0
+        self.window = None
+        self.window_signature = None
         self.pending = Queue(maxsize=8)
         self.guard = threading.Lock()
         self.recent_faults = {}
@@ -55,17 +63,77 @@ class FaultRecorder(logging.Handler):
     def append(self, event):
         event = dict(event, utc=utc_now(), monotonic_ns=time.monotonic_ns(), epoch=time.time())
         with self.guard:
-            self.events.append(event)
+            self._append_locked(event)
+
+    def _append_locked(self, event):
+        cutoff = time.time() - 120
+        while self.events and self.events[0]['epoch'] < cutoff:
+            self.events.popleft()
+        if len(self.events) == self.events.maxlen:
+            self.evicted_events += 1
+        self.events.append(event)
+
+    def count(self, event):
+        now = time.time()
+        signature = json.dumps(event, sort_keys=True, ensure_ascii=False)
+        with self.guard:
+            self._flush_counters_locked(int(now))
+            counter = self.counters.get(signature)
+            if counter is None:
+                counter = dict(event, utc=utc_now(), monotonic_ns=time.monotonic_ns(),
+                               epoch=now, count=0, second=int(now))
+                self.counters[signature] = counter
+            counter['count'] += 1
+            counter['last_epoch'] = now
+            counter['last_monotonic_ns'] = time.monotonic_ns()
+
+    def _flush_counters_locked(self, second):
+        expired = [key for key, value in self.counters.items() if value['second'] < second]
+        for key in expired:
+            self._append_locked(self.counters.pop(key))
 
     def snapshot(self):
         cutoff = time.time() - 120
         with self.guard:
-            return [dict(event) for event in self.events if event['epoch'] >= cutoff]
+            events = list(self.events) + list(self.counters.values())
+            return sorted((dict(event) for event in events if event['epoch'] >= cutoff),
+                          key=lambda event: event['monotonic_ns'])
+
+    def observe_window(self):
+        if self.window is None:
+            return
+        self.observe_window_handle(self.window.hwnd)
+
+    def observe_window_handle(self, hwnd):
+        import psutil
+        import win32gui
+        import win32process
+
+        foreground = win32gui.GetForegroundWindow()
+        exists = bool(hwnd and win32gui.IsWindow(hwnd))
+        signature = (hwnd, foreground, exists)
+        if signature == self.window_signature:
+            return
+        pid = win32process.GetWindowThreadProcessId(foreground)[1] if foreground else 0
+        self.append({
+            'kind': 'window_state', 'game_hwnd': hwnd, 'game_exists': exists,
+            'foreground_hwnd': foreground, 'foreground_pid': pid,
+            'foreground_title': redact(win32gui.GetWindowText(foreground)) if foreground else '',
+            'foreground_class': win32gui.GetClassName(foreground) if foreground else '',
+            'foreground_program': psutil.Process(pid).name() if pid else '',
+        })
+        self.window_signature = signature
 
     def emit(self, record):
         try:
             if record.threadName == 'FaultRecorder':
                 return
+            active_post = _post_context.get()
+            if active_post is not None and 'PostMessage error ' in record.getMessage():
+                active_post['error'] = redact(record.getMessage())
+                self.append(dict(active_post['event'], outcome='submission_error',
+                                 error=active_post['error']))
+                active_post['recorded'] = True
             message = redact(self.format(record))
             self.append({'kind': 'log', 'level': record.levelname,
                          'thread': record.threadName, 'message': message[:4096]})
@@ -170,7 +238,8 @@ class FaultRecorder(logging.Handler):
         self._atomic_json(self.folder / f'recent-{os.getpid()}.json', {
             'schema': 1, 'session': self.session, 'utc': utc_now(), 'timeline': self.snapshot(),
             'dropped_events': self.dropped, 'recorder_error': self.last_error,
-            'note': 'Task requests only; not proof the game received or accepted input.',
+            'evicted_events': self.evicted_events,
+            'note': 'PostMessage submission results do not prove the game processed input.',
         })
         recent = sorted(self.folder.glob('recent-*.json'), key=lambda p: p.stat().st_mtime,
                         reverse=True)
@@ -188,6 +257,7 @@ class FaultRecorder(logging.Handler):
                     payload = None
                 if payload is not None:
                     self.save(payload)
+                self.observe_window()
                 if time.monotonic() >= next_scan:
                     next_scan = time.monotonic() + 15
                     try:
@@ -229,13 +299,87 @@ def record_input(task, operation, key=None):
         current = next((char for char in chars if char and char.is_current_char), None)
         executor = getattr(task, 'executor', None)
         owner = getattr(executor, 'current_task', None)
-        _recorder.append({'kind': 'input_request', 'operation': operation,
+        _recorder.count({'kind': 'input_request', 'operation': operation,
                           'key': str(key)[:20] if key is not None else None,
                           'task': type(task).__name__, 'owner_task': type(owner).__name__,
                           'character': type(current).__name__ if current else None,
                           'character_module': type(current).__module__ if current else None})
     except Exception:
         pass
+
+
+def task_context(task):
+    chars = getattr(task, 'chars', None) or []
+    current = next((char for char in chars if char and char.is_current_char), None)
+    executor = getattr(task, 'executor', None)
+    owner = getattr(executor, 'current_task', None)
+    return {'task': type(task).__name__, 'owner_task': type(owner).__name__,
+            'character': type(current).__name__ if current else None,
+            'character_module': type(current).__module__ if current else None}
+
+
+@contextmanager
+def input_diagnostics(task, operation, key=None):
+    if _recorder is None:
+        yield
+        return
+    context = dict(task_context(task), operation=operation, key=str(key) if key is not None else None)
+    executor = getattr(task, 'executor', None)
+    manager = getattr(executor, 'device_manager', None)
+    window = getattr(manager, 'hwnd_window', None)
+    if window is not None:
+        _recorder.window = window
+    token = _input_context.set(context)
+    try:
+        _recorder.count(dict(context, kind='input_request'))
+        yield
+    finally:
+        _input_context.reset(token)
+
+
+def record_input_filter(task, interval):
+    if _recorder is not None:
+        _recorder.count(dict(_input_context.get() or task_context(task),
+                             kind='input_filtered', reason='interval', interval=interval))
+
+
+def record_post_filter(message, hwnd, reason):
+    if _recorder is not None:
+        _recorder.count(dict(_input_context.get() or {}, kind='post_message',
+                             message=message, hwnd=hwnd, outcome='filtered', reason=reason))
+
+
+@contextmanager
+def post_diagnostics(message, wparam, lparam, hwnd):
+    if _recorder is None:
+        yield
+        return
+    active = {'event': dict(_input_context.get() or {}, kind='post_message',
+                            message=message, wparam=wparam, lparam=lparam, hwnd=hwnd)}
+    token = _post_context.set(active)
+    start = time.monotonic_ns()
+    try:
+        yield
+    finally:
+        error = active.get('error')
+        exception = sys.exc_info()[1]
+        if exception is not None:
+            error = redact(f'{type(exception).__name__}: {exception}')
+        try:
+            if not active.get('recorded'):
+                _recorder.count(dict(active['event'],
+                                     outcome='submission_error' if error else 'submitted', error=error,
+                                     submission_duration_ms=round((time.monotonic_ns() - start) / 1000000)))
+        finally:
+            _post_context.reset(token)
+
+
+def record_character_state(character, action, **fields):
+    if _recorder is not None:
+        _recorder.append(dict(task_context(character.task), kind='character_state',
+                              action=action, **fields,
+                              character=type(character).__name__,
+                              character_module=type(character).__module__))
 
 
 def summarize(project_root):

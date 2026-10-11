@@ -186,19 +186,8 @@ def _defer_capture_until_hwnd(device_manager, device_logger=None) -> bool:
 
 
 def _enable_post_message_foreground_compat() -> bool:
-    """Prevent fake WM_ACTIVATE messages and background PostMessage inputs.
-
-    1. When the game window is already in the foreground, sending
-       ``WM_ACTIVATE(WA_ACTIVE)`` before every key press and click is
-       redundant.
-    2. When the game window loses foreground focus (``is_foreground() is False``),
-       posting ``WM_ACTIVATE(WA_ACTIVE)`` and input messages to the background
-       window conflicts with ``GetForegroundWindow()`` and triggers an
-       unhandled C++ exception in the anti-cheat companion thread within a few
-       seconds.  Bring the window back to the foreground natively via
-       ``bring_to_front()`` before sending active inputs, and drop active
-       inputs if the window remains in the background.
-    """
+    """恢复前台后提交主动输入，并记录提交结果。"""
+    from src.utils.FaultRecorder import post_diagnostics, record_post_filter
     try:
         import time
         import win32con
@@ -252,15 +241,19 @@ def _enable_post_message_foreground_compat() -> bool:
         return None
 
     def foreground_post(self, message, wParam=0, lParam=0, hwnd=None):
+        target_hwnd = self.hwnd if hwnd is None else hwnd
         if message == win32con.WM_ACTIVATE:
+            record_post_filter(message, target_hwnd, 'activation_guard')
             return None
         if message not in release_messages:
             if not foreground_try_activate(self):
                 post_logger.debug(
                     f"skip PostMessage {message:#x} while game window is in background"
                 )
+                record_post_filter(message, target_hwnd, 'foreground_guard')
                 return None
-        return original_post(self, message, wParam=wParam, lParam=lParam, hwnd=hwnd)
+        with post_diagnostics(message, wParam, lParam, target_hwnd):
+            return original_post(self, message, wParam=wParam, lParam=lParam, hwnd=hwnd)
 
     PostMessageInteraction.try_activate = foreground_try_activate
     PostMessageInteraction.activate = foreground_activate

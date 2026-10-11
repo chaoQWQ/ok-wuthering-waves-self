@@ -12,7 +12,7 @@ import cv2
 
 from src.Labels import Labels
 from src.scene.WWScene import WWScene
-from src.utils.FaultRecorder import record_input
+from src.utils.FaultRecorder import input_diagnostics, record_input_filter
 
 logger = Logger.get_logger(__name__)
 number_re = re.compile(r'(\d+)')
@@ -40,42 +40,48 @@ class BaseWWTask(BaseTask):
     map_zoomed = False
 
     def send_key(self, key, *args, **kwargs):
-        record_input(self, 'send_key', key)
-        return super().send_key(key, *args, **kwargs)
+        with input_diagnostics(self, 'send_key', key):
+            return super().send_key(key, *args, **kwargs)
+
+    def check_interval(self, interval):
+        allowed = super().check_interval(interval)
+        if not allowed:
+            record_input_filter(self, interval)
+        return allowed
 
     def send_key_down(self, key, *args, **kwargs):
-        record_input(self, 'key_down', key)
         held_keys = getattr(self, '_held_keys', None)
         if held_keys is None:
             held_keys = set()
             self._held_keys = held_keys
         held_keys.add(str(key))
-        return super().send_key_down(key, *args, **kwargs)
+        with input_diagnostics(self, 'key_down', key):
+            return super().send_key_down(key, *args, **kwargs)
 
     def send_key_up(self, key, *args, **kwargs):
-        record_input(self, 'key_up', key)
         held_keys = getattr(self, '_held_keys', None)
         if held_keys is not None:
             held_keys.discard(str(key))
-        return super().send_key_up(key, *args, **kwargs)
+        with input_diagnostics(self, 'key_up', key):
+            return super().send_key_up(key, *args, **kwargs)
 
     def mouse_down(self, *args, **kwargs):
         btn = str(kwargs.get('key', 'left'))
-        record_input(self, 'mouse_down', btn)
         held_buttons = getattr(self, '_held_mouse_buttons', None)
         if held_buttons is None:
             held_buttons = set()
             self._held_mouse_buttons = held_buttons
         held_buttons.add(btn)
-        return super().mouse_down(*args, **kwargs)
+        with input_diagnostics(self, 'mouse_down', btn):
+            return super().mouse_down(*args, **kwargs)
 
     def mouse_up(self, *args, **kwargs):
         btn = str(kwargs.get('key', 'left'))
-        record_input(self, 'mouse_up', btn)
         held_buttons = getattr(self, '_held_mouse_buttons', None)
         if held_buttons is not None:
             held_buttons.discard(btn)
-        return super().mouse_up(*args, **kwargs)
+        with input_diagnostics(self, 'mouse_up', btn):
+            return super().mouse_up(*args, **kwargs)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -472,7 +478,6 @@ class BaseWWTask(BaseTask):
 
     def click(self, x=-1, y=-1, move_back=False, name=None, interval=-1, move=False, down_time=0.01, after_sleep=0,
               key="left"):
-        record_input(self, 'click', key)
         if x == -1 and y == -1:
             x = self.width_of_screen(0.5)
             y = self.height_of_screen(0.5)
@@ -480,8 +485,9 @@ class BaseWWTask(BaseTask):
             down_time = 0.01
         else:
             down_time = 0.2
-        return super().click(x, y, move_back, name, interval, move=move, down_time=down_time, after_sleep=after_sleep,
-                             key=key)
+        with input_diagnostics(self, 'click', key):
+            return super().click(x, y, move_back, name, interval, move=move, down_time=down_time,
+                                 after_sleep=after_sleep, key=key)
 
     def check_for_monthly_card(self):
         if self.should_check_monthly_card():
