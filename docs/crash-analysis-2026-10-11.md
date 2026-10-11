@@ -1,77 +1,85 @@
-# 多账户日常崩溃调查（2026-10-11）
+# 客户端崩溃调查记录（2026-10-11）
 
-## 1. 崩溃事件与转储文件概览
+## Windows 异常证据
 
-三次客户端崩溃均发生在 `MultiAccountDailyTask` 执行期间，Windows Error Reporting 在 `C:\Users\zc\AppData\Local\CrashDumps\` 目录生成了对应的进程转储文件：
+| Application Error 时间 | Client PID | 异常 ThreadId | 转储模块数量 |
+| --- | --- | --- | --- |
+| 2026-10-10 10:05:50 | 1416 | 15128 | 239 |
+| 2026-10-11 08:36:28 | 13360 | 22484 | 243 |
+| 2026-10-11 09:29:11 | 400 | 10780 | 243 |
+| 2026-10-11 21:08:00 | 26372 | 18908 | 245 |
 
-| 序号 | Application Error 时间 | 转储文件 | 崩溃进程 PID | 异常线程 TID | 故障报告文件 |
-| --- | --- | --- | --- | --- | --- |
-| 1 | 2026-10-10 10:05:50 | `Client-Win64-Shipping.exe.1416.dmp` | `1416` | `15128` | `G:\geme_auto\ok-wuthering-waves\logs\ok-script.log.2026-10-10` |
-| 2 | 2026-10-11 08:36:28 | `Client-Win64-Shipping.exe.13360.dmp` | `13360` | `22484` | `G:\geme_auto\ok-wuthering-waves\logs\faults\incident-bbfcd00d69024a5cbbb032d22257f96b.json` |
-| 3 | 2026-10-11 09:29:11 | `Client-Win64-Shipping.exe.400.dmp` | `400` | `10780` | `G:\geme_auto_stable\ok-wuthering-waves\logs\faults\incident-e2cb8b19bd3a4e16b984dc0044ed1535.json` |
+文件位于 `C:\Users\zc\AppData\Local\CrashDumps\Client-Win64-Shipping.exe.<PID>.dmp`。四份转储均记录 `ExceptionCode=0xe06d7363`、`ExceptionFlags=0x81`、四个异常参数。异常地址属于 `KERNELBASE.dll`，相对地址均为 `0xc187a`。
 
-三次 Windows 事件 1000 记录的模块均为 `KERNELBASE.dll`（偏移 `0xc187a`，即 `RaiseException`），异常代码均为 `0xe06d7363`，Windows Error Reporting 事件 1001 的 `Bucket` 均为 `1566691884611491582`（`HashedBucket` 为 `5f6bd7d4dd2dc95c25be01f7e6c156fe`）。
-
-## 2. 崩溃转储（`.dmp`）异常结构与线程分析
-
-解析三个 `.dmp` 文件的 `ExceptionStream`、`ThreadListStream` 与 `ModuleListStream` 得到以下完全一致的结构特征：
-
-### 2.1 异常线程位置
-三个转储中触发未处理异常的线程均为进程按创建顺序排列的**第 10 个线程（索引 `[09]`）**，紧邻索引 `[10]` 的 `ACE-Base64.dll+0x18a3f48` 工作线程：
-- 索引 `[00]`：`Client-Win64-Shipping.exe` 主线程
-- 索引 `[01]` ~ `[03]`：`ntdll.dll+0x558d0`（`TppWorkerThread`）
-- 索引 `[09]`：异常崩溃线程（`Rip = KERNELBASE.dll+0xc187a`）
-- 索引 `[10]`：`ACE-Base64.dll+0x18a3f48`
-
-### 2.2 `MINIDUMP_EXCEPTION` 参数与寄存器状态
-三次崩溃的 `ExceptionRecord` 与线程 `[09]` 非易失性寄存器对比如下：
-
-| 字段 | `1416.dmp` | `13360.dmp` | `400.dmp` | 结构规律 |
+| PID | ExceptionInformation[0] | ExceptionInformation[1] | ExceptionInformation[2] | ExceptionInformation[3] |
 | --- | --- | --- | --- | --- |
-| `ExceptionCode` | `0xe06d7363` | `0xe06d7363` | `0xe06d7363` | MSVC C++ 异常 |
-| `NumberParameters` | `4` | `4` | `4` | x64 `_CxxThrowException` 标准四参数 |
-| `ExceptionInformation[0]` | `0x01994000` | `0x01994000` | `0x01994000` | `EH_PURE_MAGIC_NUMBER1` |
-| `ExceptionInformation[1]` | `0x0b49ee40` | `0x0b2fedc0` | `0x0b40ee40` | `pExceptionObject`（恒等于 `RSP + 0x190`） |
-| `ExceptionInformation[2]` | `0x0d147ce0` | `0x0d4b7ce0` | `0x0d207ce0` | `pThrowInfo`（恒等于 `R15 + 0x7636d`，页内偏移恒为 `0x7ce0`） |
-| `ExceptionInformation[3]` | `0x0` | `0x0` | `0x0` | `ThrowImageBase == NULL` |
-| `RSP` | `0x0b49ecb0` | `0x0b2fec30` | `0x0b40ecb0` | 线程调用帧指针 |
-| `RBP` | `0x4` | `0x4` | `0x4` | 恒为 `0x4` |
-| `RSI` | `0x0b49ecd0` | `0x0b2fec50` | `0x0b40ecd0` | 恒等于 `RSP + 0x20` |
-| `RDI` | `0x0b49e510` | `0x0b2fe490` | `0x0b40e510` | 恒等于 `RSP - 0x7a0` |
-| `R12` | `0x0b49ef00` | `0x0b2fee80` | `0x0b40ef00` | 恒等于 `RSP + 0x250` |
-| `R13` | `0x04010820` | `0x14010eb6` | `0x05011160` | 次低字节恒为 `0x01` |
-| `R14` | `0x48050df5` | `0x1a050f54` | `0xffffffffb805116a` | 次低字节恒为 `0x05` |
-| `R15` | `0x0d0d1973` | `0x0d441973` | `0x0d191973` | 动态映射模块内代码地址（页内偏移恒为 `0x1973`） |
+| 1416 | 0x01994000 | 0x0b49ee40 | 0x0d147ce0 | 0 |
+| 13360 | 0x01994000 | 0x0b2fedc0 | 0x0d4b7ce0 | 0 |
+| 400 | 0x01994000 | 0x0b40ee40 | 0x0d207ce0 | 0 |
+| 26372 | 0x01994000 | 0x0b53ee40 | 0x0d707ce0 | 0 |
 
-### 2.3 异常未捕获导致进程退出的机制
-1. 线程 `[09]` 运行在动态分配于低地址空间（基址约为 `0x0d050000` ~ `0x0d430000`，邻近 `ACE-Base64.dll` 所在的 `0x0dc30000`）的模块中，该动态模块未注册到 `PEB->Ldr` 模块列表（不在 `ModuleListStream` 的 205 个模块内）。
-2. 当该模块在偏移 `0x1973`（`R15`）附近通过 `_CxxThrowException` 抛出 `_ThrowInfo` 位于偏移 `0x7ce0`（`ExceptionInformation[2]`）的 C++ 异常时，CRT 调用 `RtlPcToFileHeader` 查找所属模块基址。
-3. 由于该动态内存区域未在 `PEB->Ldr` 注册，`RtlPcToFileHeader` 返回 `NULL`，导致 `ExceptionInformation[3]`（`ThrowImageBase`）被设为 `0x0`。
-4. Windows x64 异常分发器在解析 `_ThrowInfo` 中的相对虚拟地址（RVA）时依赖有效的 `ThrowImageBase`，当 `ThrowImageBase == 0x0` 时无法匹配 `catch` 块，直接触发未处理异常并终止客户端进程。
+[Microsoft 异常代码说明](https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/specific-exceptions)将 `0xe06d7363` 标为 C++ EH 异常代码。这个代码说明异常类别，不能识别业务错误、发起组件或者具体输入触发条件。
 
-## 3. 崩溃前窗口焦点变化与后台输入时间线
+四份文件均没有 `ThreadInfoListStream`。异常参数中的地址均未匹配到 `ModuleListStream` 列出的模块。现有描述无法确定异常线程的启动函数、模块归属以及异常对象的含义。线程列表中的位置不足以证明创建顺序或者组件归属；第四个异常参数为零也不足以证明异常无法被捕获。
 
-对比三次崩溃前后的 `ok-script.log` 与故障记录，三次崩溃全部发生在**游戏窗口刚刚从前台切换到后台（`visible:False`）后的 2.6 ~ 4.7 秒内**，且期间脚本仍在通过 `PostMessageInteraction` 高频发送 `WM_ACTIVATE(WA_ACTIVE)` 与输入消息：
+`docs/inspect_crash_metadata.py` 使用已安装的 `minidump` 库解析文件头、目录、异常、模块描述以及可用的线程描述。工具不读取进程内存内容、线程寄存器或反作弊程序。已对四份真实转储成功运行。输出保存在本机 `cache/crash-metadata-2026-10-11.json`。
 
-### 3.1 第一次崩溃（2026-10-10 10:05:50）
-- `10:05:45.321`：游戏窗口失去前台焦点（`visible:False, exists:1`）。
-- `10:05:46.995` ~ `10:05:48.200`：`DailyTask` 与 `GardenTask` 在后台状态下发送 `send_key('esc')`、`send_key('f2')`，每次调用均附带 `PostMessage(hwnd, WM_ACTIVATE, WA_ACTIVE, 0)`。
-- `10:05:50`：游戏在窗口失去焦点约 4.7 秒后触发线程 `[09]` 异常崩溃。
+## 清霄操作记录
 
-### 3.2 第二次崩溃（2026-10-11 08:36:28）
-- `08:36:22.860` ~ `08:36:23.294`：`ForgeryTask` 执行 `do_walk_to_box`，依次发送 `send_key_down('d')`、`send_key_up('d')`、`send_key_down('s')`。
-- `08:36:24.499`：游戏窗口失去前台焦点（`visible:False, exists:1`），此时 `s` 键仍处于按下状态。
-- `08:36:28`：游戏在窗口失去焦点约 3.5 秒后触发线程 `[09]` 异常崩溃。
+用户观察到多次崩溃发生在清霄御剑飞行持续一小段时间之后。现有时间线支持重点检查这一场景，但记录器没有保存飞行状态、图标识别结果和实际消息发送结果。
 
-### 3.3 第三次崩溃（2026-10-11 09:29:11）
-- `09:29:07.568`：游戏窗口失去前台焦点（`visible:False, exists:1`）。
-- `09:29:07.706` ~ `09:29:10.230`：`TacetTask` 中的 `Suisui` 在后台状态下连续发送 6 次鼠标左键点击、1 次 `send_key('r')`、3 次 `send_key('e')`，每次操作均通过 `PostMessageInteraction.try_activate()` 发送 `WM_ACTIVATE(WA_ACTIVE)`。在此 2.52 秒内 WGC 正常返回了多帧画面。
-- `09:29:10.230` ~ `09:29:11`：游戏在窗口失去焦点约 3.4 秒后触发线程 `[09]` 异常崩溃。
+### 08:36 事件
 
-### 3.4 前台运行对照
-在 `2026-10-11 09:44:37` 重新启动游戏并执行 `MultiAccountDailyTask` 后，游戏窗口自 `09:47:33` 起保持在前台（`visible:True`），连续执行 `TacetTask` 与 `NightmareNestTask` 超过 15 分钟未发生异常。
+来源：`ok-wuthering-waves/logs/ok-script.log` 和 `logs/faults/incident-bbfcd00d69024a5cbbb032d22257f96b.json`。
 
-## 4. 崩溃后多账户任务未能自动重启恢复的原因
+- 08:35:47.605：切换到 `Qingxiao`。
+- 08:35:51.106：请求共鸣技能 `e`。
+- 08:35:54.499 至 08:35:56.266：请求保持左键按下约 1.77 秒，随后释放。
+- 08:36:05.660：选择从 `Qingxiao` 切换到 `Sanhua`。
+- 08:36:05.667 至 08:36:08.675：重新锁敌失败，战斗检查报告离开战斗。
+- 08:36:19.080：退出战斗循环。
+- 08:36:22.685：开始移动到奖励位置；随后请求 `d` 和 `s`。
+- 08:36:24.499：窗口失去前台。
+- 08:36:28：Windows 记录客户端异常。
 
-1. 在 `src/task/BaseWWTask.py` 的 `_raise_if_game_window_disconnected()` 中，当检测到游戏窗口句柄失效（`hwnd_window.exists == False`）时，直接抛出了 `TaskDisabledException`。
-2. 在 `src/task/DailyTask.py` 与 `src/task/MultiAccountDailyTask.py` 的 `_execute_daily_for_account()` 中，`TaskDisabledException` 被视为用户主动停止任务（`not self.enabled`）而直接向上传递，跳过了 `MultiAccountDailyTask` 外层捕获普通异常并调用 `start_device()` 重新启动客户端的恢复分支。
+这一段保留的清霄请求中没有共鸣解放 `r`。左键释放时间早于连续重新锁敌请求，现有记录不支持左键长按与这些锁敌请求同时执行。
+
+### 21:08 事件
+
+来源：`ok-wuthering-waves/logs/ok-script.log` 和 `logs/faults/incident-8922d0cb045f48dbafa2856e5d414f2d.json`。
+
+- 21:07:39.140：切换到 `Qingxiao`，此次任务为 `AutoCombatTask`。
+- 21:07:42.577：请求共鸣技能 `e`。
+- 21:07:49.843 至 21:07:51.578：请求保持左键按下约 1.74 秒，随后释放。
+- 21:07:51.630、21:07:51.744：请求普通攻击。
+- 21:07:51.834 至 21:07:53.753：连续请求鼠标中键锁敌。
+- 21:07:53.790 至 21:07:55.009：继续请求普通攻击。
+- 21:07:55.043 起：多次 `bring_to_front` 失败；21:07:55.061 记录窗口失去前台。
+- 21:07:57.765：请求切换角色 `1`。
+- 21:08:00：Windows 记录客户端异常。
+- 21:08:05.116：窗口消失。
+- 21:08:14.069：任务检测窗口断开。
+
+这一段保留的清霄请求中同样没有共鸣解放 `r`。当前前台保护代码在该会话已经启用，`WM_ACTIVATE` 会被过滤；前台恢复失败时，主动输入会被过滤。记录器在任务入口保存 `input_request`，因此不能将失去前台后的请求数量当作实际发送数量。
+
+## 角色与公共战斗代码
+
+`src/char/Qingxiao.py` 的 `do_perform()` 在满足增益和变奏条件时运行最多 18 秒的循环。`handle_heavy()` 根据 `qingxiao_h1/qingxiao_h2` 图标长按左键，图标持续消失后释放；返回结果等于 `Labels.qingxiao_h2` 时才进入共鸣解放分支。
+
+`handle_heavy()` 返回按下左键之前取得的 `heavy.name`。等待期间再次识别到的图标没有写回 `heavy`。如果实际画面在保持按键期间由 `h1` 变为 `h2`，返回结果仍对应开始时的图标。现有日志没有这些识别结果，无法确认两次事件是否经过这一变化。
+
+清霄沿用 `BaseChar.skip_combat_check()` 的默认结果 `False`。公共 `CombatCheck.do_check_in_combat()` 在目标识别失败时进入 `target_enemy()`，按照 `interval=0.2` 请求鼠标中键，持续最多 3 秒。任务入口记录器会记录被间隔限制过滤的请求。重击等待中的 `sleep()` 可以触发公共战斗检查；本次两份时间线显示连续锁敌请求发生在左键释放之后。
+
+上述代码和操作序列提供具体检查位置，尚未证明这些动作引发客户端的 C++ 异常。
+
+## 其他同类异常记录
+
+09:29 事件来自 `G:\geme_auto_stable\ok-wuthering-waves\logs\ok-script.log`。当时加载的队伍为 `Hiyuki/Lucilla/Suisui`；09:29:02 切换到 `Suisui`，09:29:03.453 开始重新锁敌，09:29:07.568 窗口失去前台。对应故障时间线文件为 `incident-b46a11e5b9bb42c680deebc7a8790346.json`。该客户端异常的结构与最新事件一致，因此异常结构本身无法证明清霄是全部事件的共同触发条件。
+
+10 月 10 日 10:05 事件发生时，脚本正在领取通行证并检查每周花园。异常之前的前台变化可能属于崩溃过程，现有记录无法确定前台变化与客户端异常的因果方向。
+
+## 证据限制与验证条件
+
+当前已确认客户端发生重复的同类异常。具体发起组件、异常含义以及触发动作仍未确定。清霄御剑飞行是用户提供的关键观察，需保留为重点验证条件。
+
+本次未启动游戏进行复现。用户选择继续分析已有记录。现有记录缺少飞行画面、`h1/h2` 逐帧识别结果、实际消息发送时间和崩溃对话框内容；转储元数据也无法提供异常发起函数。确认根因需要这些证据，或能够准确解释该异常的游戏官方诊断记录。
