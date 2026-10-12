@@ -163,6 +163,21 @@ class TeamRotation:
             self.fail(character, 'concerto not full before switch')
         if not self.quick_sanhua:
             self.wait(character, lambda: character.task.in_team()[0], 3, 'team HUD unavailable before switch')
+        if self.actor == Labels.char_qingxiao:
+            self.switch_pending = True
+            target = next(char for char in character.task.chars if self.identity(char) == self.target)
+            if character.echo_available():
+                if not character.click_echo(time_out=0):
+                    self.fail(character, 'echo input failed before switch')
+                character.task.send_key(target.index + 1)
+                character.logger.info('Team rotation Qingxiao: echo and switch inputs submitted')
+            check_f_on_switch = character.check_f_on_switch
+            character.check_f_on_switch = False
+            try:
+                character.task.switch_next_char(character, post_action=self.advance, free_intro=True)
+            finally:
+                character.check_f_on_switch = check_f_on_switch
+            return
         self.switch_pending = True
         character.logger.info(f'Team rotation {self.actor}: switch to {self.target}, quick={self.quick_sanhua}')
         check_f_on_switch = character.check_f_on_switch
@@ -265,7 +280,6 @@ class TeamRotation:
             self.deadline(character, start)
             if not self.liberation(character):
                 self.normal(character)
-        self.echo(character, before_switch=True)
 
 
 class Qingxiao(BaseChar):
