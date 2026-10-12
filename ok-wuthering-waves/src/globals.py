@@ -39,9 +39,6 @@ class Globals:
 
     def on_show_main_window(self, main_window):
         from src.gui.TaskFloatingWindow import start_task_floating_window
-        from src.utils.ResolutionEmail import ResolutionEmail
-        if not hasattr(self, 'resolution_email'):
-            self.resolution_email = ResolutionEmail()
         self.task_floating_window = start_task_floating_window(main_window)
 
 
