@@ -113,11 +113,12 @@ class TeamRotation:
         character.logger.info(f'Team rotation {character.char_name}: liberation confirmed')
         return True
 
-    def echo(self, character):
+    def echo(self, character, before_switch=False):
         if character.echo_available():
             if not character.click_echo(time_out=1.5):
                 self.fail(character, 'echo state unchanged')
-            character.sleep(0.35)
+            if not before_switch:
+                character.sleep(0.35)
             character.task.next_frame()
             self.wait(character, lambda: not character.echo_available(), 1.5, 'echo cooldown missing')
 
@@ -165,6 +166,15 @@ class TeamRotation:
     def sanhua(self, character, start):
         if not self.full(character):
             ice_created = self.resonance(character)
+            character.task.next_frame()
+            ready = self.liberation_ready(character)
+            character.logger.info(
+                f'Team rotation Sanhua: liberation after resonance ready={ready}, '
+                f'elapsed={character.time_elapsed_accounting_for_freeze(character.last_liberation):.3f}, '
+                f'cooldown={character.task.get_cd("liberation"):.3f}, '
+                f'highlighted={character.task.box_highlighted("liberation")}')
+            if not ready and character.task.use_liberation:
+                character.task.screenshot('Sanhua_liberation_after_resonance')
             ice_created = self.liberation(character) or ice_created
             if ice_created:
                 before = character.get_current_con()
@@ -191,9 +201,9 @@ class TeamRotation:
             character.cycle_start()
             heavy = character.handle_heavy()
             if heavy:
-                character.f_break()
                 if heavy == Labels.qingxiao_h2:
                     break
+                character.f_break()
             elif character.enhanced_resonance_available():
                 self.resonance(character, enhanced=True)
             else:
@@ -210,6 +220,7 @@ class TeamRotation:
             self.deadline(character, start)
             if not self.liberation(character):
                 self.normal(character)
+        self.echo(character, before_switch=True)
 
 
 class Qingxiao(BaseChar):
