@@ -140,9 +140,14 @@ class TeamRotation:
         start = time.time()
         character.logger.info(f'Team rotation round={self.round}: {self.actor} start')
         if self.round and self.actor == Labels.char_verina:
-            self.normal(character, 0.65)
-            self.wait(character, lambda: character.is_mouse_forte_full() or self.full(character),
-                      1.5, 'Verina entry photosynthesis energy missing')
+            entry_start = time.time()
+            while not character.is_mouse_forte_full() and not self.full(character):
+                self.deadline(character, start)
+                if time.time() - entry_start >= 2.5:
+                    self.fail(character, 'Verina entry photosynthesis energy missing')
+                self.normal(character, 0.25)
+            character.logger.info(
+                f'Team rotation Verina: entry resource confirmed after {time.time() - entry_start:.3f}s')
         elif self.actor == Labels.char_qingxiao:
             character.wait_down(click=True)
         else:
