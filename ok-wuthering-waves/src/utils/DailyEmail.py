@@ -1,5 +1,3 @@
-"""Optional QQ SMTP report configured by the multi-account task."""
-
 import os
 import smtplib
 import ssl
@@ -47,6 +45,35 @@ def send_daily_report(results, started, ended, status, config=None):
     lines.extend(['', '仅列出本轮实际尝试的账号；跳过或未运行的账号不计入成功。',
                   '成功表示日常任务正常返回；失败详情请查看本机日志。'])
     message.set_content('\n'.join(lines))
+    return send_message(message, config)
+
+
+def send_resolution_report(previous, current, detected, task_name, config):
+    if not config.get(EMAIL_ENABLED, False):
+        return False
+    message = EmailMessage()
+    message['Subject'] = f'鸣潮游戏窗口分辨率变化：{previous[0]}×{previous[1]} → {current[0]}×{current[1]}'
+    message.set_content('\n'.join([
+        f'检测时间：{detected:%Y-%m-%d %H:%M:%S %z}',
+        f'变化前：{previous[0]}×{previous[1]}',
+        f'变化后：{current[0]}×{current[1]}',
+        f'当前任务：{task_name or "没有正在执行的任务"}',
+        '记录的是游戏窗口内容区域的尺寸。',
+    ]))
+    return send_message(message, config)
+
+
+def send_message(message, config):
+    if not config.get(EMAIL_ENABLED, False):
+        return False
+    sender = config.get(EMAIL_SENDER, '').strip()
+    recipient = config.get(EMAIL_TO, '').strip() or sender
+    password = config.get(EMAIL_AUTH, '').strip()
+    if not sender or not recipient or not password:
+        raise ValueError('Missing email settings')
+    if 'From' not in message:
+        message['From'] = sender
+        message['To'] = recipient
     with smtplib.SMTP_SSL('smtp.qq.com', 465, timeout=20,
                           context=ssl.create_default_context()) as smtp:
         smtp.login(sender, password)
