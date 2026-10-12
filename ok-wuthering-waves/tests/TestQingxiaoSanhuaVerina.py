@@ -1,4 +1,5 @@
 import json
+import shutil
 import tempfile
 import time
 import unittest
@@ -9,7 +10,8 @@ from config import config
 from ok.test.TaskTestCase import TaskTestCase
 from src.Labels import Labels
 from src.char.BaseChar import BaseChar, CharType, Elements
-from src.char.CustomCharLoader import _load_class_from_file, inspect_team_archive
+from src.char.CustomCharLoader import _load_class_from_file, get_custom_team_folder, inspect_team_archive
+from src.char.CharFactory import apply_team_char_classes
 from src.char.Qingxiao import Qingxiao
 from src.char.Sanhua import Sanhua
 from src.char.Verina import Verina
@@ -87,6 +89,28 @@ class TestQingxiaoSanhuaVerina(TaskTestCase):
             self.assertFalse(self.rotation.liberation_ready(character))
             self.assertFalse(self.rotation.liberation(character))
 
+    def test_live_reload_replaces_rotation_and_preserves_progress(self):
+        previous_class = _load_class_from_file(Qingxiao, PACK / 'Qingxiao.py', 'previous_team_qingxiao')
+        previous = previous_class(self.task, 1, char_name=Labels.char_qingxiao,
+                                  char_type=CharType.MAIN_DPS, ring_index=Elements.WIND)
+        self.task.chars[1] = previous
+        previous_rotation = previous.team_rotation()
+        previous_rotation.step = 1
+        previous_rotation.round = 2
+        previous_rotation.switch_pending = True
+        folder = get_custom_team_folder(('Qingxiao', 'Sanhua', 'Verina'), create=True)
+        for name in ('Qingxiao.py', 'Sanhua.py', 'Verina.py', 'team.json'):
+            shutil.copyfile(PACK / name, folder / name)
+        apply_team_char_classes(self.task, self.task.chars)
+        current = self.task.chars[1]
+        rotation = current.team_rotation()
+        self.assertIsNot(type(current), previous_class)
+        self.assertIsNot(rotation, previous_rotation)
+        self.assertEqual(rotation.step, 1)
+        self.assertEqual(rotation.round, 2)
+        self.assertTrue(rotation.switch_pending)
+        self.assertEqual(rotation.target, Labels.char_qingxiao)
+
     def test_qingxiao_indicators_in_annotated_images(self):
         assets = Path('assets')
         data = json.loads((assets / 'coco_annotations.json').read_text(encoding='utf-8'))
@@ -102,6 +126,7 @@ class TestQingxiaoSanhuaVerina(TaskTestCase):
                     self.assertIsNotNone(self.task.find_one(label, threshold=0.7))
                     if label == Labels.qingxiao_e:
                         self.assertTrue(self.qingxiao.enhanced_resonance_available())
+                        self.assertFalse(self.rotation.resonance_completed(self.qingxiao, enhanced=True))
                     else:
                         self.assertTrue(self.qingxiao.heavy_available())
 

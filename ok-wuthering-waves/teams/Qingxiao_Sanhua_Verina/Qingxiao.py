@@ -87,11 +87,15 @@ class TeamRotation:
             self.fail(character, 'resonance input failed')
         character.sleep(0.35)
         character.task.next_frame()
-        condition = (lambda: not character.enhanced_resonance_available()) if enhanced else (
-            lambda: not character.resonance_available())
-        self.wait(character, condition, 1.5, 'resonance state unchanged')
+        self.wait(character, lambda: self.resonance_completed(character, enhanced), 1.5,
+                  'resonance state unchanged')
         character.logger.info(f'Team rotation {character.char_name}: resonance confirmed')
         return True
+
+    def resonance_completed(self, character, enhanced=False):
+        if self.identity(character) == Labels.char_qingxiao and enhanced:
+            return not character.enhanced_resonance_available()
+        return not character.resonance_available()
 
     def liberation_ready(self, character):
         cooldown = self.LIBERATION_CD[self.identity(character)]
@@ -182,20 +186,16 @@ class TeamRotation:
     def qingxiao(self, character, start):
         if not character.has_intro or character.check_outro() not in (Labels.char_sanhua, Labels.char_sanhua2):
             self.fail(character, 'Sanhua outro missing')
-        self.echo(character)
-        first_heavy = False
         while True:
             self.deadline(character, start)
             character.cycle_start()
             heavy = character.handle_heavy()
-            if heavy == Labels.qingxiao_h2:
-                break
-            if heavy == Labels.qingxiao_h1:
-                first_heavy = True
+            if heavy:
+                character.f_break()
+                if heavy == Labels.qingxiao_h2:
+                    break
             elif character.enhanced_resonance_available():
                 self.resonance(character, enhanced=True)
-            elif not first_heavy and character.resonance_available():
-                self.resonance(character)
             else:
                 character.click()
             character.cycle_sleep()
@@ -224,8 +224,13 @@ class Qingxiao(BaseChar):
         if len(self.task.chars) != 3 or {TeamRotation.identity(char) for char in self.task.chars if char} != set(
                 TeamRotation.ORDER):
             raise RuntimeError('Qingxiao team rotation requires Qingxiao, Sanhua, Verina')
-        if getattr(self, '_team_rotation', None) is None:
+        rotation = getattr(self, '_team_rotation', None)
+        if not isinstance(rotation, TeamRotation):
             self._team_rotation = TeamRotation()
+            if rotation is not None:
+                self._team_rotation.step = rotation.step
+                self._team_rotation.round = rotation.round
+                self._team_rotation.switch_pending = rotation.switch_pending
         return self._team_rotation
 
     def do_perform(self):
