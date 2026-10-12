@@ -23,6 +23,8 @@ parser.add_argument("--camera-only", action="store_true")
 parser.add_argument("--timing-only", action="store_true")
 parser.add_argument("--camera-sensitivity", type=float)
 parser.add_argument("--combat-only", action="store_true")
+parser.add_argument("--teleport-only", action="store_true")
+parser.add_argument("--map-controls-only", action="store_true")
 arguments = parser.parse_args()
 
 from config import config
@@ -181,11 +183,77 @@ class MovementVerificationTask(QuestStoryTask):
         print("真实血条进入剧情战斗与角色攻击检查通过", char.name, self.attack_clicks, self.input_events, flush=True)
         self.verified = True
 
+    def verify_map_controls(self):
+        if self._is_quest_log_open() or self._is_quest_map_open():
+            self._close_map_overlays()
+        self.next_frame()
+        if detect_quest_beacon(self.frame).found:
+            self.goal_seen_beacon = True
+            self.last_beacon_seen_time = time.time()
+        self.send_key("j")
+        self.wait_until(self._is_quest_log_open, time_out=8, raise_if_not_found=True)
+        proceed = self.wait_until(self._find_proceed_button, time_out=8, settle_time=.25, raise_if_not_found=True)
+        self.click(proceed)
+        self.sleep(.5)
+        self.next_frame()
+        if not self._is_quest_log_open() and not self._is_quest_map_open():
+            self.send_key("m")
+        self.wait_until(self._is_quest_map_open, time_out=8, settle_time=.25, raise_if_not_found=True)
+        map_proceed = None
+        if self._is_map_quest_detail_open():
+            map_proceed = self.wait_until(self._find_proceed_button, time_out=8, settle_time=.25, raise_if_not_found=True)
+        if self.in_team_and_world():
+            raise AssertionError("真实地图任务卡片被识别成大世界")
+        output = root / "screenshots/quest-teleport-verification"
+        output.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(output / "map-card-ready.png"), self.frame)
+        print("真实地图界面判断检查通过", None if map_proceed is None else (map_proceed.name, map_proceed.center()), flush=True)
+        self._close_map_overlays()
+        self.verified = True
+
+    def verify_teleport(self):
+        if self._is_quest_log_open() or self._is_quest_map_open():
+            self._close_map_overlays()
+        self.wait_until(self._can_continue_quest_input, time_out=15, raise_if_not_found=True)
+        beacon = detect_quest_beacon(self.frame)
+        distance = self._extract_quest_distance(self.frame, beacon)
+        if distance is None or distance <= 200:
+            raise AssertionError("当前真实任务距离没有达到远距离传送条件")
+        self._read_quest_goal(self.frame, force=True)
+        self._read_scene_coordinates(self.frame, force=True)
+        coordinate = self._current_movement_coordinate()
+        if beacon.found:
+            self.goal_seen_beacon = True
+            self.last_beacon_seen_time = time.time()
+        output = root / "screenshots/quest-teleport-verification"
+        output.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(output / "before.png"), self.frame)
+        if not self._try_teleport_to_nearest_waypoint(distance):
+            raise AssertionError("真实任务远距离传送没有完成")
+        self.next_frame()
+        self._read_scene_coordinates(self.frame, force=True)
+        after_coordinate = self._current_movement_coordinate()
+        after_distance = self._extract_quest_distance(self.frame, detect_quest_beacon(self.frame))
+        if not ((coordinate is not None and after_coordinate is not None and math.dist(coordinate, after_coordinate) > 100)
+                or (after_distance is not None and distance - after_distance > 100)):
+            raise AssertionError("返回大世界后距离或坐标没有确认传送位移")
+        cv2.imwrite(str(output / "after.png"), self.frame)
+        print("真实任务地图卡片加载与传送检查通过", distance, after_distance, coordinate, after_coordinate, flush=True)
+        self.verified = True
+
     def run(self):
         try:
             self.ensure_in_front()
             self.sleep(.2)
             self.next_frame()
+            if arguments.map_controls_only:
+                self._stop_all_movement()
+                self.verify_map_controls()
+                return
+            if arguments.teleport_only:
+                self._stop_all_movement()
+                self.verify_teleport()
+                return
             if arguments.combat_only:
                 self._stop_all_movement()
                 self.verify_combat()

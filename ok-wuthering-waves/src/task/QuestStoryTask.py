@@ -195,6 +195,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 is_quest_open = False
             if is_quest_open:
                 return result
+            if self._is_quest_map_open(frame):
+                return result
             if not self._is_letterbox_cutscene(frame):
                 beacon_found = detect_quest_beacon(frame).found
                 combat_active = False
@@ -1884,11 +1886,34 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             return None
         return None
 
+    def _is_quest_map_open(self, frame: Optional[np.ndarray] = None) -> bool:
+        target_frame = frame if frame is not None else self.frame
+        if target_frame is None or target_frame.size == 0 or self._is_quest_log_open(target_frame):
+            return False
+        boxes = self.ocr(
+            .65, .82, .99, .99,
+            match=["取消追踪", "前往", "切换地图", "快速旅行", "传送", "Proceed",
+                   "Cancel Tracking", "Switch Map", "Fast Travel", "Teleport"],
+            frame=target_frame,
+        )
+        return bool(boxes)
+
+    def _quest_travel_ready(self):
+        return (self._detect_teleport_unreachable() or self._detect_closer_to_target_dialog()
+                or self.find_one(['fast_travel_custom', 'gray_teleport'], threshold=.7))
+
+    def _quest_teleport_finished(self):
+        return (not self._is_quest_log_open() and not self._is_quest_map_open()
+                and self.in_team_and_world())
+
     def _close_map_overlays(self):
+        self.goal_seen_beacon = False
+        self.last_beacon_seen_time = 0.0
+        self.last_world_seen_time = 0.0
         for _ in range(3):
             self.send_key("esc", down_time=0.1)
             self.sleep(1.2)
-            if self.in_team_and_world():
+            if self._quest_teleport_finished():
                 break
         self.navigation_progress = QuestProgressTracker()
 
@@ -1904,63 +1929,41 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             f"任务目标距离超过 200 米 (当前 {current_distance:.1f} 米)，尝试打开地图定位并传送到附近传送点"
         )
 
-        # 1. 发送快捷键 J 打开任务日志界面
-        self.send_key("j")
-        quest_log_opened = False
-        start_wait = time.time()
-        while time.time() - start_wait < 3.0:
-            self.sleep(0.3)
-            if self._is_quest_log_open() or self._find_proceed_button() is not None:
-                quest_log_opened = True
-                break
-
-        # 2. 若进入任务日志界面，点击右下角前往按钮切换到大地图定位
-        if quest_log_opened:
-            proceed_btn = self._find_proceed_button()
-            if proceed_btn:
-                self.click(proceed_btn)
-            else:
-                self.click(0.87, 0.914)
-            start_map_wait = time.time()
-            while time.time() - start_map_wait < 3.0:
-                self.sleep(0.4)
-                if not self._is_quest_log_open():
-                    break
-        else:
-            # 若未打开任务日志界面，发送快捷键 M 打开大地图
-            self.send_key("m")
-            self.sleep(2.0)
-
-        # 3. 检查地图界面是否已打开
-        # 若依然停留在全屏任务日志界面，再次尝试点击前往；若依然无法切换，退出界面避免停滞
+        if not self._is_quest_log_open() and not self._is_quest_map_open():
+            self.send_key("j")
+            self.wait_until(lambda: self._is_quest_log_open() or self._is_quest_map_open(), time_out=3)
+        quest_details_expected = self._is_quest_log_open() or self._is_map_quest_detail_open()
         if self._is_quest_log_open():
-            proceed_btn = self._find_proceed_button()
-            if proceed_btn:
-                self.click(proceed_btn)
-            else:
-                self.click(0.87, 0.914)
-            self.sleep(2.0)
-            if self._is_quest_log_open():
-                self.log_info("未从任务日志界面成功切换至地图界面，关闭界面继续地面寻路")
+            proceed_btn = self.wait_until(self._find_proceed_button, time_out=8, settle_time=.25)
+            if not proceed_btn:
+                self.log_info("任务面板前往按钮未能加载完成，关闭界面后重新检查任务")
                 self._close_map_overlays()
                 return False
+            self.click(proceed_btn)
+        elif not self._is_quest_map_open():
+            self.send_key("m")
 
-        if self.in_team_and_world():
-            self.log_info("地图界面未能成功打开，继续执行常规地面寻路")
+        if not self.wait_until(self._is_quest_map_open, time_out=8, settle_time=.25):
+            self.log_info("地图控件未能加载完成，关闭界面后重新检查任务")
             self._close_map_overlays()
             return False
 
-        # 4. 在大地图界面中，优先检测任务详情卡片右下角前往按钮并点击
-        # 触发游戏自动聚焦并选中距离任务目标最近的传送信标
-        map_proceed_btn = self._find_proceed_button()
-        if map_proceed_btn:
-            self.log_info("大地图界面检测到任务详情卡片，点击右下角前往按钮定位最近传送信标")
+        if quest_details_expected or self._is_map_quest_detail_open():
+            if not self.wait_until(self._is_map_quest_detail_open, time_out=8, settle_time=.25):
+                self.log_info("地图任务卡片未能加载完成，关闭界面后重新检查任务")
+                self._close_map_overlays()
+                return False
+            map_proceed_btn = self.wait_until(self._find_proceed_button, time_out=8, settle_time=.25)
+            if not map_proceed_btn:
+                self.log_info("地图任务卡片前往按钮未能加载完成，关闭界面后重新检查任务")
+                self._close_map_overlays()
+                return False
+            self.log_info("地图任务卡片已加载完成，点击前往定位最近传送信标")
             self.click(map_proceed_btn)
-            self.sleep(1.5)
-        elif self._is_map_quest_detail_open():
-            self.log_info("大地图界面检测到任务详情卡片，点击右下角前往按钮定位最近传送信标")
-            self.click(0.91, 0.93)
-            self.sleep(1.5)
+            if not self.wait_until(self._quest_travel_ready, time_out=8, settle_time=.25):
+                self.log_info("任务附近旅行按钮未能加载完成，关闭界面后重新检查任务")
+                self._close_map_overlays()
+                return False
 
         # 4.1 出现"附近信标无法快速到达"提示时放弃传送，关闭界面改为步行
         if self._detect_teleport_unreachable():
@@ -1974,12 +1977,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             return False
 
         # 5. 在地图中检测快速旅行按钮或寻找附近传送信标
-        travel_clicked = False
-        try:
-            if hasattr(self, "click_traval_button") and self.click_traval_button():
-                travel_clicked = True
-        except Exception:
-            pass
+        travel_clicked = bool(self.click_traval_button())
 
         if travel_clicked:
             self.sleep(0.8)
@@ -1996,11 +1994,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             if teleport_point:
                 self.click(teleport_point)
                 self.sleep(1.2)
-                try:
-                    if hasattr(self, "click_traval_button") and self.click_traval_button():
-                        travel_clicked = True
-                except Exception:
-                    pass
+                travel_clicked = bool(self.click_traval_button())
                 if travel_clicked:
                     self.sleep(0.8)
                     if self._detect_closer_to_target_dialog():
@@ -2015,18 +2009,20 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 self._close_map_overlays()
                 return False
 
-            if hasattr(self, "click_confirm"):
-                self.click_confirm()
+            self.log_info("地图中没有可执行的旅行按钮，关闭界面后重新检查任务")
+            self._close_map_overlays()
+            return False
 
         # 5. 等待传送加载完成并返回大世界
         self.log_info("正在执行传送，等待加载完成并返回大世界")
-        self.wait_in_team_and_world(time_out=60, raise_if_not_found=False)
+        self.goal_seen_beacon = False
+        self.last_beacon_seen_time = 0.0
+        self.last_world_seen_time = 0.0
+        if not self.wait_until(self._quest_teleport_finished, time_out=60, settle_time=.5):
+            self.log_info("传送后未能确认返回大世界，关闭界面后重新检查任务")
+            self._close_map_overlays()
+            return False
         self.sleep(2.0)
-
-        # 若依然停留在菜单或地图界面，发送 ESC 键退出
-        if not self.in_team_and_world():
-            self.send_key("esc")
-            self.sleep(1.5)
 
         self.teleport_retry_delay = 30.0
         self.navigation_progress = QuestProgressTracker()
