@@ -68,14 +68,17 @@ class TestQingxiaoSanhuaVerina(TaskTestCase):
         self.assertIsNot(self.qingxiao.team_rotation(), self.rotation)
         self.assertEqual(self.qingxiao.team_rotation().actor, Labels.char_verina)
 
-    def test_missing_intro_and_wrong_target_stop_progress(self):
+    def test_wrong_target_stops_and_missing_intro_preserves_actual_state(self):
         self.rotation.switch_pending = True
-        with self.assertRaisesRegex(RuntimeError, 'requires intro'):
-            self.rotation.advance(self.sanhua, False)
         with self.assertRaisesRegex(RuntimeError, 'expected'):
             self.rotation.advance(self.qingxiao, True)
         self.assertEqual(self.rotation.step, 0)
         self.assertTrue(self.rotation.switch_pending)
+        self.sanhua.has_intro = False
+        self.rotation.advance(self.sanhua, False)
+        self.assertEqual(self.rotation.actor, Labels.char_sanhua)
+        self.assertFalse(self.sanhua.has_intro)
+        self.assertFalse(self.rotation.switch_pending)
 
     def test_sanhua_alternate_portrait_uses_same_rotation(self):
         self.sanhua.char_name = Labels.char_sanhua2
@@ -101,6 +104,8 @@ class TestQingxiaoSanhuaVerina(TaskTestCase):
         previous_rotation.step = 1
         previous_rotation.round = 2
         previous_rotation.switch_pending = True
+        previous_rotation.field_retries = 2
+        previous_rotation.qing_h2_done = True
         folder = get_custom_team_folder(('Qingxiao', 'Sanhua', 'Verina'), create=True)
         for name in ('Qingxiao.py', 'Sanhua.py', 'Verina.py', 'team.json'):
             shutil.copyfile(PACK / name, folder / name)
@@ -112,9 +117,11 @@ class TestQingxiaoSanhuaVerina(TaskTestCase):
         self.assertEqual(rotation.step, 1)
         self.assertEqual(rotation.round, 2)
         self.assertTrue(rotation.switch_pending)
+        self.assertEqual(rotation.field_retries, 2)
+        self.assertTrue(rotation.qing_h2_done)
         self.assertEqual(rotation.target, Labels.char_sanhua)
 
-    def test_quick_switch_only_allows_sanhua_first_loop_entry_without_intro(self):
+    def test_loop_continues_after_missing_intro(self):
         self.rotation.round = 1
         self.rotation.step = 0
         self.rotation.switch_pending = True
@@ -122,11 +129,38 @@ class TestQingxiaoSanhuaVerina(TaskTestCase):
         self.rotation.advance(self.verina, False)
         self.assertEqual(self.rotation.actor, Labels.char_verina)
         self.rotation.switch_pending = True
-        with self.assertRaisesRegex(RuntimeError, 'requires intro'):
-            self.rotation.advance(self.sanhua, False)
-        self.rotation.advance(self.sanhua, True)
+        self.rotation.advance(self.sanhua, False)
         self.assertFalse(self.rotation.quick_sanhua)
         self.assertEqual(self.rotation.actor, Labels.char_sanhua)
+
+    def test_resource_retries_preserve_heavy_then_resume_verina(self):
+        self.rotation.round = 1
+        self.rotation.step = 3
+        self.rotation.qing_h2_done = True
+        for attempt in (1, 2):
+            self.rotation.recover(self.qingxiao)
+            self.assertEqual(self.rotation.field_retries, attempt)
+            self.assertEqual(self.rotation.actor, Labels.char_qingxiao)
+            self.assertTrue(self.rotation.qing_h2_done)
+        self.rotation.recover(self.qingxiao)
+        self.assertEqual(self.rotation.actor, Labels.char_verina)
+        self.assertFalse(self.rotation.qing_h2_done)
+        self.assertEqual(self.rotation.field_retries, 0)
+        self.assertIs(self.task._choose_switch_target(self.qingxiao, False), self.verina)
+        self.rotation.advance(self.verina, False)
+        self.assertEqual(self.rotation.actor, Labels.char_verina)
+        self.rotation.switch_pending = True
+        self.rotation.advance(self.sanhua, True)
+        self.assertEqual(self.rotation.actor, Labels.char_sanhua)
+        self.assertFalse(self.rotation.quick_sanhua)
+
+    def test_confirmed_switch_clears_resource_retries(self):
+        self.rotation.field_retries = 2
+        self.rotation.qing_h2_done = True
+        self.rotation.switch_pending = True
+        self.rotation.advance(self.sanhua, True)
+        self.assertEqual(self.rotation.field_retries, 0)
+        self.assertFalse(self.rotation.qing_h2_done)
 
     def test_qingxiao_indicators_in_annotated_images(self):
         assets = Path('assets')

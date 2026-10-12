@@ -15,6 +15,8 @@ class TeamRotation:
         self.step = 0
         self.round = 0
         self.switch_pending = False
+        self.field_retries = 0
+        self.qing_h2_done = False
 
     @staticmethod
     def identity(character):
@@ -49,29 +51,44 @@ class TeamRotation:
         if not self.switch_pending:
             return
         if not has_intro and not self.quick_sanhua:
-            raise RuntimeError(f'Team rotation requires intro for {target.char_name}')
+            target.logger.warning(f'Team rotation {target.char_name}: intro unavailable, continue from actual resources')
         self.step = (self.step + 1) % len(self.order)
         self.round += int(self.step == 0)
         self.switch_pending = False
+        self.field_retries = 0
+        self.qing_h2_done = False
 
-    def fail(self, character, description):
-        character.task.screenshot('Qingxiao_Sanhua_Verina_failure')
-        raise RuntimeError(f'Team rotation round={self.round} actor={character.char_name}: {description}')
+    def recover(self, character):
+        self.field_retries += 1
+        character.logger.warning(
+            f'Team rotation {self.actor}: continue resource recovery, attempt={self.field_retries}')
+        if self.field_retries >= 3:
+            self.round = max(self.round, 1)
+            self.step = 1
+            self.switch_pending = False
+            self.field_retries = 0
+            self.qing_h2_done = False
+            character.logger.warning('Team rotation: resume from Verina support phase')
 
     def wait(self, character, condition, timeout, description):
         start = time.time()
         while not condition():
             character.check_combat()
             if time.time() - start >= timeout:
-                self.fail(character, description)
+                character.logger.warning(f'Team rotation {self.actor}: {description}, retry from current resources')
+                return False
             character.sleep(0.05)
             character.task.next_frame()
+        return True
 
     def deadline(self, character, start):
         limit = self.FIELD_LIMIT[self.identity(character)]
         character.check_combat()
         if character.time_elapsed_accounting_for_freeze(start) >= limit or time.time() - start >= limit + 25:
-            self.fail(character, f'resource timeout, concerto={character.get_current_con():.3f}')
+            character.logger.warning(
+                f'Team rotation {self.actor}: field budget reached, concerto={character.task.get_current_con():.3f}')
+            return False
+        return True
 
     def full(self, character):
         character.current_con = character.task.get_current_con()
@@ -92,18 +109,25 @@ class TeamRotation:
             return False
         if not character.resonance_available():
             return False
-        if not character.click_resonance(send_click=False, time_out=1.5,
-                                         has_animation=enhanced, animation_min_duration=0.5,
-                                         click_f=False)[0]:
-            self.fail(character, 'resonance input failed')
-        character.sleep(0.35)
-        character.task.next_frame()
-        self.wait(character, lambda: self.resonance_completed(character, enhanced), 1.5,
-                  'resonance state unchanged')
-        character.logger.info(f'Team rotation {character.char_name}: resonance confirmed')
-        return True
+        previous_res = character.last_res
+        for attempt in range(2):
+            clicked = character.click_resonance(send_click=False, time_out=1.5,
+                                               has_animation=enhanced, animation_min_duration=0.5,
+                                               click_f=False)[0]
+            character.sleep(0.15)
+            character.task.next_frame()
+            if clicked and self.wait(character, lambda: self.resonance_completed(character, enhanced),
+                                     0.8, 'resonance completion not confirmed'):
+                character.record_resonance_use()
+                character.logger.info(f'Team rotation {character.char_name}: resonance confirmed')
+                return True
+            character.last_res = previous_res
+            character.logger.warning(f'Team rotation {character.char_name}: resonance retry={attempt + 1}')
+        return False
 
     def resonance_completed(self, character, enhanced=False):
+        if not character.task.in_team()[0]:
+            return False
         if self.identity(character) == Labels.char_qingxiao and enhanced:
             return not character.enhanced_resonance_available()
         return not character.resonance_available()
@@ -118,16 +142,23 @@ class TeamRotation:
     def liberation(self, character):
         if not self.liberation_ready(character):
             return False
-        if not character.click_liberation(wait_if_cd_ready=0, send_click=False, click_f=False):
-            self.fail(character, 'liberation animation missing')
-        character.task.next_frame()
-        character.logger.info(f'Team rotation {character.char_name}: liberation confirmed')
-        return True
+        for attempt in range(2):
+            if character.click_liberation(wait_if_cd_ready=0, send_click=False, click_f=False):
+                character.task.next_frame()
+                character.logger.info(f'Team rotation {character.char_name}: liberation confirmed')
+                return True
+            character.logger.warning(f'Team rotation {character.char_name}: liberation retry={attempt + 1}')
+            character.sleep(0.1)
+            character.task.next_frame()
+            if not self.liberation_ready(character):
+                break
+        return False
 
     def echo(self, character, before_switch=False):
         if character.echo_available():
             if not character.click_echo(time_out=1.5):
-                self.fail(character, 'echo state unchanged')
+                character.logger.warning('Team rotation: echo completion not confirmed, continue rotation')
+                return
             if not before_switch:
                 character.sleep(0.35)
             character.task.next_frame()
@@ -142,33 +173,46 @@ class TeamRotation:
         if self.round and self.actor == Labels.char_verina:
             entry_start = time.time()
             while not character.is_mouse_forte_full() and not self.full(character):
-                self.deadline(character, start)
+                if not self.deadline(character, start):
+                    self.recover(character)
+                    return
                 if time.time() - entry_start >= 2.5:
-                    self.fail(character, 'Verina entry photosynthesis energy missing')
+                    character.logger.warning('Team rotation Verina: entry energy unavailable, charge with skills')
+                    break
                 self.normal(character, 0.25)
-            character.logger.info(
-                f'Team rotation Verina: entry resource confirmed after {time.time() - entry_start:.3f}s')
+            if character.is_mouse_forte_full() or self.full(character):
+                character.logger.info(
+                    f'Team rotation Verina: entry resource confirmed after {time.time() - entry_start:.3f}s')
         elif self.actor == Labels.char_qingxiao:
             character.wait_down(click=True)
         else:
             character.wait_down(click=False)
-        self.wait(character, lambda: character.task.in_team()[0], 3, 'team HUD unavailable')
+        if not self.wait(character, lambda: character.task.in_team()[0], 3, 'team HUD unavailable'):
+            self.recover(character)
+            return
         if self.actor == Labels.char_verina:
-            self.verina(character, start)
+            completed = self.verina(character, start)
         elif self.actor == Labels.char_sanhua:
-            self.sanhua(character, start)
+            completed = self.sanhua(character, start)
         else:
-            self.qingxiao(character, start)
+            completed = self.qingxiao(character, start)
+        if not completed:
+            self.recover(character)
+            return
         if not self.quick_sanhua and not self.full(character):
-            self.fail(character, 'concerto not full before switch')
+            self.recover(character)
+            return
         if not self.quick_sanhua:
-            self.wait(character, lambda: character.task.in_team()[0], 3, 'team HUD unavailable before switch')
+            if not self.wait(character, lambda: character.task.in_team()[0], 3, 'team HUD unavailable before switch'):
+                self.recover(character)
+                return
         if self.actor == Labels.char_qingxiao:
             self.switch_pending = True
             target = next(char for char in character.task.chars if self.identity(char) == self.target)
             if character.echo_available():
-                if not character.click_echo(time_out=0):
-                    self.fail(character, 'echo input failed before switch')
+                character.send_echo_key()
+                character.send_echo_key()
+                character.record_echo_use()
                 character.task.send_key(target.index + 1)
                 character.logger.info('Team rotation Qingxiao: echo and switch inputs submitted')
             check_f_on_switch = character.check_f_on_switch
@@ -190,35 +234,39 @@ class TeamRotation:
 
     def verina(self, character, start):
         if self.round and self.full(character):
-            return
+            return True
         self.liberation(character)
         self.resonance(character)
         self.echo(character)
         while not self.full(character):
-            self.deadline(character, start)
+            if not self.deadline(character, start):
+                return False
             self.liberation(character)
             if character.is_mouse_forte_full():
-                before = character.get_current_con()
+                before = character.task.get_current_con()
                 character.task.mouse_down()
                 try:
                     character.sleep(0.7)
                 finally:
                     character.task.mouse_up()
                 self.normal(character, 0.65)
-                self.wait(character, lambda: character.get_current_con() > before + 0.03 or character.is_con_full(),
-                          1.5, 'photosynthesis concerto missing')
+                if not self.wait(character, lambda: character.task.get_current_con() > before + 0.03
+                                 or self.full(character), 1.5, 'photosynthesis concerto not confirmed'):
+                    self.normal(character, 0.3)
             elif not self.resonance(character):
                 self.normal(character)
+        return True
 
     def sanhua(self, character, start):
         if self.round and not self.quick_sanhua:
             if not self.full(character):
                 self.resonance(character)
             while not self.full(character):
-                self.deadline(character, start)
+                if not self.deadline(character, start):
+                    return False
                 self.normal(character)
             self.echo(character, before_switch=True)
-            return
+            return True
         if self.quick_sanhua or not self.full(character):
             ice_created = self.resonance(character)
             character.task.next_frame()
@@ -232,7 +280,7 @@ class TeamRotation:
                 character.task.screenshot('Sanhua_liberation_after_resonance')
             ice_created = self.liberation(character) or ice_created
             if ice_created:
-                before = character.get_current_con()
+                before = character.task.get_current_con()
                 character.task.mouse_down()
                 try:
                     character.sleep(0.85)
@@ -240,28 +288,33 @@ class TeamRotation:
                     character.task.mouse_up()
                 if self.quick_sanhua:
                     character.logger.info('Team rotation Sanhua: heavy released, switch immediately')
-                    return
+                    return True
                 character.sleep(0.8)
                 character.task.next_frame()
-                self.wait(character, lambda: character.get_current_con() > before + 0.05 or character.is_con_full(),
-                          1.5, 'ice burst concerto missing')
-                character.logger.info('Team rotation Sanhua: combined ice burst concerto confirmed')
+                if self.wait(character, lambda: character.task.get_current_con() > before + 0.05
+                             or self.full(character), 1.5, 'ice burst concerto not confirmed'):
+                    character.logger.info('Team rotation Sanhua: combined ice burst concerto confirmed')
             elif self.quick_sanhua:
-                self.fail(character, 'Sanhua ice skills unavailable before quick switch')
+                self.normal(character)
+                return False
         while not self.full(character):
-            self.deadline(character, start)
+            if not self.deadline(character, start):
+                return False
             self.normal(character)
         self.echo(character)
+        return True
 
     def qingxiao(self, character, start):
         if not character.has_intro or character.check_outro() not in (Labels.char_sanhua, Labels.char_sanhua2):
-            self.fail(character, 'Sanhua outro missing')
-        while True:
-            self.deadline(character, start)
+            character.logger.warning('Team rotation Qingxiao: Sanhua outro unavailable, continue actual output state')
+        while not self.qing_h2_done:
+            if not self.deadline(character, start):
+                return False
             character.cycle_start()
             heavy = character.handle_heavy()
             if heavy:
                 if heavy == Labels.qingxiao_h2:
+                    self.qing_h2_done = True
                     break
                 character.f_break()
             elif character.enhanced_resonance_available():
@@ -269,7 +322,8 @@ class TeamRotation:
             else:
                 character.click()
             character.cycle_sleep()
-        self.wait(character, lambda: character.task.in_team()[0], 3, 'second heavy animation unfinished')
+        if not self.wait(character, lambda: character.task.in_team()[0], 3, 'second heavy animation unfinished'):
+            return False
         energy_start = time.time()
         while not self.liberation_ready(character) and time.time() - energy_start < 1.5:
             character.check_combat()
@@ -277,9 +331,11 @@ class TeamRotation:
             character.task.next_frame()
         self.liberation(character)
         while not self.full(character):
-            self.deadline(character, start)
+            if not self.deadline(character, start):
+                return False
             if not self.liberation(character):
                 self.normal(character)
+        return True
 
 
 class Qingxiao(BaseChar):
@@ -301,6 +357,8 @@ class Qingxiao(BaseChar):
                 self._team_rotation.step = rotation.step
                 self._team_rotation.round = rotation.round
                 self._team_rotation.switch_pending = rotation.switch_pending
+                self._team_rotation.field_retries = getattr(rotation, 'field_retries', 0)
+                self._team_rotation.qing_h2_done = getattr(rotation, 'qing_h2_done', False)
                 if rotation.round and tuple(getattr(rotation, 'order', rotation.ORDER)) != self._team_rotation.order:
                     self._team_rotation.step = {
                         Labels.char_verina: 1,
@@ -358,6 +416,9 @@ class Qingxiao(BaseChar):
             self.sleep(0.05)
             self.task.next_frame()
         if not confirmed:
-            self.team_rotation().fail(self, f'{label} state unchanged')
+            self.logger.warning(f'Team rotation Qingxiao: {label} completion not confirmed, retry output')
+            self.continues_normal_attack(0.3)
+            self.task.next_frame()
+            return False
         self.logger.info(f'Team rotation Qingxiao: {label} confirmed after {time.time() - start:.3f}s')
         return label
