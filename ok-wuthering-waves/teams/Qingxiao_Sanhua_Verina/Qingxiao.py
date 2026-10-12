@@ -6,6 +6,7 @@ from src.char.BaseChar import BaseChar, SwitchPriority
 
 class TeamRotation:
     ORDER = (Labels.char_verina, Labels.char_sanhua, Labels.char_qingxiao)
+    LOOP_ORDER = (Labels.char_sanhua, Labels.char_verina, Labels.char_sanhua, Labels.char_qingxiao)
     FIELD_LIMIT = {Labels.char_verina: 20, Labels.char_sanhua: 18, Labels.char_qingxiao: 30}
     LIBERATION_CD = {Labels.char_verina: 25, Labels.char_sanhua: 16, Labels.char_qingxiao: 25}
     RESONANCE_CD = {Labels.char_verina: 12, Labels.char_sanhua: 10}
@@ -22,12 +23,22 @@ class TeamRotation:
         return character.char_name
 
     @property
+    def order(self):
+        return self.LOOP_ORDER if self.round else self.ORDER
+
+    @property
+    def quick_sanhua(self):
+        return self.round > 0 and self.step == 0
+
+    @property
     def actor(self):
-        return self.ORDER[self.step]
+        return self.order[self.step]
 
     @property
     def target(self):
-        return self.ORDER[(self.step + int(self.switch_pending)) % len(self.ORDER)]
+        if self.switch_pending and self.step == len(self.order) - 1:
+            return self.LOOP_ORDER[0]
+        return self.order[(self.step + int(self.switch_pending)) % len(self.order)]
 
     def priority(self, character):
         return SwitchPriority.MUST if self.identity(character) == self.target else SwitchPriority.NO
@@ -37,9 +48,9 @@ class TeamRotation:
             raise RuntimeError(f'Team rotation target {target.char_name}, expected {self.target}')
         if not self.switch_pending:
             return
-        if not has_intro:
+        if not has_intro and not self.quick_sanhua:
             raise RuntimeError(f'Team rotation requires intro for {target.char_name}')
-        self.step = (self.step + 1) % len(self.ORDER)
+        self.step = (self.step + 1) % len(self.order)
         self.round += int(self.step == 0)
         self.switch_pending = False
 
@@ -128,7 +139,14 @@ class TeamRotation:
             return
         start = time.time()
         character.logger.info(f'Team rotation round={self.round}: {self.actor} start')
-        character.wait_down(click=False)
+        if self.round and self.actor == Labels.char_verina:
+            self.normal(character, 0.65)
+            self.wait(character, lambda: character.is_mouse_forte_full() or self.full(character),
+                      1.5, 'Verina entry photosynthesis energy missing')
+        elif self.actor == Labels.char_qingxiao:
+            character.wait_down(click=True)
+        else:
+            character.wait_down(click=False)
         self.wait(character, lambda: character.task.in_team()[0], 3, 'team HUD unavailable')
         if self.actor == Labels.char_verina:
             self.verina(character, start)
@@ -136,14 +154,23 @@ class TeamRotation:
             self.sanhua(character, start)
         else:
             self.qingxiao(character, start)
-        if not self.full(character):
+        if not self.quick_sanhua and not self.full(character):
             self.fail(character, 'concerto not full before switch')
-        self.wait(character, lambda: character.task.in_team()[0], 3, 'team HUD unavailable before switch')
+        if not self.quick_sanhua:
+            self.wait(character, lambda: character.task.in_team()[0], 3, 'team HUD unavailable before switch')
         self.switch_pending = True
-        character.logger.info(f'Team rotation {self.actor}: concerto confirmed, switch to {self.target}')
-        BaseChar.switch_next_char(character, post_action=self.advance)
+        character.logger.info(f'Team rotation {self.actor}: switch to {self.target}, quick={self.quick_sanhua}')
+        check_f_on_switch = character.check_f_on_switch
+        if self.quick_sanhua:
+            character.check_f_on_switch = False
+        try:
+            BaseChar.switch_next_char(character, post_action=self.advance)
+        finally:
+            character.check_f_on_switch = check_f_on_switch
 
     def verina(self, character, start):
+        if self.round and self.full(character):
+            return
         self.liberation(character)
         self.resonance(character)
         self.echo(character)
@@ -164,7 +191,15 @@ class TeamRotation:
                 self.normal(character)
 
     def sanhua(self, character, start):
-        if not self.full(character):
+        if self.round and not self.quick_sanhua:
+            if not self.full(character):
+                self.resonance(character)
+            while not self.full(character):
+                self.deadline(character, start)
+                self.normal(character)
+            self.echo(character, before_switch=True)
+            return
+        if self.quick_sanhua or not self.full(character):
             ice_created = self.resonance(character)
             character.task.next_frame()
             ready = self.liberation_ready(character)
@@ -183,11 +218,16 @@ class TeamRotation:
                     character.sleep(0.85)
                 finally:
                     character.task.mouse_up()
+                if self.quick_sanhua:
+                    character.logger.info('Team rotation Sanhua: heavy released, switch immediately')
+                    return
                 character.sleep(0.8)
                 character.task.next_frame()
                 self.wait(character, lambda: character.get_current_con() > before + 0.05 or character.is_con_full(),
                           1.5, 'ice burst concerto missing')
                 character.logger.info('Team rotation Sanhua: combined ice burst concerto confirmed')
+            elif self.quick_sanhua:
+                self.fail(character, 'Sanhua ice skills unavailable before quick switch')
         while not self.full(character):
             self.deadline(character, start)
             self.normal(character)
@@ -242,6 +282,12 @@ class Qingxiao(BaseChar):
                 self._team_rotation.step = rotation.step
                 self._team_rotation.round = rotation.round
                 self._team_rotation.switch_pending = rotation.switch_pending
+                if rotation.round and tuple(getattr(rotation, 'order', rotation.ORDER)) != self._team_rotation.order:
+                    self._team_rotation.step = {
+                        Labels.char_verina: 1,
+                        Labels.char_sanhua: 2,
+                        Labels.char_qingxiao: 3,
+                    }[rotation.actor]
         return self._team_rotation
 
     def do_perform(self):
