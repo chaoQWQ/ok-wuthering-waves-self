@@ -12,44 +12,50 @@
 
 ## 比较方法
 
-- 当前方案：调用 `PositionDetector.preprocess`、实际 `ONNXPaddleOcr` 模型以及 `PositionDetector.postprocess`。截取 1080p 下的 `(0, 1050, 240, 1080)`，保持生产配置的 RGB 输入与两倍 LANCZOS 放大。
+- 通用 OCR 基线：调用 `BaselinePositionDetector` 的图像与文本处理、实际 `ONNXPaddleOcr` 模型。基线对应 commit `cb463715`，截取 1080p 下的 `(0, 1050, 240, 1080)`，使用 RGB 输入与两倍 LANCZOS 放大。
+- 生产坐标 OCR：直接调用地图任务使用的 `PositionDetector.detect_position`。使用专用字符检测模型、OpenVINO CPU 推理与字符边界解析。1080p 下截取 `(0, 1047, 480, 1080)`。
 - Navigator 相同区域：使用同一个截图区域，调用参考项目的 `OCRWorker._run_onnx_inference` 和 `_parse_path_b_spacing_dominant`。
 - Navigator 默认区域：使用参考项目自动计算的左下角四分之一宽度、三十二分之一高度，即本组截图中的 `(0, 1047, 480, 1080)`，调用相同的实际模型与解析方法。
 
 参考项目：[WutheringWaves-Navigator](https://github.com/guhuo-km/WutheringWaves-Navigator)。测试的 commit 为 `5715fbaa6af97858ad3fb8bc832594f647efbb5c`，使用仓库公开的 `coord_ocr.onnx`。模型 SHA-256 为 `4362a8da7082be40b3f1dfce9fd72b0e3c0d1e85308b362ca225c325e543ea51`。
 
-当前模型通过 OpenVINO 在 CPU 上运行；Navigator 使用 ONNX Runtime CPUExecutionProvider。没有启动参考项目的主程序，也没有启动截图线程或向游戏发送输入。
+基线与生产模型均通过 OpenVINO 在 CPU 上运行；Navigator 使用 ONNX Runtime CPUExecutionProvider。生产模型使用两个推理线程。没有启动参考项目的主程序，也没有启动截图线程或向游戏发送输入。
 
 每个方案预热三次，每张截图重复五次。重复识别的坐标必须一致，否则工具立即报错。计时包含图像预处理、模型推理和坐标解析，不包含模型初始化、截图读取、游戏截屏和覆盖层绘制。
 
 ## 识别结果
 
-- 当前方案：36/41 正确，87.8%；遗漏 4 张，返回错误坐标 1 张；耗时中位数 36.5 ms，P95 为 46.1 ms。
-- Navigator 默认区域：35/41 正确，85.4%；遗漏 5 张，返回错误坐标 1 张；耗时中位数 20.2 ms，P95 为 22.2 ms。
-- Navigator 相同区域：20/41 正确，48.8%；遗漏 5 张，返回错误坐标 16 张；耗时中位数 20.1 ms，P95 为 22.2 ms。
+- 通用 OCR 基线：36/41 正确，87.8%；遗漏 4 张，返回错误坐标 1 张；耗时中位数 37.3 ms，P95 为 46.5 ms。
+- 生产坐标 OCR：41/41 正确，100%；没有遗漏或错误坐标；耗时中位数 12.3 ms，P95 为 15.4 ms。
+- Navigator 默认区域：35/41 正确，85.4%；遗漏 5 张，返回错误坐标 1 张；耗时中位数 20.7 ms，P95 为 23.1 ms。
 
-三个方案对 13 张无坐标截图均没有返回坐标。完整识别输出、耗时和解析过程保存在本机 `G:/geme_auto/cache/coordinate-benchmark/final-results.json`。两次完整比较的正确、错误与遗漏数量一致；这里使用最后一次比较的耗时。
+三个方案对 13 张无坐标截图均没有返回坐标。完整识别输出、耗时和字符检测结果保存在本机 `G:/geme_auto/cache/coordinate-benchmark/production-final.json`。生产坐标 OCR 相比基线，耗时中位数减少约 67%。
 
-当前方案的错误坐标来自 `after-right-recovery.png`：画面为 `-483,168,-15`，识别为 `483,168,-15`，平均识别置信度约 0.968。其余遗漏包括逗号和负号未被识别的情况。
+生产坐标 OCR 正确识别 `after-right-recovery.png` 的 `-483,168,-15`、三个草地场景中的 `-6785,-983,-224`，以及 `9,-85,16`。这五张截图在基线中分别出现负号遗漏或未返回坐标。
 
 Navigator 相同区域会把截取区域内残留的日期数字加入高度，例如将 `2317,3074,-79` 识别为 `2317,3074,-79202`。默认区域对旧截图 `mini_map.png` 返回 `2126,72025,-4`，原始坐标为 `-1175,2126,7`。该截图日期为 2025 年，参考解析器的日期处理依赖运行时年份。
 
-## 图像处理实验
+## 生产识别处理
 
-同一批截图、同一实际当前模型，每张重复三次：
+- 保持原始截图颜色，按照模型输入尺寸等比例缩放并填充。
+- 保留每个数字、逗号与负号的检测位置和置信度。
+- 使用字符间隔截取坐标部分，日期判断不依赖当前年份。
+- 逗号遗漏时，通过相邻字符的间隔恢复分隔；符号不完整、分量数量不符合三个时返回空结果。
+- 合并同一位置重复检测的分隔符。
+- 地图任务和手动路线录制共享同一个模型，初始化与推理使用线程锁；不复用上一张截图的坐标。
+- 模型随项目提供，读取时校验 SHA-256，读取或校验失败时立即报告错误。
 
-- 保留原始颜色：36/41 正确，错误坐标 1 张，遗漏 4 张。
-- 转为灰度再复制为三个通道：34/41 正确，错误坐标 4 张，遗漏 3 张。
-- 灰度 CLAHE，`clipLimit=2.0`、`tileGridSize=(8,8)`：34/41 正确，错误坐标 2 张，遗漏 5 张。
-- 当前模型使用 Navigator 默认区域：32/41 正确，错误坐标 7 张，遗漏 2 张；耗时中位数 47.1 ms。
+原有任务开关、地图匹配、坐标变化过滤、资源点与路线绘制、游戏输入保持原样。
 
-全部实验对 13 张无坐标截图均没有返回坐标。实验属于同一个本地截图集合上的比较，没有独立验证集。
+## 额外截图与入口测试
 
-## 接入判断
+另选仓库已有的 16 张真实游戏截图，在模型与解析方法确定后执行测试。人工标注保存在 `tests/data/coordinate_ocr_additional_screenshots.json`。包含 6 张坐标画面、10 张无坐标画面，覆盖 720p、900p、1080p、1440p 以及部分裁切截图；坐标包含五位数。
 
-保留当前生产定位代码。截图测试没有支持直接替换识别模型、统一增强对比度或者扩大固定区域。
+生产入口全部通过：6/6 坐标正确，10/10 无坐标画面返回空结果。
 
-专用字符检测模型的 CPU 耗时具有参考价值。进一步接入需要同时处理字符边界、坐标与日期的间隔、缺失逗号和符号可靠性，并用独立的连续游戏画面验证坐标变化。平均文本置信度无法单独发现本组截图中的负号错误。
+`tests/TestCoordinateOcr.py` 的 20 项测试全部通过，包括上述截图、PIL 输入、显式识别区域、四个线程同时处理 48 张真实截图、空画面状态清理以及缺失模型错误。
+
+主要的 54 张截图参与了解析方法的调整，100% 正确率仅代表该截图集合。额外截图数量也有限。
 
 本次没有测试实时移动、地图切换、跳跃、传送和覆盖层稳定性。测试仅使用离线截图和本地模型，不访问游戏内存，不修改游戏文件，不注入 DLL，不处理游戏通信数据。离线测试结果不代表游戏账号的零封禁风险保证。
 
@@ -72,13 +78,14 @@ git -C cache/navigator-benchmark checkout --detach 5715fbaa6af97858ad3fb8bc83259
 运行模型比较：
 
 ```powershell
-.\.venv\Scripts\python.exe ok-wuthering-waves/tools/benchmark_coordinate_ocr.py --manifest ok-wuthering-waves/tests/data/coordinate_ocr_real_screenshots.json --reference G:/geme_auto/cache/navigator-benchmark --output cache/coordinate-benchmark/final-results.json --variants current navigator_same_roi navigator_default_roi --repeats 5
+.\.venv\Scripts\python.exe ok-wuthering-waves/tools/benchmark_coordinate_ocr.py --manifest ok-wuthering-waves/tests/data/coordinate_ocr_real_screenshots.json --reference G:/geme_auto/cache/navigator-benchmark --output cache/coordinate-benchmark/production-final.json --variants baseline production navigator_default_roi --repeats 5
 ```
 
-运行图像处理实验：
+运行生产入口测试，从项目目录执行：
 
 ```powershell
-.\.venv\Scripts\python.exe ok-wuthering-waves/tools/benchmark_coordinate_ocr.py --manifest ok-wuthering-waves/tests/data/coordinate_ocr_real_screenshots.json --reference G:/geme_auto/cache/navigator-benchmark --output cache/coordinate-benchmark/preprocessing-results.json --variants current current_grayscale current_clahe current_wide_roi --repeats 3
+Set-Location G:/geme_auto/ok-wuthering-waves
+..\.venv\Scripts\python.exe -m pytest tests/TestCoordinateOcr.py -q -p no:cacheprovider
 ```
 
 输出文件包含模型 hash、参考 commit、依赖版本、截图 hash、每张截图的识别结果以及每次耗时。

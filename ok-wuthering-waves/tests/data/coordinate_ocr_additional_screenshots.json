@@ -1,0 +1,18 @@
+[
+  {"id": 0, "file": "tests/images/account_logged_out_title.png", "expected": null},
+  {"id": 1, "file": "tests/images/echo_enhance.png", "expected": null},
+  {"id": 2, "file": "tests/images/find_confirm.png", "expected": null},
+  {"id": 3, "file": "tests/images/big_map.png", "expected": null},
+  {"id": 4, "file": "tests/images/teleport_boss.png", "expected": null},
+  {"id": 5, "file": "tests/images/in_combat.png", "expected": "11373,13952,249"},
+  {"id": 6, "file": "tests/images/in_combat3.png", "expected": "11371,13951,249"},
+  {"id": 7, "file": "tests/images/treasure.png", "expected": "7644,2744,-463"},
+  {"id": 8, "file": "tests/images/quest_motion_before.png", "expected": null},
+  {"id": 9, "file": "tests/images/quest_motion_after.png", "expected": null},
+  {"id": 10, "file": "tests/images/quest_navigation_start.png", "expected": "-281,1251,117"},
+  {"id": 11, "file": "tests/images/quest_navigation_aligned.png", "expected": null},
+  {"id": 12, "file": "tests/images/quest_yangyang_interaction.png", "expected": null},
+  {"id": 13, "file": "tests/images/cloud_game_combat.png", "expected": "915,2527,76"},
+  {"id": 14, "file": "tests/images/quest_no_minimap_with_beacon.jpg", "expected": null},
+  {"id": 15, "file": "tests/images/companion_team_bar_2.png", "expected": "69,-424,16"}
+]

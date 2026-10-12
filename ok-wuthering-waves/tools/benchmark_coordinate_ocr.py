@@ -63,6 +63,8 @@ def benchmark(manifest, reference, output, repeats, selected_variants):
     from ok import Logger
     from onnxocr.onnx_paddleocr import ONNXPaddleOcr
     from src.utils.positionDetector import PositionDetector
+    from src.utils.CoordinateOcr import CoordinateOcr
+    from tools.coordinate_ocr_baseline import BaselinePositionDetector
 
     sys.path.insert(0, str(reference / "src"))
     from ocr_engine import OCRWorker
@@ -72,7 +74,9 @@ def benchmark(manifest, reference, output, repeats, selected_variants):
         raise ValueError("截图清单必须非空，重复次数必须大于零")
     current = ONNXPaddleOcr(use_angle_cls=False, logger=Logger.get_logger("coordinate_benchmark"),
                             use_npu=True, use_openvino=True)
-    detector = PositionDetector()
+    detector = BaselinePositionDetector()
+    production_detector = PositionDetector()
+    specialized = CoordinateOcr()
     worker = OCRWorker()
     model_path = reference / "models/coord_ocr.onnx"
     if not worker.load_model(model_path):
@@ -105,11 +109,17 @@ def benchmark(manifest, reference, output, repeats, selected_variants):
         position = ",".join(map(str, coords)) if success else None
         return position, metadata
 
+    def infer_production(frame):
+        position = production_detector.detect_position(frame)
+        return position, production_detector.last_detections
+
     variants = {
-        "current": infer_current,
-        "current_grayscale": lambda frame: infer_current(frame, "grayscale"),
-        "current_clahe": lambda frame: infer_current(frame, "clahe"),
-        "current_wide_roi": lambda frame: infer_current(frame, wide_roi=True),
+        "baseline": infer_current,
+        "specialized": specialized.recognize,
+        "production": infer_production,
+        "baseline_grayscale": lambda frame: infer_current(frame, "grayscale"),
+        "baseline_clahe": lambda frame: infer_current(frame, "clahe"),
+        "baseline_wide_roi": lambda frame: infer_current(frame, wide_roi=True),
         "navigator_same_roi": lambda frame: infer_reference(frame, False),
         "navigator_default_roi": lambda frame: infer_reference(frame, True),
     }
@@ -127,6 +137,7 @@ def benchmark(manifest, reference, output, repeats, selected_variants):
             for _ in range(repeats):
                 start = time.perf_counter()
                 position, metadata = infer(frame)
+                position = position or None
                 timings.append((time.perf_counter() - start) * 1000)
                 positions.append(position)
             if len(set(positions)) != 1:
@@ -151,7 +162,10 @@ def benchmark(manifest, reference, output, repeats, selected_variants):
         }
     revision = subprocess.check_output(["git", "-C", str(reference), "rev-parse", "HEAD"], text=True).strip()
     result = {"reference_revision": revision, "model_sha256": hashlib.sha256(model_path.read_bytes()).hexdigest(),
-              "current_execution_devices": list(current.text_recognizer.session.get_property("EXECUTION_DEVICES")),
+              "baseline_revision": "cb463715",
+              "baseline_execution_devices": list(current.text_recognizer.session.get_property("EXECUTION_DEVICES")),
+              "specialized_execution_devices": list(specialized.model.get_property("EXECUTION_DEVICES")),
+              "specialized_model_sha256": hashlib.sha256(CoordinateOcr.MODEL_PATH.read_bytes()).hexdigest(),
               "versions": {name: importlib.metadata.version(name) for name in
                            ("onnxocr-ppocrv5", "openvino", "onnxruntime", "opencv-python", "numpy")},
               "source_sha256": {entry["file"]: hashlib.sha256((APP_ROOT / entry["file"]).read_bytes()).hexdigest()
@@ -164,13 +178,13 @@ def benchmark(manifest, reference, output, repeats, selected_variants):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="使用真实游戏截图比较当前 OCR 与 Navigator OCR")
+    parser = argparse.ArgumentParser(description="使用真实游戏截图比较通用 OCR、生产坐标 OCR 与 Navigator OCR")
     parser.add_argument("--sheet", action="store_true", help="生成截图检查图，不运行模型")
     parser.add_argument("--manifest", type=Path)
     parser.add_argument("--reference", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--repeats", type=int, default=5)
-    parser.add_argument("--variants", nargs="+", choices=["current", "current_grayscale", "current_clahe", "current_wide_roi",
+    parser.add_argument("--variants", nargs="+", choices=["baseline", "specialized", "production", "baseline_grayscale", "baseline_clahe", "baseline_wide_roi",
                                                            "navigator_same_roi", "navigator_default_roi"])
     args = parser.parse_args()
     if args.sheet:
