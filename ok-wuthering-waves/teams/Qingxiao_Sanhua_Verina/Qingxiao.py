@@ -70,13 +70,15 @@ class TeamRotation:
             self.qing_h2_done = False
             character.logger.warning('Team rotation: resume from Verina support phase')
 
-    def wait(self, character, condition, timeout, description):
+    def wait(self, character, condition, timeout, description, attack=False):
         start = time.time()
         while not condition():
             character.check_combat()
             if time.time() - start >= timeout:
                 character.logger.warning(f'Team rotation {self.actor}: {description}, retry from current resources')
                 return False
+            if attack:
+                character.click(interval=0.1)
             character.sleep(0.05)
             character.task.next_frame()
         return True
@@ -185,8 +187,8 @@ class TeamRotation:
                     f'Team rotation Verina: entry resource confirmed after {time.time() - entry_start:.3f}s')
         elif self.actor == Labels.char_qingxiao:
             character.wait_down(click=True)
-        else:
-            character.wait_down(click=False)
+        elif self.actor == Labels.char_verina:
+            character.wait_down(click=True)
         if not self.wait(character, lambda: character.task.in_team()[0], 3, 'team HUD unavailable'):
             self.recover(character)
             return
@@ -251,7 +253,7 @@ class TeamRotation:
                     character.task.mouse_up()
                 self.normal(character, 0.65)
                 if not self.wait(character, lambda: character.task.get_current_con() > before + 0.03
-                                 or self.full(character), 1.5, 'photosynthesis concerto not confirmed'):
+                                 or self.full(character), 1.5, 'photosynthesis concerto not confirmed', attack=True):
                     self.normal(character, 0.3)
             elif not self.resonance(character):
                 self.normal(character)
@@ -292,7 +294,7 @@ class TeamRotation:
                 character.sleep(0.8)
                 character.task.next_frame()
                 if self.wait(character, lambda: character.task.get_current_con() > before + 0.05
-                             or self.full(character), 1.5, 'ice burst concerto not confirmed'):
+                             or self.full(character), 1.5, 'ice burst concerto not confirmed', attack=True):
                     character.logger.info('Team rotation Sanhua: combined ice burst concerto confirmed')
             elif self.quick_sanhua:
                 self.normal(character)
@@ -324,17 +326,12 @@ class TeamRotation:
             character.cycle_sleep()
         if not self.wait(character, lambda: character.task.in_team()[0], 3, 'second heavy animation unfinished'):
             return False
-        energy_start = time.time()
-        while not self.liberation_ready(character) and time.time() - energy_start < 1.5:
-            character.check_combat()
-            character.sleep(0.05)
-            character.task.next_frame()
         self.liberation(character)
         while not self.full(character):
             if not self.deadline(character, start):
                 return False
             if not self.liberation(character):
-                self.normal(character)
+                self.normal(character, 0.1)
         return True
 
 
