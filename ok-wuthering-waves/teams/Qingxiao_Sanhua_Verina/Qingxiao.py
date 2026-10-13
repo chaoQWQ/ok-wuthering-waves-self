@@ -157,24 +157,39 @@ class TeamRotation:
         if not self.liberation_ready(character):
             return False
         start = time.time()
+        input_start = None
         animation_start = None
+        visible_elapsed = 0
+        previous_check = start
+        previous_visible = False
         character.task.in_liberation = True
         try:
-            while time.time() - start < 7:
+            while time.time() - start < 30:
                 character.task.next_frame()
                 self.ensure_actor(character)
-                if character.task.in_team()[0]:
-                    if character.task.get_cd('liberation', character.index) > 0:
+                now = time.time()
+                if input_start is not None and previous_visible:
+                    visible_elapsed += now - previous_check
+                previous_check = now
+                previous_visible = character.task.in_team()[0]
+                if previous_visible:
+                    if input_start is not None and character.task.get_cd('liberation', character.index) > 0:
                         if animation_start is not None:
                             character.add_freeze_duration(animation_start, time.time() - animation_start)
                         character.record_liberation_use()
                         character.logger.info(f'Team rotation {character.char_name}: liberation confirmed')
                         return True
+                    if visible_elapsed >= 7:
+                        raise RuntimeError(f'Team rotation {character.char_name}: liberation cooldown not confirmed')
+                    animation_start = None
+                    if input_start is None:
+                        input_start = time.time()
+                        character.logger.info(f'Team rotation {character.char_name}: liberation input started')
                     character.send_liberation_key(down_time=0.05, interval=0.1)
-                elif animation_start is None:
+                elif input_start is not None and animation_start is None:
                     animation_start = time.time()
                 character.sleep(0.05)
-            raise RuntimeError(f'Team rotation {character.char_name}: liberation cooldown not confirmed')
+            raise RuntimeError(f'Team rotation {character.char_name}: liberation HUD or cooldown not confirmed within 30 seconds')
         finally:
             character.task.in_liberation = False
 

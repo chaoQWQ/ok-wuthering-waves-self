@@ -29,10 +29,11 @@ from src.task.WWOneTimeTask import WWOneTimeTask
 from src.task.MultiAccountDailyTask import MultiAccountDailyTask, normalize_profile_code
 from src.task.NightmareNestTask import NightmareNestTask, NestTarget, TRAVEL_FEATURES
 from src.utils.QuestAreaSearch import minimap_box, minimap_visible
+from tests.combat_verification_support import BossVerificationPreparation
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--expect", choices=("area", "movement", "jump", "combat", "rotation", "equipment"), default="area")
+parser.add_argument("--expect", choices=("area", "movement", "jump", "combat", "rotation", "equipment", "prepared"), default="area")
 parser.add_argument("--seconds", type=int, default=90)
 parser.add_argument("--keep-front", action="store_true")
 parser.add_argument("--nest", type=int, choices=(1, 2, 3))
@@ -41,9 +42,11 @@ parser.add_argument("--resume", action="store_true")
 parser.add_argument("--heal", action="store_true")
 parser.add_argument("--approach", action="store_true")
 parser.add_argument("--boss", action="store_true")
-parser.add_argument("--boss-name", choices=("无冠者", "无归的谬误", "飞廉之猩", "时序命定之争"), default="无冠者")
+parser.add_argument("--boss-name", choices=("无冠者", "无归的谬误", "飞廉之猩", "时序命定之争", "无序边境之火", "无冠巨像之心"), default="无冠者")
+parser.add_argument("--prepare-only", action="store_true")
 parser.add_argument("--equipment", action="store_true")
-parser.add_argument("--weapon-action", choices=("inspect", "list", "preview", "weak", "restore"), default="inspect")
+parser.add_argument("--weapon-action", choices=("inspect", "list", "preview", "weak", "restore", "state"), default="inspect")
+parser.add_argument("--equipment-slot", type=int, choices=(1, 2, 3), default=2)
 arguments = parser.parse_args()
 if (arguments.nest or arguments.boss or arguments.equipment) and not arguments.profile_suffix:
     parser.error("传送验证需要指定 --profile-suffix")
@@ -52,7 +55,7 @@ if arguments.nest and arguments.boss:
 if not is_admin():
     raise PermissionError("实际游戏运行验证需要使用管理员权限启动")
 
-class ResumeQuestTask(QuestStoryTask):
+class ResumeQuestTask(BossVerificationPreparation, QuestStoryTask):
     def run(self):
         WWOneTimeTask.run(self)
         self.ensure_main(time_out=30)
@@ -73,29 +76,6 @@ class ResumeQuestTask(QuestStoryTask):
             self.sleep(.15)
         self.run_until(lambda: self.has_target() or self.has_health_bar(), "w", time_out=3,
                        target=True, raise_if_not_found=True)
-
-    def heal_team(self):
-        self.send_key("m", after_sleep=2)
-        controls = self.ocr(.6, .7, 1, 1, match="切换地图")
-        if len(controls) != 1:
-            raise RuntimeError("地图没有显示切换地图按钮")
-        self.click(controls[0], after_sleep=2)
-        regions = self.ocr(.4, 0, .75, 1, match=re.compile("今州"))
-        if len(regions) != 1:
-            raise RuntimeError("地图列表没有唯一的今州入口")
-        self.click(regions[0], after_sleep=2)
-        districts = self.ocr(.7, .1, 1, .9, match="云陵谷")
-        if len(districts) != 1:
-            raise RuntimeError("今州地图没有唯一的云陵谷入口")
-        self.click(districts[0], after_sleep=2)
-        self.click(.4, .5, after_sleep=1)
-        landmarks = self.ocr(.4, .35, .5, .45, match="夜明坡")
-        if len(landmarks) != 1:
-            raise RuntimeError("今州地图没有显示已确认的夜明坡治疗位置")
-        self.click(.485, .315, after_sleep=1)
-        travel = self.wait_feature("gray_teleport", time_out=5, raise_if_not_found=True)
-        self.click(travel, after_sleep=2)
-        self.wait_in_team_and_world(time_out=120, raise_if_not_found=True)
 
 class PrepareQuestNestTask(ResumeQuestTask):
     def run(self):
@@ -144,55 +124,22 @@ class PrepareQuestNestTask(ResumeQuestTask):
 class PrepareQuestBossTask(ResumeQuestTask):
     def run(self):
         WWOneTimeTask.run(self)
-        self.ensure_main(time_out=30)
-        accounts = self.executor.get_task_by_class(MultiAccountDailyTask)
-        profile = accounts._detect_account_from_world_profile()
-        if not profile or not normalize_profile_code(profile).endswith(arguments.profile_suffix):
-            raise RuntimeError("游戏特征码没有匹配指定账号")
-        if arguments.heal:
-            self.heal_team()
-        self.load_chars()
-        if {type(char).__name__ for char in self.chars if char is not None} != {"Qingxiao", "Sanhua", "Verina"}:
-            raise RuntimeError("入场前角色识别没有匹配指定三人队伍")
-        self.openF2Book("gray_book_boss")
-        weekly = arguments.boss_name == "时序命定之争"
-        self.open_boss_book("zhange" if weekly else "qiangdi")
-        for _ in range(40):
-            names = self.ocr(.36, .1, .8, .95, match=re.compile(re.escape(arguments.boss_name)))
-            if names:
-                if names[0].y > self.height_of_screen(.7):
-                    self.scroll_relative(.8, .6, -3)
-                    self.sleep(.3)
-                    continue
-                break
-            self.scroll_relative(.8, .6, -8)
-            self.sleep(.3)
-        else:
-            raise RuntimeError(f"敌人列表没有显示{arguments.boss_name}")
-        if not cv2.imwrite(str(report_path.parent / "quest-boss-book.png"), self.frame):
-            raise RuntimeError("保存敌人列表画面失败")
-        buttons = self.find_feature("boss_proceed", box=self.box_of_screen(.84, .1, 1, .95), threshold=.8)
-        if not buttons:
-            raise RuntimeError("敌人列表没有前往按钮")
-        button = min(buttons, key=lambda box: abs(box.y - names[0].y))
-        if abs(button.y - names[0].y) > self.height_of_screen(.1):
-            raise RuntimeError(f"{arguments.boss_name}与前往按钮没有匹配同一行")
-        self.click(button, after_sleep=1)
-        if weekly:
-            levels = self.wait_ocr(.03, .113, .323, .66, match=re.compile("60"),
-                                   time_out=10, raise_if_not_found=True)
-            self.click(levels[0], after_sleep=1)
-            self.click(.88, .911, after_sleep=2)
-        feature = self.wait_feature(TRAVEL_FEATURES + ["team_start_challenge"], time_out=10,
-                                    raise_if_not_found=True)
-        if feature.name == "team_start_challenge":
-            self.click_team_challenge()
-        else:
-            self.wait_click_travel()
-        self.wait_in_team_and_world(time_out=120, raise_if_not_found=True)
+        self.prepare_boss(arguments.profile_suffix, arguments.boss_name,
+                          report_path.parent / 'quest-boss-book.png', heal=arguments.heal)
+        if arguments.prepare_only:
+            self.info_set("Battle prepared", True)
+            return
         self.run_until(lambda: self.has_target() or self.has_health_bar(), "w", time_out=10,
                        target=True, raise_if_not_found=True)
-        QuestStoryTask.run(self)
+        completed = False
+        try:
+            QuestStoryTask.run(self)
+            completed = True
+        finally:
+            if not completed:
+                self.skip_combat_check = True
+                self.wait_until(lambda: self.in_team()[0], time_out=15, raise_if_not_found=False)
+                self.send_key("esc", after_sleep=.3)
 
 
 class PrepareEquipmentTask(ResumeQuestTask):
@@ -207,13 +154,19 @@ class PrepareEquipmentTask(ResumeQuestTask):
     def run(self):
         WWOneTimeTask.run(self)
         self.ensure_equipment_world()
-        accounts = self.executor.get_task_by_class(MultiAccountDailyTask)
-        profile = accounts._detect_account_from_world_profile()
-        if not profile or not normalize_profile_code(profile).endswith(arguments.profile_suffix):
+        self.ensure_main(time_out=30)
+        profiles = self.ocr(.8, .94, 1, 1, match=re.compile(r'\d{7,}'))
+        if len(profiles) != 1 or not normalize_profile_code(profiles[0].name).endswith(arguments.profile_suffix):
             raise RuntimeError("游戏特征码没有匹配指定账号")
-        self.send_key("2", after_sleep=.5)
+        self.send_key(arguments.equipment_slot, after_sleep=.5)
         self.send_key("c", after_sleep=2)
         self.click(.04, .30, after_sleep=1)
+        if arguments.weapon_action == "state":
+            self.wait_ocr(0, 0, .2, .15, match="武器", time_out=5, raise_if_not_found=True)
+            self.next_frame()
+            print("当前装备页面", arguments.equipment_slot, self.ocr(0, 0, .4, 1), flush=True)
+            self.info_set("Equipment inspected", True)
+            return
         expected_weapon = "原初迅刀" if arguments.weapon_action == "restore" else "云琅"
         self.wait_ocr(0, 0, .7, 1, match=re.compile(re.escape(expected_weapon)), time_out=5, raise_if_not_found=True)
         if arguments.weapon_action in ("list", "preview", "weak", "restore"):
@@ -367,6 +320,8 @@ try:
         raise AssertionError("限时运行尚未确认启动轴和连续两次循环")
     elif arguments.expect == "equipment" and not task.info.get("Equipment inspected"):
         raise AssertionError("没有确认装备页面")
+    elif arguments.expect == "prepared" and not task.info.get("Battle prepared"):
+        raise AssertionError("没有确认挑战准备完成")
 finally:
     timer.cancel()
     if runtime.task_executor._frame is not None:

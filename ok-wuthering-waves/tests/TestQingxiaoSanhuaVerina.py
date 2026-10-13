@@ -68,6 +68,22 @@ class TestQingxiaoSanhuaVerina(TaskTestCase):
         self.assertIsNot(self.qingxiao.team_rotation(), self.rotation)
         self.assertEqual(self.qingxiao.team_rotation().actor, Labels.char_verina)
 
+    def test_partial_liberation_energy_in_recorded_combat(self):
+        self.set_image('tests/images/qingxiao_partial_liberation_energy.png')
+        self.assertTrue(self.task.load_chars())
+        current = self.task.get_current_char()
+        self.assertEqual(current.char_name, Labels.char_qingxiao)
+        self.assertFalse(current.liberation_available())
+
+    def test_liberation_ready_with_hidden_team_hud(self):
+        self.set_image('tests/images/qingxiao_partial_liberation_energy.png')
+        self.assertTrue(self.task.load_chars())
+        current = self.task.get_current_char()
+        self.assertEqual(current.char_name, Labels.char_qingxiao)
+        self.set_image('tests/images/qingxiao_liberation_ready_hidden_hud.png')
+        self.assertFalse(self.task.in_team()[0])
+        self.assertTrue(current.liberation_available())
+
     def test_wrong_target_stops_and_missing_intro_preserves_actual_state(self):
         self.rotation.switch_pending = True
         with self.assertRaisesRegex(RuntimeError, 'expected'):
