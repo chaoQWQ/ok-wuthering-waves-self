@@ -594,6 +594,9 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
     def do_check_in_combat(self, target=False):
         if self.in_liberation:
             return True
+        if (self._in_combat and len(self.chars) == 3
+                and all(char is not None and not getattr(char, "story_fallback", False) for char in self.chars)):
+            return super().do_check_in_combat(target)
         if self._in_combat and self.scene.in_combat() is not None:
             return self.scene.in_combat()
         if self._in_combat:

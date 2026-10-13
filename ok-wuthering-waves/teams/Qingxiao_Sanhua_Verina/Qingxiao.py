@@ -158,6 +158,10 @@ class TeamRotation:
 
     def echo(self, character, before_switch=False):
         if character.echo_available():
+            if before_switch:
+                character.click_echo(time_out=0)
+                character.logger.info('Team rotation: echo input submitted before switch')
+                return
             if not character.click_echo(time_out=1.5):
                 character.logger.warning('Team rotation: echo completion not confirmed, continue rotation')
                 return
@@ -303,7 +307,7 @@ class TeamRotation:
             if not self.deadline(character, start):
                 return False
             self.normal(character)
-        self.echo(character)
+        self.echo(character, before_switch=True)
         return True
 
     def qingxiao(self, character, start):
