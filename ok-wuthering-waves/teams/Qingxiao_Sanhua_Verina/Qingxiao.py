@@ -45,6 +45,13 @@ class TeamRotation:
     def priority(self, character):
         return SwitchPriority.MUST if self.identity(character) == self.target else SwitchPriority.NO
 
+    def ensure_actor(self, character):
+        in_team, current_index, count = character.task.in_team()
+        if in_team and count == 3 and current_index != character.index:
+            raise RuntimeError(
+                f'Team rotation {character.char_name}: active slot={current_index + 1}, '
+                f'expected slot={character.index + 1}, round={self.round}, step={self.step}')
+
     def advance(self, target, has_intro):
         if self.identity(target) != self.target:
             raise RuntimeError(f'Team rotation target {target.char_name}, expected {self.target}')
@@ -86,6 +93,7 @@ class TeamRotation:
     def deadline(self, character, start):
         limit = self.FIELD_LIMIT[self.identity(character)]
         character.check_combat()
+        self.ensure_actor(character)
         if character.time_elapsed_accounting_for_freeze(start) >= limit or time.time() - start >= limit + 25:
             character.logger.warning(
                 f'Team rotation {self.actor}: field budget reached, concerto={character.task.get_current_con():.3f}')
@@ -93,6 +101,7 @@ class TeamRotation:
         return True
 
     def full(self, character):
+        self.ensure_actor(character)
         character.current_con = character.task.get_current_con()
         if character.current_con != 1:
             return False
@@ -102,10 +111,12 @@ class TeamRotation:
         return character.current_con == 1
 
     def normal(self, character, duration=0.45):
+        self.ensure_actor(character)
         character.continues_normal_attack(duration, until_con_full=True)
         character.task.next_frame()
 
     def resonance(self, character, enhanced=False):
+        self.ensure_actor(character)
         cooldown = self.RESONANCE_CD.get(self.identity(character), 0)
         if character.last_res >= 0 and character.time_elapsed_accounting_for_freeze(character.last_res) < cooldown:
             return False
@@ -142,21 +153,33 @@ class TeamRotation:
         return character.task.use_liberation and character.liberation_available()
 
     def liberation(self, character):
+        self.ensure_actor(character)
         if not self.liberation_ready(character):
             return False
-        for attempt in range(2):
-            if character.click_liberation(wait_if_cd_ready=0, send_click=False, click_f=False):
+        start = time.time()
+        animation_start = None
+        character.task.in_liberation = True
+        try:
+            while time.time() - start < 7:
                 character.task.next_frame()
-                character.logger.info(f'Team rotation {character.char_name}: liberation confirmed')
-                return True
-            character.logger.warning(f'Team rotation {character.char_name}: liberation retry={attempt + 1}')
-            character.sleep(0.1)
-            character.task.next_frame()
-            if not self.liberation_ready(character):
-                break
-        return False
+                self.ensure_actor(character)
+                if character.task.in_team()[0]:
+                    if character.task.get_cd('liberation', character.index) > 0:
+                        if animation_start is not None:
+                            character.add_freeze_duration(animation_start, time.time() - animation_start)
+                        character.record_liberation_use()
+                        character.logger.info(f'Team rotation {character.char_name}: liberation confirmed')
+                        return True
+                    character.send_liberation_key(down_time=0.05, interval=0.1)
+                elif animation_start is None:
+                    animation_start = time.time()
+                character.sleep(0.05)
+            raise RuntimeError(f'Team rotation {character.char_name}: liberation cooldown not confirmed')
+        finally:
+            character.task.in_liberation = False
 
     def echo(self, character, before_switch=False):
+        self.ensure_actor(character)
         if character.echo_available():
             if before_switch:
                 character.click_echo(time_out=0)
@@ -171,6 +194,7 @@ class TeamRotation:
             self.wait(character, lambda: not character.echo_available(), 1.5, 'echo cooldown missing')
 
     def perform(self, character):
+        self.ensure_actor(character)
         if self.identity(character) != self.actor or self.switch_pending:
             BaseChar.switch_next_char(character, post_action=self.advance)
             return
@@ -343,6 +367,9 @@ class Qingxiao(BaseChar):
     HEAVY_TIMEOUT = 4
     HEAVY_CONFIRM = 0.25
 
+    def skip_combat_check(self):
+        return time.time() < getattr(self, '_heavy_check_until', 0)
+
     def reset_state(self):
         super().reset_state()
         self._team_rotation = None
@@ -387,6 +414,7 @@ class Qingxiao(BaseChar):
             return False
         label = heavy.name
         start = time.time()
+        self._heavy_check_until = start + 8
         dark_since = None
         confirmed = False
         self.task.mouse_down()

@@ -88,6 +88,17 @@ class TestQingxiaoSanhuaVerina(TaskTestCase):
         self.rotation.advance(self.sanhua, True)
         self.assertEqual(self.rotation.actor, Labels.char_sanhua)
 
+    def test_active_slot_validation_from_combat_image(self):
+        self.set_image('tests/images/in_combat.png')
+        in_team, current_index, count = self.task.in_team()
+        self.assertTrue(in_team)
+        self.assertEqual(count, 3)
+        current = self.task.chars[current_index]
+        self.rotation.ensure_actor(current)
+        other = self.task.chars[(current_index + 1) % count]
+        with self.assertRaisesRegex(RuntimeError, 'active slot='):
+            self.rotation.ensure_actor(other)
+
     def test_recorded_liberation_cooldown_blocks_duplicate_cast(self):
         self.task.use_liberation = True
         for character in self.task.chars:

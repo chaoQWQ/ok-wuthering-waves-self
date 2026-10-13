@@ -596,6 +596,9 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             return True
         if (self._in_combat and len(self.chars) == 3
                 and all(char is not None and not getattr(char, "story_fallback", False) for char in self.chars)):
+            if self.has_health_bar():
+                self.last_enemy_health_seen_time = time.monotonic()
+                return self.scene.set_in_combat()
             return super().do_check_in_combat(target)
         if self._in_combat and self.scene.in_combat() is not None:
             return self.scene.in_combat()
