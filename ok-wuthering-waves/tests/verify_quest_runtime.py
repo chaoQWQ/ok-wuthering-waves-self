@@ -5,6 +5,7 @@ import sys
 import threading
 import json
 import re
+import shutil
 import time
 
 import cv2
@@ -13,6 +14,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 report_path = Path(__file__).resolve().parent.parent / "cache/quest-runtime-report.txt"
 report_path.parent.mkdir(exist_ok=True)
+if report_path.exists():
+    previous_report = report_path.with_name(f"quest-runtime-{report_path.stat().st_mtime_ns}.txt")
+    shutil.copy2(report_path, previous_report)
 sys.stdout = report_path.open("w", encoding="utf-8", buffering=1)
 sys.stderr = sys.stdout
 sys.argv[0] = str(Path(__file__).resolve().parent.parent / "main.py")
@@ -24,11 +28,11 @@ from src.task.QuestStoryTask import QuestStoryTask
 from src.task.WWOneTimeTask import WWOneTimeTask
 from src.task.MultiAccountDailyTask import MultiAccountDailyTask, normalize_profile_code
 from src.task.NightmareNestTask import NightmareNestTask, NestTarget, TRAVEL_FEATURES
-from src.utils.QuestAreaSearch import minimap_box
+from src.utils.QuestAreaSearch import minimap_box, minimap_visible
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--expect", choices=("area", "movement", "jump", "combat", "rotation"), default="area")
+parser.add_argument("--expect", choices=("area", "movement", "jump", "combat", "rotation", "equipment"), default="area")
 parser.add_argument("--seconds", type=int, default=90)
 parser.add_argument("--keep-front", action="store_true")
 parser.add_argument("--nest", type=int, choices=(1, 2, 3))
@@ -38,8 +42,10 @@ parser.add_argument("--heal", action="store_true")
 parser.add_argument("--approach", action="store_true")
 parser.add_argument("--boss", action="store_true")
 parser.add_argument("--boss-name", choices=("无冠者", "无归的谬误", "飞廉之猩", "时序命定之争"), default="无冠者")
+parser.add_argument("--equipment", action="store_true")
+parser.add_argument("--weapon-action", choices=("inspect", "list", "preview", "weak", "restore"), default="inspect")
 arguments = parser.parse_args()
-if (arguments.nest or arguments.boss) and not arguments.profile_suffix:
+if (arguments.nest or arguments.boss or arguments.equipment) and not arguments.profile_suffix:
     parser.error("传送验证需要指定 --profile-suffix")
 if arguments.nest and arguments.boss:
     parser.error("一次验证只能选择一个战斗地点")
@@ -189,6 +195,53 @@ class PrepareQuestBossTask(ResumeQuestTask):
         QuestStoryTask.run(self)
 
 
+class PrepareEquipmentTask(ResumeQuestTask):
+    def ensure_equipment_world(self):
+        for _ in range(6):
+            self.next_frame()
+            if minimap_visible(self.frame) and self.in_team()[0]:
+                return
+            self.send_key("esc", after_sleep=.8)
+        raise RuntimeError("装备操作前没有返回游戏世界")
+
+    def run(self):
+        WWOneTimeTask.run(self)
+        self.ensure_equipment_world()
+        accounts = self.executor.get_task_by_class(MultiAccountDailyTask)
+        profile = accounts._detect_account_from_world_profile()
+        if not profile or not normalize_profile_code(profile).endswith(arguments.profile_suffix):
+            raise RuntimeError("游戏特征码没有匹配指定账号")
+        self.send_key("2", after_sleep=.5)
+        self.send_key("c", after_sleep=2)
+        self.click(.04, .30, after_sleep=1)
+        expected_weapon = "原初迅刀" if arguments.weapon_action == "restore" else "云琅"
+        self.wait_ocr(0, 0, .7, 1, match=re.compile(re.escape(expected_weapon)), time_out=5, raise_if_not_found=True)
+        if arguments.weapon_action in ("list", "preview", "weak", "restore"):
+            replace = self.wait_ocr(0, .7, .35, 1, match="替换", time_out=5, raise_if_not_found=True)
+            self.click(replace[0], after_sleep=1)
+            if arguments.weapon_action in ("preview", "weak"):
+                self.click(.208, .688, after_sleep=1)
+            elif arguments.weapon_action == "restore":
+                self.click(.07, .23, after_sleep=1)
+            if arguments.weapon_action in ("weak", "restore"):
+                selected_weapon = "云琅" if arguments.weapon_action == "restore" else "原初迅刀"
+                self.wait_ocr(.7, .1, 1, .3, match=re.compile(re.escape(selected_weapon)), time_out=5, raise_if_not_found=True)
+                selected_level = re.compile(r"60\s*/\s*60" if arguments.weapon_action == "restore" else r"1\s*/\s*20")
+                self.wait_ocr(.7, .1, 1, .3, match=selected_level, time_out=5, raise_if_not_found=True)
+                replace = self.wait_ocr(.72, .82, .84, 1, match="替换", time_out=5, raise_if_not_found=True)
+                self.click(replace[0], after_sleep=1)
+                self.ensure_equipment_world()
+                self.send_key("2", after_sleep=.5)
+                self.send_key("c", after_sleep=2)
+                self.click(.04, .30, after_sleep=1)
+                self.wait_ocr(0, 0, .35, 1, match=re.compile(re.escape(selected_weapon)), time_out=5, raise_if_not_found=True)
+                self.wait_ocr(0, .15, .35, .35, match=selected_level, time_out=5, raise_if_not_found=True)
+                print("已确认清宵装备", selected_weapon, flush=True)
+        self.next_frame()
+        print("装备页面", self.ocr(), flush=True)
+        self.info_set("Equipment inspected", True)
+
+
 runtime_config = deepcopy(config)
 runtime_config.update({
     "check_mutex": False,
@@ -199,16 +252,16 @@ runtime_config.update({
 })
 if arguments.resume:
     runtime_config["onetime_tasks"].append(["__main__", "ResumeQuestTask"])
-if arguments.nest or arguments.boss:
+if arguments.nest or arguments.boss or arguments.equipment:
     runtime_config["onetime_tasks"] += [
-        ["__main__", "PrepareQuestBossTask" if arguments.boss else "PrepareQuestNestTask"],
+        ["__main__", "PrepareEquipmentTask" if arguments.equipment else "PrepareQuestBossTask" if arguments.boss else "PrepareQuestNestTask"],
         ["src.task.MultiAccountDailyTask", "MultiAccountDailyTask"],
         ["src.task.NightmareNestTask", "NightmareNestTask"],
     ]
 runtime = OK(runtime_config)
-task_class = PrepareQuestBossTask if arguments.boss else PrepareQuestNestTask if arguments.nest else ResumeQuestTask if arguments.resume else QuestStoryTask
+task_class = PrepareEquipmentTask if arguments.equipment else PrepareQuestBossTask if arguments.boss else PrepareQuestNestTask if arguments.nest else ResumeQuestTask if arguments.resume else QuestStoryTask
 task = runtime.get_onetime_task(task_class)
-if arguments.nest or arguments.boss or arguments.resume:
+if arguments.nest or arguments.boss or arguments.resume or arguments.equipment:
     task.config = runtime.get_onetime_task(QuestStoryTask).config
 if task.decision_session is None or task.navigation_progress is None or task.config is None:
     raise RuntimeError("剧情任务初始化没有完成")
@@ -312,6 +365,8 @@ try:
         raise AssertionError("限时运行尚未确认战斗结束后继续剧情或导航")
     elif arguments.expect == "rotation" and observations["rotation_states"] != expected_rotation_states:
         raise AssertionError("限时运行尚未确认启动轴和连续两次循环")
+    elif arguments.expect == "equipment" and not task.info.get("Equipment inspected"):
+        raise AssertionError("没有确认装备页面")
 finally:
     timer.cancel()
     if runtime.task_executor._frame is not None:
