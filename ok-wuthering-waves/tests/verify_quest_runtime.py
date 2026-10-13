@@ -8,6 +8,8 @@ import time
 
 import cv2
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 report_path = Path(__file__).resolve().parent.parent / "screenshots/quest-runtime-report.txt"
 report_path.parent.mkdir(exist_ok=True)
 sys.stdout = report_path.open("w", encoding="utf-8", buffering=1)
