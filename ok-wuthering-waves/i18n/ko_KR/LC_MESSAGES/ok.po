@@ -1877,5 +1877,41 @@ msgstr "최상위 작은 창 표시를 켜거나 끄는 단축키(예: <ctrl>+<f
 msgid "Allow Vision Screenshots"
 msgstr "시각 분석용 스크린샷 전송 허용"
 
+msgid "Position source"
+msgstr "좌표 소스"
+
+msgid "Kuro position settings"
+msgstr "Kuro 위치 동기화 설정"
+
+msgid "Automatic"
+msgstr "자동 선택"
+
+msgid "OCR only"
+msgstr "스크린샷 OCR만 사용"
+
+msgid "Kuro only"
+msgstr "Kuro 동기화만 사용"
+
+msgid "Choose the source used for map navigation"
+msgstr "지도 안내에 사용할 좌표 소스를 선택합니다"
+
+msgid "Select the capture folder and bind the current collection profile"
+msgstr "수신 폴더를 선택하고 현재 수집 프로필을 확인하여 연결합니다"
+
+msgid "Select the folder containing the coordinate and connection JSONL records"
+msgstr "좌표 메시지와 연결 기록 JSONL 파일이 있는 수신 폴더를 선택합니다"
+
+msgid "Select folder"
+msgstr "폴더 선택"
+
+msgid "I verified that the Kuro role and the current game account match this profile"
+msgstr "Kuro 캐릭터와 현재 게임 계정이 이 프로필과 일치하는지 확인했습니다"
+
+msgid "Unbind session"
+msgstr "세션 연결 해제"
+
+msgid "Bind current session"
+msgstr "현재 세션 연결"
+
 msgid "允许发送已遮蔽特征码的游戏截图，用于地形识别和机关操作前后比较"
 msgstr "UID를 가린 게임 스크린샷을 전송하여 지형을 인식하고 장치 조작 전후를 비교합니다"

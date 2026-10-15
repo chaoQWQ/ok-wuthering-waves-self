@@ -1797,5 +1797,41 @@ msgstr "Tecla para mostrar u ocultar la ventana flotante de tareas (p. ej. <ctrl
 msgid "Allow Vision Screenshots"
 msgstr "Permitir capturas para análisis visual"
 
+msgid "Position source"
+msgstr "Fuente de coordenadas"
+
+msgid "Kuro position settings"
+msgstr "Ajustes de posición de Kuro"
+
+msgid "Automatic"
+msgstr "Selección automática"
+
+msgid "OCR only"
+msgstr "Solo OCR de capturas"
+
+msgid "Kuro only"
+msgstr "Solo sincronización de Kuro"
+
+msgid "Choose the source used for map navigation"
+msgstr "Elige la fuente de coordenadas para la navegación del mapa"
+
+msgid "Select the capture folder and bind the current collection profile"
+msgstr "Selecciona la carpeta de recepción y vincula el perfil de recolección actual"
+
+msgid "Select the folder containing the coordinate and connection JSONL records"
+msgstr "Selecciona la carpeta con los registros JSONL de coordenadas y conexión"
+
+msgid "Select folder"
+msgstr "Seleccionar carpeta"
+
+msgid "I verified that the Kuro role and the current game account match this profile"
+msgstr "He comprobado que el personaje de Kuro y la cuenta del juego corresponden a este perfil"
+
+msgid "Unbind session"
+msgstr "Desvincular sesión"
+
+msgid "Bind current session"
+msgstr "Vincular sesión actual"
+
 msgid "允许发送已遮蔽特征码的游戏截图，用于地形识别和机关操作前后比较"
 msgstr "Permitir el envío de capturas con el UID oculto para reconocer el terreno y comparar los mecanismos antes y después de una acción"

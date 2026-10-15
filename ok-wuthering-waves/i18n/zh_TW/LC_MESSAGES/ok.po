@@ -2032,5 +2032,41 @@ msgstr "快捷開啟或關閉置頂小視窗的快捷鍵（例如 <ctrl>+<f11>�
 msgid "Allow Vision Screenshots"
 msgstr "允許傳送視覺分析截圖"
 
+msgid "Position source"
+msgstr "座標來源"
+
+msgid "Kuro position settings"
+msgstr "庫街區位置同步設定"
+
+msgid "Automatic"
+msgstr "自動選擇"
+
+msgid "OCR only"
+msgstr "僅截圖 OCR"
+
+msgid "Kuro only"
+msgstr "僅庫街區同步"
+
+msgid "Choose the source used for map navigation"
+msgstr "選擇地圖導航使用的座標來源"
+
+msgid "Select the capture folder and bind the current collection profile"
+msgstr "選擇接收目錄，核對並綁定目前的收集帳號"
+
+msgid "Select the folder containing the coordinate and connection JSONL records"
+msgstr "選擇包含座標訊息及連線記錄 JSONL 檔案的接收目錄"
+
+msgid "Select folder"
+msgstr "選擇目錄"
+
+msgid "I verified that the Kuro role and the current game account match this profile"
+msgstr "已核對庫街區角色、目前遊戲帳號與這個收集檔案一致"
+
+msgid "Unbind session"
+msgstr "解除連線綁定"
+
+msgid "Bind current session"
+msgstr "綁定目前連線"
+
 msgid "允许发送已遮蔽特征码的游戏截图，用于地形识别和机关操作前后比较"
 msgstr "允許傳送已遮蔽特徵碼的遊戲截圖，用於地形辨識及機關操作前後比較"

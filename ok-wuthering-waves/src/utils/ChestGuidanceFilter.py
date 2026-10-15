@@ -46,6 +46,10 @@ class ChestGuidanceFilter:
         self._pending = deque(maxlen=self.REBASE_CONFIRM_SAMPLES)
         self._last_movement_at = None
         self._nearby = False
+        self._received_key = None
+        self._received_start = None
+        self._received_target = None
+        self._received_at = None
 
     def reset(self):
         self._history.clear()
@@ -55,6 +59,32 @@ class ChestGuidanceFilter:
         self._pending.clear()
         self._last_movement_at = None
         self._nearby = False
+        self._received_key = None
+        self._received_start = None
+        self._received_target = None
+        self._received_at = None
+
+    def update_received(self, sample, target_key, target_x, target_y, now=None):
+        now = time.monotonic() if now is None else float(now)
+        key = (target_key, sample.session_id, sample.sequence)
+        raw = (sample.x, sample.y)
+        if key != self._received_key:
+            if self._target_key != target_key:
+                self.reset()
+                self._target_key = target_key
+            start = self._stable or raw
+            if math.hypot(raw[0] - start[0], raw[1] - start[1]) > 50000:
+                start = raw
+            self._received_key = key
+            self._received_start = start
+            self._received_target = raw
+            self._received_at = now
+        # 动画仅连接两次已接收的位置，超过 0.2 秒后保持最新观测值。
+        amount = min(1.0, max(0.0, (now - self._received_at) / 0.2))
+        self._stable = tuple(a + (b - a) * amount for a, b in
+                             zip(self._received_start, self._received_target))
+        self._stable_bearing = None
+        return self._sample(target_x, target_y)
 
     @staticmethod
     def _bearing_degrees(player_x, player_y, target_x, target_y):

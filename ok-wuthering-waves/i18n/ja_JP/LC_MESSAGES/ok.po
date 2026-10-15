@@ -1876,5 +1876,41 @@ msgstr "最前面の小ウィンドウの表示／非表示を切り替えるホ
 msgid "Allow Vision Screenshots"
 msgstr "画像分析用スクリーンショットの送信を許可"
 
+msgid "Position source"
+msgstr "座標の取得元"
+
+msgid "Kuro position settings"
+msgstr "Kuro位置同期の設定"
+
+msgid "Automatic"
+msgstr "自動選択"
+
+msgid "OCR only"
+msgstr "スクリーンショットOCRのみ"
+
+msgid "Kuro only"
+msgstr "Kuro同期のみ"
+
+msgid "Choose the source used for map navigation"
+msgstr "マップ案内に使う座標の取得元を選択"
+
+msgid "Select the capture folder and bind the current collection profile"
+msgstr "受信フォルダーを選択し、現在の収集プロフィールを確認して関連付けます"
+
+msgid "Select the folder containing the coordinate and connection JSONL records"
+msgstr "座標メッセージと接続記録のJSONLファイルを含む受信フォルダーを選択"
+
+msgid "Select folder"
+msgstr "フォルダーを選択"
+
+msgid "I verified that the Kuro role and the current game account match this profile"
+msgstr "Kuroのキャラクターと現在のゲームアカウントがこのプロフィールと一致することを確認しました"
+
+msgid "Unbind session"
+msgstr "セッションの関連付けを解除"
+
+msgid "Bind current session"
+msgstr "現在のセッションを関連付け"
+
 msgid "允许发送已遮蔽特征码的游戏截图，用于地形识别和机关操作前后比较"
 msgstr "UIDを隠したゲーム画像の送信を許可し、地形の認識と仕掛けの操作前後の比較に使用します"

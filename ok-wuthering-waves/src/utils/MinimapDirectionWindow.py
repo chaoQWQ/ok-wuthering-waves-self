@@ -35,7 +35,7 @@ class MinimapDirectionWindow(QWidget):
     """Transparent, non-activating and fully click-through direction window."""
 
     _frame_requested = Signal(
-        object, object, object, object, object, object, object, object
+        object, object, object, object, object, object, object, object, object
     )
     _hide_requested = Signal()
     _close_requested = Signal()
@@ -57,6 +57,7 @@ class MinimapDirectionWindow(QWidget):
         self._target_marker = None
         self._nearby = False
         self._hint_text = ""
+        self._position_note = ""
         self._guide_target = None
         self._guide_pixmap = None
         self._guide_description = None
@@ -69,13 +70,15 @@ class MinimapDirectionWindow(QWidget):
         self._close_requested.connect(self._do_close, Qt.QueuedConnection)
 
     def render_direction(self, geometry, bearing, minimap_box, distance=None,
-                         target_marker=None, nearby=False, hint_text="", guide_target=None):
+                         target_marker=None, nearby=False, hint_text="", guide_target=None,
+                         position_note=""):
         self._frame_requested.emit(
             tuple(geometry), float(bearing), minimap_box,
             None if distance is None else float(distance),
             None if target_marker is None else tuple(target_marker), bool(nearby),
             str(hint_text or ""),
             guide_target,
+            str(position_note),
         )
 
     def close_overlay(self):
@@ -91,13 +94,14 @@ class MinimapDirectionWindow(QWidget):
         self._hide_requested.emit()
 
     def _do_frame(self, geometry, bearing, minimap_box, distance, target_marker,
-                  nearby, hint_text, guide_target=None):
+                  nearby, hint_text, guide_target=None, position_note=""):
         geometry = tuple(int(value) for value in geometry)
         frame_key = (
             geometry, float(bearing), minimap_box.x, minimap_box.y,
             minimap_box.width, minimap_box.height, distance, target_marker,
             bool(nearby), str(hint_text or ""),
             guide_target,
+            position_note,
         )
         if self.isVisible() and frame_key == self._last_frame:
             return
@@ -110,6 +114,7 @@ class MinimapDirectionWindow(QWidget):
         self._target_marker = target_marker
         self._nearby = bool(nearby)
         self._hint_text = str(hint_text or "")
+        self._position_note = position_note
         if guide_target != self._guide_target:
             self._guide_target = guide_target
             self._guide_pixmap = None
@@ -211,7 +216,9 @@ class MinimapDirectionWindow(QWidget):
 
             box = self._minimap_box
             banner = QRectF(
-                float(box.x), float(box.y + box.height + 8), 285.0, 38.0
+                float(box.x), float(box.y + box.height + 8),
+                460.0 if self._position_note else 285.0,
+                62.0 if self._position_note else 38.0,
             )
             painter.setBrush(QColor(0, 0, 0, 210))
             painter.setPen(QPen(QColor(255, 215, 30), 3))
@@ -219,13 +226,18 @@ class MinimapDirectionWindow(QWidget):
             painter.setFont(QFont("Microsoft YaHei UI", 11, QFont.Bold))
             painter.setPen(QColor(255, 255, 255))
             if self._nearby:
-                text = "收集目标就在附近，请观察周围"
+                text = "目标在附近，请停留等待同步" if self._position_note else "收集目标就在附近，请观察周围"
             else:
                 text = f"目标方向  {self._bearing:.0f}°"
                 if self._distance is not None:
-                    text += f"    距离 {format_distance_meters(self._distance)}"
-            painter.drawText(banner.adjusted(10, 0, -8, 0),
+                    text += f"    距离 {'约 ' if self._position_note else ''}{format_distance_meters(self._distance)}"
+            painter.drawText(banner.adjusted(10, 0, -8, -24 if self._position_note else 0),
                              Qt.AlignVCenter | Qt.AlignLeft, text)
+            if self._position_note:
+                painter.setFont(QFont("Microsoft YaHei UI", 9))
+                painter.setPen(QColor(255, 215, 30))
+                painter.drawText(banner.adjusted(10, 35, -8, 0),
+                                 Qt.AlignVCenter | Qt.AlignLeft, self._position_note)
 
             # 当前目标的说明和参考图片显示在方向提示下面。
             hint_text = self._guide_description if self._guide_description else self._hint_text

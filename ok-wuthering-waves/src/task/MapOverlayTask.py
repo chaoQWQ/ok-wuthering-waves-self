@@ -30,6 +30,7 @@ from src.utils.ChestGuidanceFilter import ChestGuidanceFilter
 from src.utils.BigMapViewFilter import BigMapViewFilter
 from src.utils.KuroRoutes import KuroRoute, RouteNavigator
 from src.utils.MapDistance import format_distance_meters
+from src.utils.PositionSources import PositionDecision, PositionSources, SOURCE_MODES, PAUSE_SECONDS
 from src.utils.TargetTracker import (
     THRESHOLD_MIN, THRESHOLD_MAX, validate_threshold, TargetTracker,
     TargetRef, right_click_dispatch,
@@ -1105,11 +1106,17 @@ class OverlayController:
             scale = float(scale_per_1000) / 1000.0
             if scale <= 0:
                 return None, None
-            sample = self._chest_guidance_filter.update(
-                player_pos, target.location_id, target.x, target.y,
-                map_confirmed=state_id is not None,
-                movement_active=self._manual_movement_active(),
-            )
+            if self.task.using_kuro_position():
+                sample = self._chest_guidance_filter.update_received(
+                    self.task._position_sources.decision.sample,
+                    target.location_id, target.x, target.y,
+                )
+            else:
+                sample = self._chest_guidance_filter.update(
+                    player_pos, target.location_id, target.x, target.y,
+                    map_confirmed=state_id is not None,
+                    movement_active=self._manual_movement_active(),
+                )
             px, py = sample.player_x, sample.player_y
             center_x = minimap_box.x + minimap_box.width / 2
             center_y = minimap_box.y + minimap_box.height / 2
@@ -2289,7 +2296,7 @@ class OverlayController:
                 player_pos, map_id, scale_per_1000, mode_desc, target_info
             )
             if not minimap:
-                lines[0] += '（最近一次大世界识别）'
+                lines[0] += '（人物位置）'
                 if self._valid_player_pos(view_position):
                     lines.append(f'视图中心：{view_position[0]:.1f}, {view_position[1]:.1f}')
             if self._chest_search_enabled():
@@ -2297,6 +2304,7 @@ class OverlayController:
                 route_line = self._chest_route_status_info()
                 if route_line:
                     lines.append(route_line)
+            lines.append(self.task.position_status())
             return lines
 
         # Player coordinates unavailable -> coordinate "未知", keep the other
@@ -2319,6 +2327,7 @@ class OverlayController:
             route_line = self._chest_route_status_info()
             if route_line:
                 lines.append(route_line)
+        lines.append(self.task.position_status())
         return lines
 
     def _status_scale_per_1000(self, minimap, game_scale):
@@ -2534,6 +2543,7 @@ class OverlayController:
             distance=distance, target_marker=target_marker, nearby=nearby,
             hint_text=self._chest_hint_for_target(self._chest_target),
             guide_target=self._chest_guide_target(),
+            position_note=self.task.position_status() if self.task.using_kuro_position() else '',
         )
         self._last_minimap_direction_at = time.monotonic()
         return True
@@ -2673,6 +2683,9 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
             # 才创建覆盖层，避免普通自动化期间占用额外的 CPU/GDI 资源。
             '_enabled': False,
             'Detect interval (ms)': 100,
+            'Position source': 'Automatic',
+            'Kuro position settings': False,
+            '_Kuro position directory': '',
             '_Overlay enabled': True,
             '_Search radius (world units)': 10000,
             '_Auto map scale': True,
@@ -2740,6 +2753,11 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
             'type': 'drop_down',
             'options': ['default'],
         }
+        self.config_type['Position source'] = {'type': 'drop_down', 'options': list(SOURCE_MODES)}
+        self.config_type['Kuro position settings'] = {
+            'type': 'button', 'text': 'Kuro position settings',
+            'icon': FluentIcon.SETTING, 'callback': self.configure_kuro_position,
+        }
         self.config_type['_Feature algorithm'] = {'type': 'drop_down', 'options': [
             'SURF', 'SIFT', 'SIFTGZ',
         ]}
@@ -2764,6 +2782,8 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         }
         # 面板可见文案统一用英文源串，由 i18n/<locale>/LC_MESSAGES/ok.po 提供翻译。
         self.config_description = {
+            'Position source': 'Choose the source used for map navigation',
+            'Kuro position settings': 'Select the capture folder and bind the current collection profile',
             'Kuro route square': 'Search and load public Kuro routes',
             'Kuro route navigation': 'Follow the selected route in order using the current completion profile',
             'Advance hotkey': 'Hotkey to advance the target manually (pynput format, e.g. <ctrl>+<f9>)',
@@ -2782,6 +2802,12 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         }
         self._window = None
         self._last_valid = None
+        self._last_ocr_valid = None
+        self._position_sources = PositionSources()
+        self._position_lock = threading.RLock()
+        self._kuro_map_verified = None
+        self._kuro_verify_at = 0.0
+        self._position_info_at = 0.0
         self._player_map_id = None
         self._bigmap_position = None
         self._bigmap_filter = BigMapViewFilter()
@@ -3193,6 +3219,105 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
             self._position_detector = PositionDetector()
         return self._position_detector
 
+    def _configure_position_sources(self):
+        with self._position_lock:
+            previous = self._position_sources.context
+            self._position_sources.configure(
+                self.config.get('Position source', 'Automatic'),
+                self.config.get('_Kuro position directory', ''),
+                self.config.get('Collection account', 'default'),
+            )
+            if previous is not None and previous != self._position_sources.context:
+                self._last_valid = None
+                self._last_ocr_valid = None
+                self._player_map_id = None
+                self._locked_map_id = None
+                self._window = None
+                self._consecutive_far = 0
+                self._kuro_map_verified = None
+                self._overlay_ctl()._clear_chest_target()
+
+    def configure_kuro_position(self, *args):
+        from src.utils.KuroPositionDialog import KuroPositionDialog
+
+        self._configure_position_sources()
+        dialog = KuroPositionDialog(self, og.main_window)
+        dialog.exec()
+
+    def position_status(self):
+        with self._position_lock:
+            return self._position_sources.decision.status
+
+    def using_kuro_position(self):
+        sample = self._position_sources.decision.sample
+        return sample is not None and sample.source == 'kuro'
+
+    def _select_position(self, ocr_position=None):
+        with self._position_lock:
+            if self._position_sources.mode != 'OCR only' and self._position_sources.reader is not None:
+                self._ensure_coords()
+            decision = self._position_sources.select(ocr_position, self._locked_map_id,
+                                                       self._coords_dict or ())
+        if time.monotonic() >= self._position_info_at:
+            self.info_set('Position source', decision.status)
+            self._position_info_at = time.monotonic() + 1.0
+        if decision.reset_guidance:
+            self._overlay_ctl()._chest_guidance_filter.reset()
+            if decision.sample.source == 'kuro':
+                self._kuro_map_verified = None
+        if decision.sample is None:
+            self._overlay_ctl()._hide_minimap_direction_window()
+            self._overlay_ctl()._chest_confirm_requested = False
+            self._clear_overlay()
+        return decision.sample
+
+    def _draw_position_status(self):
+        if not self.config.get('_Overlay enabled') or not self.config.get('Show status panel'):
+            return
+        hwnd = getattr(self, 'hwnd', None)
+        if hwnd is not None and not getattr(hwnd, 'visible', True):
+            return
+        view = self.get_overlay_view()
+        if view is not None:
+            lines = [self.position_status()]
+            route = self._overlay_ctl()._chest_route_status_info()
+            if route:
+                lines.append(route)
+            view.draw(OVERLAY_DRAW_KEY, MapItemOverlay.make_paint_callback([], status_lines=lines),
+                      duration=OVERLAY_DRAW_DURATION)
+
+    def _accept_kuro_position(self, sample, in_big_map=False):
+        position = sample.overlay_position
+        self._last_valid = position
+        self._player_map_id = sample.map_id
+        if in_big_map:
+            if self._locked_map_id is None:
+                self._locked_map_id = sample.map_id
+            return True
+        if self._locked_map_id != sample.map_id:
+            self._locked_map_id = sample.map_id
+            self._minimap_match_scale = None
+            self._last_minimap_scale_per_1000 = None
+            self._overlay_ctl()._clear_chest_target()
+        identity = (sample.session_id, sample.map_id)
+        if self._kuro_map_verified != identity:
+            now = time.monotonic()
+            if now >= self._kuro_verify_at:
+                self._kuro_verify_at = now + 1.0
+                if self._verify_locked_map(position):
+                    self._kuro_map_verified = identity
+            if self._kuro_map_verified != identity:
+                message = '库街区坐标已接收，等待小地图核对，请停留片刻'
+                self._position_sources.decision = PositionDecision(None, message)
+                self.info_set('Position source', message)
+                self._overlay_ctl()._hide_minimap_direction_window()
+                self._clear_overlay()
+                return False
+        if not 0 <= time.time() - sample.received_at <= PAUSE_SECONDS:
+            self._position_sources.decision = PositionDecision(None, '库街区坐标已过期，等待新消息')
+            return False
+        return True
+
     def _detections_per_second(self):
         interval = self.config.get('Detect interval (ms)')
         return math.ceil(1000 / interval)
@@ -3210,9 +3335,9 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
             self._window = deque(old[-size:], maxlen=size)
 
     def _check_teleport(self, pos):
-        if self._last_valid is None:
+        if self._last_ocr_valid is None:
             return False
-        if _dist2d(pos, self._last_valid) > TELEPORT_THRESHOLD:
+        if _dist2d(pos, self._last_ocr_valid) > TELEPORT_THRESHOLD:
             self._consecutive_far += 1
         else:
             self._consecutive_far = 0
@@ -3248,19 +3373,19 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
     def _denoise(self, position_text):
         pos = _parse_position(position_text)
         if pos is None:
-            return self._last_valid
+            return self._last_ocr_valid
 
         self._ensure_window()
         self._window.append(pos)
 
-        if self._last_valid is None:
-            self._last_valid = pos
+        if self._last_ocr_valid is None:
+            self._last_ocr_valid = pos
             return pos
 
         if self._check_teleport(pos):
             self._window.clear()
             self._window.append(pos)
-            self._last_valid = pos
+            self._last_ocr_valid = pos
             self._consecutive_far = 0
             if self._locked_map_id is not None:
                 logger.info(f"[MapFallback] teleport detected, unlocking map_id={self._locked_map_id}")
@@ -3271,11 +3396,11 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
             return pos
 
         if self._consecutive_far > 0:
-            return self._last_valid
+            return self._last_ocr_valid
 
         filtered = self._filter_outliers()
-        self._last_valid = filtered[-1]
-        return self._last_valid
+        self._last_ocr_valid = filtered[-1]
+        return self._last_ocr_valid
 
     def _ensure_coords(self):
         if self._coords_dict is not None:
@@ -3749,19 +3874,21 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         # uses its unchanged ``in_team`` gate.
         in_big_map = self._in_big_map()
         in_team = not in_big_map and self.scene.in_team(self.in_team_and_world)
-        fallback_minimap = False
+        self._configure_position_sources()
         raw_position = None
-        if not in_team:
-            if not in_big_map and self.config.get('_Overlay enabled'):
-                raw_position = self._get_position_detector().detect_position(self.frame)
-                fallback_minimap = bool(raw_position)
-                if fallback_minimap:
-                    self._fallback_position_log_counter += 1
-                    if (self._fallback_position_log_counter <= 3 or
-                            self._fallback_position_log_counter % 50 == 0):
-                        logger.info(
-                            f"[MinimapFallback] in_team=False, position={raw_position}"
-                        )
+        result = None
+        started = time.monotonic()
+        if not in_big_map and self._position_sources.mode != 'Kuro only':
+            raw_position = self._get_position_detector().detect_position(self.frame)
+            if raw_position:
+                result = self._denoise(raw_position)
+                if self._consecutive_far:
+                    result = None
+        elapsed = (time.monotonic() - started) * 1000
+        fallback_minimap = bool(raw_position)
+        position_sample = self._select_position(result)
+        if in_big_map and position_sample is not None and position_sample.source == 'kuro':
+            self._accept_kuro_position(position_sample, in_big_map=True)
 
         if in_team or fallback_minimap:
             self._bigmap_position = None
@@ -3772,16 +3899,21 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
             self._in_team_failures = 0
             self._last_match_scale = None
 
-            if raw_position is None:
-                start = time.time()
-                raw_position = self._get_position_detector().detect_position(self.frame)
-                elapsed = (time.time() - start) * 1000
-            else:
-                elapsed = 0.0
+            if position_sample is not None and position_sample.source == 'kuro':
+                if not self._is_minimap_dark() and self._accept_kuro_position(position_sample):
+                    if self.config.get('_Overlay enabled'):
+                        controller.on_minimap(position_sample.overlay_position, position_sample.map_id)
+                else:
+                    controller._hide_minimap_direction_window()
+                    self._clear_overlay()
+                    self._draw_position_status()
+                self.sleep(self.config.get('Detect interval (ms)', 100) / 1000)
+                return
 
-            if raw_position:
-                result = self._denoise(raw_position)
+            if position_sample is not None:
+                result = position_sample.overlay_position
                 if result:
+                    self._last_valid = result
                     self._ocr_noresult_counter = 0
                     if result[0] % 25 == 0:
                         pos_text = f'{result[0]},{result[1]},{result[2]}'
@@ -3858,6 +3990,8 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
                 self._overlay_ctl().on_idle()
 
             interval = self.config.get('Detect interval (ms)', 500)
+            if position_sample is None:
+                self._draw_position_status()
             self.sleep(interval / 1000)
             return
 
@@ -3989,6 +4123,9 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         self._overlay = MapItemOverlay(db_path)
 
     def player_position_for_map(self):
+        sample = self._position_sources.decision.sample
+        if sample is None or not 0 <= time.time() - sample.received_at <= (PAUSE_SECONDS if sample.source == 'kuro' else 1.0):
+            return None
         if (self._last_valid is None or self._player_map_id is None
                 or self._player_map_id != self._locked_map_id):
             return None
