@@ -1,10 +1,11 @@
 import time
 
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QFileDialog, QHBoxLayout
+from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QLineEdit
 from qfluentwidgets import BodyLabel, CheckBox, LineEdit, MessageBoxBase, PushButton, SubtitleLabel
 
 from src.utils.PositionSources import PAUSE_SECONDS
+from src.utils.KuroDirectClient import KURO_ACCOUNT_3, KURO_ROLE_3, KuroCredentialStore
 
 
 class KuroPositionDialog(MessageBoxBase):
@@ -14,6 +15,24 @@ class KuroPositionDialog(MessageBoxBase):
         self.translate = task.tr if translate is None else translate
         self.session_id = ''
         self.viewLayout.addWidget(SubtitleLabel(self.translate('Kuro position settings'), self))
+        self.token_label = BodyLabel(f'账号 3 · 收集档案 {KURO_ACCOUNT_3} · 游戏 UID {KURO_ROLE_3}', self)
+        self.viewLayout.addWidget(self.token_label)
+        self.token_edit = LineEdit(self)
+        self.token_edit.setEchoMode(QLineEdit.Password)
+        self.token_edit.setPlaceholderText('输入库街区 token；已保存的内容不会显示')
+        self.viewLayout.addWidget(self.token_edit)
+        self.confirm_token = CheckBox('已核对该 token 绑定的库街区角色属于账号 3', self)
+        self.viewLayout.addWidget(self.confirm_token)
+        token_layout = QHBoxLayout()
+        self.save_token_button = PushButton('保存账号 3 的 token', self)
+        self.save_token_button.clicked.connect(self.save_token)
+        token_layout.addWidget(self.save_token_button)
+        self.delete_token_button = PushButton('删除已保存 token', self)
+        self.delete_token_button.clicked.connect(self.delete_token)
+        token_layout.addWidget(self.delete_token_button)
+        self.viewLayout.addLayout(token_layout)
+        self.token_edit.textChanged.connect(self.refresh)
+        self.confirm_token.stateChanged.connect(self.refresh)
         self.description = BodyLabel(self.translate(
             'Select the folder containing the coordinate and connection JSONL records'), self)
         self.description.setWordWrap(True)
@@ -71,9 +90,12 @@ class KuroPositionDialog(MessageBoxBase):
                 self.confirm_role.blockSignals(True)
                 self.confirm_role.setChecked(False)
                 self.confirm_role.blockSignals(False)
-            self.account_label.setText(f'{self.translate("Collection account")}: {sources.account}')
-            if sample is None:
-                status = reader.message if reader is not None else self.translate('Select folder')
+            account = self.task.config.get('Collection account', 'default')
+            self.account_label.setText(f'{self.translate("Collection account")}: {account}')
+            if not self.task.enabled:
+                status = '地图高价值物品显示未启用；启用后自动连接'
+            elif sample is None:
+                status = reader.message if reader is not None else sources.kuro_status(now)[1]
             else:
                 age = now - sample.received_at
                 bound = sources.binding == (sources.account, sample.session_id)
@@ -84,8 +106,30 @@ class KuroPositionDialog(MessageBoxBase):
             self.state_label.setText(status)
             valid = (reader is not None and reader.connected and sample is not None
                      and 0 <= now - sample.received_at <= PAUSE_SECONDS)
-            self.yesButton.setEnabled(valid and self.confirm_role.isChecked())
-            self.unbind_button.setEnabled(sources.binding is not None)
+            direct = sources.reader is not None and getattr(sources.reader, 'direct', False)
+            self.yesButton.setEnabled(valid and not direct and self.confirm_role.isChecked())
+            self.unbind_button.setEnabled(sources.binding is not None and not direct)
+            self.save_token_button.setEnabled(bool(self.token_edit.text().strip())
+                                              and self.confirm_token.isChecked())
+            self.delete_token_button.setEnabled(self.task._kuro_credential is not None)
+            state = '已保存' if self.task._kuro_credential is not None else '未保存'
+            self.token_label.setText(
+                f'账号 3 · 收集档案 {KURO_ACCOUNT_3} · 游戏 UID {KURO_ROLE_3} · token {state}')
+
+    def save_token(self):
+        if not self.save_token_button.isEnabled():
+            return
+        self.task._kuro_credential = KuroCredentialStore().write(self.token_edit.text())
+        self.token_edit.clear()
+        self.confirm_token.setChecked(False)
+        self.task._configure_position_sources()
+        self.refresh()
+
+    def delete_token(self):
+        KuroCredentialStore().delete()
+        self.task._kuro_credential = None
+        self.task._configure_position_sources()
+        self.refresh()
 
     def accept(self):
         self.refresh()

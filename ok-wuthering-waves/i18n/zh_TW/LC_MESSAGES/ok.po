@@ -2050,8 +2050,8 @@ msgstr "僅庫街區同步"
 msgid "Choose the source used for map navigation"
 msgstr "選擇地圖導航使用的座標來源"
 
-msgid "Select the capture folder and bind the current collection profile"
-msgstr "選擇接收目錄，核對並綁定目前的收集帳號"
+msgid "Configure account 3 token and Kuro position sync"
+msgstr "設定帳號 3 的 token 與庫街區位置同步"
 
 msgid "Select the folder containing the coordinate and connection JSONL records"
 msgstr "選擇包含座標訊息及連線記錄 JSONL 檔案的接收目錄"

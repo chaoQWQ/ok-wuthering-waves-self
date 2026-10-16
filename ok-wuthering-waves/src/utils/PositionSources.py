@@ -170,6 +170,7 @@ class PositionSources:
         self.mode = 'Automatic'
         self.account = ''
         self.reader = None
+        self.direct_configured = False
         self.binding = None
         self.history = deque(maxlen=400)
         self.ocr_sequence = 0
@@ -184,15 +185,27 @@ class PositionSources:
         self.transition_at = 0.0
         self.decision = PositionDecision(None, '等待坐标')
 
-    def configure(self, mode, directory, account):
+    def configure(self, mode, directory, account, credential=None):
         if mode not in SOURCE_MODES:
             raise ValueError(f'未知坐标来源：{mode}')
-        context = (str(directory).strip(), str(account))
+        use_direct = credential is not None and mode != 'OCR only'
+        credential_id = (hashlib.sha256(
+            (credential.token + '\0' + credential.devcode).encode()).hexdigest()
+            if use_direct else '')
+        context = (str(directory).strip(), str(account), credential_id)
         if context != self.context:
+            if self.reader is not None and getattr(self.reader, 'direct', False):
+                self.reader.stop()
             self.__init__()
             self.context = context
             self.account = str(account)
-            if context[0]:
+            self.direct_configured = use_direct
+            if use_direct:
+                from src.utils.KuroDirectClient import KURO_ACCOUNT_3, KuroDirectClient
+
+                if self.account == KURO_ACCOUNT_3:
+                    self.reader = KuroDirectClient(credential)
+            elif context[0]:
                 self.reader = KuroCaptureReader(context[0])
         if self.mode != mode:
             self.last_sample = None
@@ -222,6 +235,8 @@ class PositionSources:
 
     def kuro_status(self, now):
         if self.reader is None:
+            if self.direct_configured:
+                return None, '库街区位置同步目前仅支持账号 3'
             return None, '未设置库街区接收目录'
         reader = self.reader.poll(now)
         if not reader.connected or reader.latest is None:
@@ -234,6 +249,8 @@ class PositionSources:
             return None, f'库街区坐标已过期（{age:.1f} 秒未更新）'
         if age > PAUSE_SECONDS:
             return None, f'库街区导航暂停（{age:.1f} 秒未更新）'
+        if getattr(self.reader, 'direct', False):
+            self.binding = (self.account, sample.session_id)
         if self.binding != (self.account, sample.session_id):
             return None, '请核对并绑定当前库街区角色与收集账号'
         label = '库街区同步（更新较慢）' if age > FRESH_SECONDS else '库街区同步'
@@ -312,3 +329,11 @@ class PositionSources:
             self.last_sample = selected
         self.decision = PositionDecision(selected, status, reset)
         return self.decision
+
+    def stop(self):
+        if self.reader is not None and getattr(self.reader, 'direct', False):
+            self.reader.stop()
+        self.reader = None
+        self.context = None
+        self.binding = None
+        self.last_sample = None

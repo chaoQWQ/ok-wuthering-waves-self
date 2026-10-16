@@ -6,7 +6,7 @@ import cv2
 import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
 from qfluentwidgets import Theme, setTheme
 
 from config import config
@@ -39,6 +39,7 @@ def task(tmp_path):
     instance = MapOverlayTask(executor=executor, app=app)
     instance.config = Config('position-test', instance.default_config, folder=str(tmp_path))
     instance.config['_Kuro position directory'] = str(CAPTURE)
+    instance._enabled = True
     instance._configure_position_sources()
     yield instance
     if instance._overlay_controller is not None:
@@ -60,6 +61,9 @@ def test_real_task_and_dialog_reject_disconnected_capture(task, tmp_path):
         dialog.show()
         QTest.qWait(250)
         assert not dialog.yesButton.isEnabled()
+        assert not dialog.save_token_button.isEnabled()
+        assert '112136276' in dialog.token_label.text()
+        assert dialog.token_edit.echoMode() == QLineEdit.EchoMode.Password
         assert '断开' in dialog.state_label.text()
         dialog.confirm_role.setChecked(True)
         assert not dialog.yesButton.isEnabled()
@@ -94,6 +98,15 @@ def test_task_keeps_ocr_state_independent_of_kuro_position(task):
     assert task._last_ocr_valid is None
 
 
+def test_disabling_task_closes_position_source(task):
+    assert task._position_sources.reader is not None
+    task.disable()
+    assert task._position_sources.reader is None
+    assert task._position_sources.context is None
+    task._configure_position_sources()
+    assert task._position_sources.reader is None
+
+
 def test_direction_window_renders_delayed_position_note():
     app = QApplication.instance() or QApplication([])
     sample = KuroCaptureReader(CAPTURE).poll(1791966785.2).latest
@@ -123,3 +136,5 @@ def test_source_translations_are_compiled():
         if catalog.parts[-3] != 'en_US':
             assert translation.gettext('Position source') != 'Position source'
             assert translation.gettext('Bind current session') != 'Bind current session'
+            assert translation.gettext('Configure account 3 token and Kuro position sync') != (
+                'Configure account 3 token and Kuro position sync')

@@ -1815,8 +1815,8 @@ msgstr "Solo sincronización de Kuro"
 msgid "Choose the source used for map navigation"
 msgstr "Elige la fuente de coordenadas para la navegación del mapa"
 
-msgid "Select the capture folder and bind the current collection profile"
-msgstr "Selecciona la carpeta de recepción y vincula el perfil de recolección actual"
+msgid "Configure account 3 token and Kuro position sync"
+msgstr "Configura el token de la cuenta 3 y la sincronización de posición de Kuro"
 
 msgid "Select the folder containing the coordinate and connection JSONL records"
 msgstr "Selecciona la carpeta con los registros JSONL de coordenadas y conexión"

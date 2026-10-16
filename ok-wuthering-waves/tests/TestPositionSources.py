@@ -8,6 +8,7 @@ import pytest
 
 from src.utils.ChestGuidanceFilter import ChestGuidanceFilter
 from src.utils.PositionSources import KuroCaptureReader, PositionSources
+from src.utils.KuroDirectClient import parse_kuro_message
 from src.utils.positionDetector import PositionDetector
 
 
@@ -42,6 +43,23 @@ def test_replay_every_record_and_disconnect():
     assert reader.latest is None
     reader.poll(last['timestamp'] + 1)
     assert not reader.connected
+
+
+def test_direct_protocol_parses_every_recorded_message():
+    sequence = 0
+    for message in MESSAGES:
+        sequence += 1
+        code, sample = parse_kuro_message(message['text'], 'recorded-session',
+                                          sequence, message['timestamp'])
+        recorded = json.loads(message['text'])
+        assert code == recorded[0]
+        if code == 200:
+            assert sample is not None
+            assert (sample.map_id, sample.area_id, sample.x, sample.y) == (
+                str(recorded[1]), recorded[2], recorded[3], recorded[4])
+            assert sample.received_at == message['timestamp']
+        else:
+            assert sample is None
 
 
 def test_binding_required_account_change_and_repeat_reads():

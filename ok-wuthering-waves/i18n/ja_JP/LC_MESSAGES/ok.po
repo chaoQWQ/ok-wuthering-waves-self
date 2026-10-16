@@ -1894,8 +1894,8 @@ msgstr "Kuro同期のみ"
 msgid "Choose the source used for map navigation"
 msgstr "マップ案内に使う座標の取得元を選択"
 
-msgid "Select the capture folder and bind the current collection profile"
-msgstr "受信フォルダーを選択し、現在の収集プロフィールを確認して関連付けます"
+msgid "Configure account 3 token and Kuro position sync"
+msgstr "アカウント 3 の token と庫街区の位置同期を設定"
 
 msgid "Select the folder containing the coordinate and connection JSONL records"
 msgstr "座標メッセージと接続記録のJSONLファイルを含む受信フォルダーを選択"

@@ -2783,7 +2783,7 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         # 面板可见文案统一用英文源串，由 i18n/<locale>/LC_MESSAGES/ok.po 提供翻译。
         self.config_description = {
             'Position source': 'Choose the source used for map navigation',
-            'Kuro position settings': 'Select the capture folder and bind the current collection profile',
+            'Kuro position settings': 'Configure account 3 token and Kuro position sync',
             'Kuro route square': 'Search and load public Kuro routes',
             'Kuro route navigation': 'Follow the selected route in order using the current completion profile',
             'Advance hotkey': 'Hotkey to advance the target manually (pynput format, e.g. <ctrl>+<f9>)',
@@ -2805,6 +2805,7 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         self._last_ocr_valid = None
         self._position_sources = PositionSources()
         self._position_lock = threading.RLock()
+        self._kuro_credential = None
         self._kuro_map_verified = None
         self._kuro_verify_at = 0.0
         self._position_info_at = 0.0
@@ -2863,6 +2864,9 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
 
     def on_create(self):
         super().on_create()
+        from src.utils.KuroDirectClient import KuroCredentialStore
+
+        self._kuro_credential = KuroCredentialStore().read()
         # ``use_overlay`` 会持久化在 configs/_ok.json；旧版本可能留下 True。
         # 以地图任务的实际启用状态为准同步一次，确保普通自动化启动时不会创建覆盖层。
         self._set_global_overlay_enabled(self.enabled)
@@ -2874,6 +2878,8 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
             self.config.get('Collection account', 'default'),
             ensure=True,
         )
+        if self.enabled:
+            self._configure_position_sources()
         # 程序启动后模式总是重置回普通模式，避免上次退出时残留在路线模式。
         if self.config.get('_Path mode', False):
             self.config['_Path mode'] = False
@@ -3011,6 +3017,9 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
     def _on_executor_paused(self, paused):
         """暂停时关闭覆盖层；恢复且地图任务启用时再创建。"""
         if paused:
+            with self._position_lock:
+                self._position_sources.stop()
+                self._position_sources = PositionSources()
             self._force_clear_overlay()
             self._set_global_overlay_enabled(False)
         elif self.enabled:
@@ -3031,11 +3040,14 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
     def enable(self):
         super().enable()
         self._set_global_overlay_enabled(True)
+        self._configure_position_sources()
         # enable() 会 info_clear()，因此版本号等信息在其之后重新写入。
         self._ensure_feature_started()
 
     def disable(self):
         super().disable()
+        with self._position_lock:
+            self._position_sources.stop()
         # 下次启用时重新检查资源与版本号。
         self._feature_started = False
         # 停用附加功能时强制清一遍附加层，避免最后一帧残留在游戏画面上。
@@ -3221,11 +3233,15 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
 
     def _configure_position_sources(self):
         with self._position_lock:
+            if not self.enabled:
+                self._position_sources.stop()
+                return
             previous = self._position_sources.context
             self._position_sources.configure(
                 self.config.get('Position source', 'Automatic'),
                 self.config.get('_Kuro position directory', ''),
                 self.config.get('Collection account', 'default'),
+                self._kuro_credential,
             )
             if previous is not None and previous != self._position_sources.context:
                 self._last_valid = None
@@ -3238,8 +3254,10 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
                 self._overlay_ctl()._clear_chest_target()
 
     def configure_kuro_position(self, *args):
+        from src.utils.KuroDirectClient import KuroCredentialStore
         from src.utils.KuroPositionDialog import KuroPositionDialog
 
+        self._kuro_credential = KuroCredentialStore().read()
         self._configure_position_sources()
         dialog = KuroPositionDialog(self, og.main_window)
         dialog.exec()
@@ -4332,6 +4350,8 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
                 logger.warning(f'[Overlay] force hide interaction window failed: {e}')
 
     def on_destroy(self):
+        with self._position_lock:
+            self._position_sources.stop()
         self._force_clear_overlay()
         self._set_global_overlay_enabled(False)
         if self._view_probe is not None:
