@@ -1096,6 +1096,17 @@ class OverlayController:
     def _chest_minimap_visual(self, player_pos, state_id=None):
         """Build the minimap marker and edge arrow for the selected chest."""
         target = self._chest_target
+        if self._path_mode:
+            node = self._target_node()
+            if node is not None:
+                target = ChestTarget(
+                    location_id=getattr(node, 'position_id', None),
+                    name=getattr(node, 'position_name', '路线目标'),
+                    type_id=getattr(node, 'position_type', ''),
+                    x=float(node.x),
+                    y=float(node.y),
+                    distance=player_target_distance(player_pos, node.x, node.y) if self._valid_player_pos(player_pos) else 0.0,
+                )
         if target is None or not self._valid_player_pos(player_pos):
             return None, None
         minimap_box = self.task.get_box_by_name('box_minimap')
@@ -1169,19 +1180,17 @@ class OverlayController:
             self._hide_minimap_direction_window()
             return
         if self._path_mode and self._route is not None:
-            self._hide_minimap_direction_window()
-            # Player coordinate update: evaluate auto-advance before drawing so
-            # the edge direction arrow reflects the (possibly) advanced target
-            # (Requirements 8.2, 9.1, 9.2). No target -> no-op (Requirement 9.4).
             self.maybe_auto_advance(player_pos)
-            # Status_Panel text built after auto-advance so target info reflects
-            # the (possibly) advanced target; drawn on the ok OverlayWindow
-            # (Requirements 12.3, 12.9).
             status_lines = self.compute_status_lines(player_pos, minimap=True)
+            node = self._target_node()
+            target_pixmap = self._node_pixmap(node.position_img) if node is not None else None
+            target_marker, edge_arrow = self._chest_minimap_visual(player_pos, state_id)
+            if edge_arrow is not None or target_marker is not None:
+                self._draw_minimap_direction_window(edge_arrow, target_marker, target_pixmap=target_pixmap)
+            else:
+                self._hide_minimap_direction_window()
             self._draw_minimap_path(player_pos, state_id, status_lines=status_lines)
         else:
-            # 普通模式：先加载完成集合再绘制，使小地图排除已完成物品（问题1a）。
-            # build_draw_items(minimap=True) 会剔除 completed_ids 中的项。
             self._ensure_marks()
             if self._kuro_enabled():
                 self._update_chest_search(player_pos, state_id)
@@ -1190,11 +1199,15 @@ class OverlayController:
             target_marker, edge_arrow = self._chest_minimap_visual(
                 player_pos, state_id
             )
-            # Build status after guidance filtering so its distance agrees with
-            # the visible arrow/banner instead of exposing the raw OCR jump.
             status_lines = self.compute_status_lines(player_pos, minimap=True)
+            target_pixmap = None
+            if self._kuro_enabled() and self._chest_target is not None:
+                nav = self._kuro_navigation
+                if nav is not None and nav.cursor < len(nav.nodes):
+                    node = nav.nodes[nav.cursor][2]
+                    target_pixmap = self._node_pixmap(node.position_img)
             direction_drawn = self._draw_minimap_direction_window(
-                edge_arrow, target_marker
+                edge_arrow, target_marker, target_pixmap=target_pixmap
             )
             self.task._draw_overlay(
                 player_pos, state_id=state_id, completed_ids=self._completed_ids,
@@ -2177,8 +2190,8 @@ class OverlayController:
         # 将路线连线/箭头裁剪到小地图圆形区域内，避免覆盖整个屏幕（问题4）。
         # minimap_box 即上面通过 get_box_by_name('box_minimap') 获取的小地图框。
         callback = MapItemOverlay.make_paint_callback(
-            [], path_layers=layers, edge_arrow=edge_arrow, clip_box=minimap_box,
-            target_marker=target_marker, status_lines=status_lines,
+            [], path_layers=layers, edge_arrow=None, clip_box=minimap_box,
+            target_marker=None, status_lines=status_lines,
         )
         overlay_view.draw(OVERLAY_DRAW_KEY, callback, duration=OVERLAY_DRAW_DURATION)
         task._overlay_registered = True
@@ -2523,9 +2536,9 @@ class OverlayController:
         if self._interaction_window is not None:
             self._interaction_window.hide_overlay()
 
-    def _draw_minimap_direction_window(self, edge_arrow, target_marker=None):
+    def _draw_minimap_direction_window(self, edge_arrow, target_marker=None, target_pixmap=None):
         """Render the selected chest direction through the Qt topmost layer."""
-        if edge_arrow is None:
+        if edge_arrow is None and target_marker is None:
             self._hide_minimap_direction_window()
             return
         hwnd = getattr(self.task, 'hwnd', None)
@@ -2535,15 +2548,24 @@ class OverlayController:
         window = self._ensure_minimap_direction_window()
         if window is None:
             return
-        bearing, minimap_box = edge_arrow[0], edge_arrow[1]
-        distance = edge_arrow[2] if len(edge_arrow) > 2 else None
-        nearby = bool(edge_arrow[3]) if len(edge_arrow) > 3 else False
+        if edge_arrow is not None:
+            bearing, minimap_box = edge_arrow[0], edge_arrow[1]
+            distance = edge_arrow[2] if len(edge_arrow) > 2 else None
+            nearby = bool(edge_arrow[3]) if len(edge_arrow) > 3 else False
+        else:
+            bearing = 0.0
+            minimap_box = self.task.get_box_by_name('box_minimap')
+            distance = None
+            nearby = False
+        if minimap_box is None:
+            return
         window.render_direction(
             self._client_geometry(), bearing, minimap_box,
             distance=distance, target_marker=target_marker, nearby=nearby,
             hint_text=self._chest_hint_for_target(self._chest_target),
             guide_target=self._chest_guide_target(),
             position_note=self.task.position_status() if self.task.using_kuro_position() else '',
+            target_pixmap=target_pixmap,
         )
         self._last_minimap_direction_at = time.monotonic()
         return True
@@ -4158,34 +4180,21 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
     def _minimap_scale_per_1000(self):
         """Resolve the minimap scale (pixels per 1000 game units).
 
-        Prefers the live minimap match scale combined with the locked map's
-        coords scale; otherwise falls back to the configured/auto default.
-        Shared by both the Normal_Mode minimap draw and the Path_Mode minimap
-        route draw so the two stay aligned.
+        Conforms strictly to the HUD layout geometry standard:
+        crop_width = 154 * hud_scale
+        pixels_per_map_unit = crop_width / 194.0
+        effective_scale = SCENE_WORLD_SCALE (1.205) * pixels_per_map_unit
+        scale_per_1000 = effective_scale * 10.0
         """
-        if self._minimap_match_scale is not None and self._locked_map_id is not None:
-            self._ensure_coords()
-            coords_d = self._coords_dict.get(self._locked_map_id) if self._coords_dict else None
-            if coords_d:
-                coords_scale = coords_d.get('scale', [1.0, 1.0])[0]
-                game_scale = self._minimap_match_scale * coords_scale
-                if game_scale > 0:
-                    # 问题4：能算出基于匹配的缩放 -> 更新缓存并返回，稳定后续帧。
-                    scale = 1000.0 / game_scale
-                    self._last_minimap_scale_per_1000 = scale
-                    return scale
-                return 0
-        # 无匹配缩放（会回退默认）但存在缓存值 -> 返回缓存值，避免锁定态瞬断造成的
-        # 缩放跳变导致路线/宝箱节点抖动（问题4）。仅在从未获得过匹配缩放时用默认值。
-        if self._last_minimap_scale_per_1000 is not None:
-            return self._last_minimap_scale_per_1000
-        return self._get_default_scale_per_1000()
+        from src.utils.map_geometry import get_minimap_geometry, SCENE_WORLD_SCALE
+        width = int(getattr(self, 'screen_width', 1920) or 1920)
+        height = int(getattr(self, 'screen_height', 1080) or 1080)
+        geom = get_minimap_geometry(width, height)
+        effective_scale = SCENE_WORLD_SCALE * geom['pixels_per_map_unit']
+        return effective_scale * 10.0
 
     def _get_default_scale_per_1000(self):
-        if self.config.get('_Auto map scale'):
-            scale_factor = 1 - (1.25 - self.screen_width / 1600)
-            return scale_factor * 1.205 * 10
-        return self.config.get('_Map scale (pixels per 1000 units)')
+        return self._minimap_scale_per_1000()
 
     _scale_log_counter = 0
 

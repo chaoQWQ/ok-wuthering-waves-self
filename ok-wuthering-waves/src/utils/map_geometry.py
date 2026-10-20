@@ -37,6 +37,13 @@ __all__ = [
     "bearing_degrees",
     "edge_arrow_position",
     "distance_game_units",
+    "SCENE_WORLD_SCALE",
+    "SCENE_WORLD_ORIGIN_X",
+    "SCENE_WORLD_ORIGIN_Y",
+    "NOMINAL_TERRAIN_SCALE",
+    "get_minimap_geometry",
+    "project_minimap_coordinate",
+    "project_bigmap_coordinate",
 ]
 
 
@@ -222,3 +229,78 @@ def distance_game_units(ax: float, ay: float, bx: float, by: float) -> float:
     Requirements: 9.10
     """
     return math.hypot(ax - bx, ay - by)
+
+
+SCENE_WORLD_SCALE: float = 1.205
+SCENE_WORLD_ORIGIN_X: float = 2474.0
+SCENE_WORLD_ORIGIN_Y: float = 1957.0
+NOMINAL_TERRAIN_SCALE: float = 194.0 / 184.0
+
+
+def get_minimap_geometry(
+    client_width: int,
+    client_height: int,
+    terrain_scale: float = NOMINAL_TERRAIN_SCALE,
+) -> dict:
+    hud_scale = min(float(client_width) / 1600.0, float(client_height) / 900.0) if client_width > 0 and client_height > 0 else 1.0
+    crop_width = 154.0 * hud_scale
+    crop_height = 154.0 * hud_scale
+    left = 30.0 * hud_scale
+    top = 23.0 * hud_scale
+    center_x = left + crop_width / 2.0
+    center_y = top + crop_height / 2.0
+    radius = crop_width / 2.0
+    pixels_per_map_unit = (crop_width / 184.0 / terrain_scale) if terrain_scale > 0 else (crop_width / 194.0)
+    return {
+        "hud_scale": hud_scale,
+        "left": left,
+        "top": top,
+        "width": crop_width,
+        "height": crop_height,
+        "center_x": center_x,
+        "center_y": center_y,
+        "radius": radius,
+        "pixels_per_map_unit": pixels_per_map_unit,
+    }
+
+
+def project_minimap_coordinate(
+    item_x: float,
+    item_y: float,
+    player_x: float,
+    player_y: float,
+    client_width: int,
+    client_height: int,
+    terrain_scale: float = NOMINAL_TERRAIN_SCALE,
+    scene_scale: float = SCENE_WORLD_SCALE,
+) -> Tuple[int, int, float, bool]:
+    geom = get_minimap_geometry(client_width, client_height, terrain_scale)
+    dx_meters = (float(item_x) - float(player_x)) / 100.0
+    dy_meters = (float(item_y) - float(player_y)) / 100.0
+    diff_roc_x = dx_meters * scene_scale
+    diff_roc_y = -dy_meters * scene_scale
+    ppm = geom["pixels_per_map_unit"]
+    sx = geom["center_x"] + diff_roc_x * ppm
+    sy = geom["center_y"] - diff_roc_y * ppm
+    dist_meters = math.hypot(dx_meters, dy_meters)
+    inside = math.hypot(sx - geom["center_x"], sy - geom["center_y"]) <= geom["radius"]
+    return int(round(sx)), int(round(sy)), dist_meters, inside
+
+
+def project_bigmap_coordinate(
+    item_x: float,
+    item_y: float,
+    center_x: float,
+    center_y: float,
+    client_width: int,
+    client_height: int,
+    scaling_factor: float,
+    scene_scale: float = SCENE_WORLD_SCALE,
+) -> Tuple[int, int]:
+    dx_meters = (float(item_x) - float(center_x)) / 100.0
+    dy_meters = (float(item_y) - float(center_y)) / 100.0
+    diff_roc_x = dx_meters * scene_scale
+    diff_roc_y = -dy_meters * scene_scale
+    sx = float(client_width) / 2.0 + diff_roc_x * scaling_factor
+    sy = float(client_height) / 2.0 - diff_roc_y * scaling_factor
+    return int(round(sx)), int(round(sy))
