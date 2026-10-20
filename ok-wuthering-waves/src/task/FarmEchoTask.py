@@ -30,6 +30,7 @@ class FarmEchoTask(WWOneTimeTask, BaseCombatTask):
             'Switch to Healer before and after Combat': True,
             'Which Weekly Boss to Teleport': 1,
             'Which Boss Challenge to Teleport': 1,
+            'Which Special Nightmare to Teleport': 1,
         })
         self.config_description.update({
             'Boss': 'Select boss profile (includes Combat Wait Time)',
@@ -39,16 +40,19 @@ class FarmEchoTask(WWOneTimeTask, BaseCombatTask):
             'Use Liberation': 'Do not use Liberation to Save Time',
             'Switch to Healer before and after Combat': 'Better Chance to Keep Character Alive',
             'Which Weekly Boss to Teleport': 'From Top to Bottom, Starting with 1',
-            'Which Boss Challenge to Teleport': 'From Top to Bottom, Starting with 1'
+            'Which Boss Challenge to Teleport': 'From Top to Bottom, Starting with 1',
+            'Which Special Nightmare to Teleport': 'From Top to Bottom, Starting with 1',
         })
         self.find_echo_method = ['Yolo', 'Run in Circle', 'Walk']
         self.config_type['Teleport to Boss'] = {'type': "drop_down",
                                                 'options': ['No', 'Weekly Challenge',
-                                                            'Boss Challenge'],
+                                                            'Boss Challenge', 'Special Nightmare'],
                                                 'sub_configs': {
                                                     'Weekly Challenge': ['Which Weekly Boss to Teleport', 'Boss Level'],
                                                     'Boss Challenge': ['Which Boss Challenge to Teleport',
                                                                        'Boss Level'],
+                                                    'Special Nightmare': ['Which Special Nightmare to Teleport',
+                                                                          'Boss Level'],
                                                 }}
         self.config_type['Boss Level'] = {'type': "drop_down", 'options': ['50', '60', '70', '80', '90'], }
         self.config_type['Echo Pickup Method'] = {'type': "drop_down", 'options': self.find_echo_method}
@@ -58,6 +62,8 @@ class FarmEchoTask(WWOneTimeTask, BaseCombatTask):
         self.combat_end_condition = self.find_echos
         self.total_weekly_number = 9
         self.total_boss_number = 20
+        # F2 梦魇净化列表中，特异梦魇排在梦魇聚落之后。
+        self.nightmare_structure = [5, 10]
         self.add_exit_after_config()
         self._has_treasure = False
         self._in_realm = False
@@ -85,9 +91,7 @@ class FarmEchoTask(WWOneTimeTask, BaseCombatTask):
 
     def revive_action(self):
         try:
-            # Always dismiss the death dialog first. Previously the outdoor
-            # recovery immediately tried to open the map while the modal was
-            # still present, and realm deaths left the modal on screen.
+            # 关闭复苏弹窗后执行恢复。
             self.close_revive_popup()
             if self._in_realm:
                 self.log_info('Farm Echo died in realm; popup closed and task will stop safely')
@@ -105,7 +109,11 @@ class FarmEchoTask(WWOneTimeTask, BaseCombatTask):
             self.log_error('Farm Echo death recovery failed', error)
             return False
 
-    def run(self):
+    def run(self, retries=3):
+        # 一条龙经 run_task_by_class 调用时执行器不会设置 start_time, 每小时声骸数会按 1970 年起算而恒为 0;
+        # 领奖/月卡重试会再次进入 run, 已有计数时不重新计时
+        if not self.info.get('Echo Count'):
+            self.start_time = time.time()
         WWOneTimeTask.run(self)
         self.use_liberation = self.config.get('Use Liberation')
         try:
@@ -114,8 +122,9 @@ class FarmEchoTask(WWOneTimeTask, BaseCombatTask):
             pass
         except Exception as e:
             logger.error('farm 4c error, try handle monthly card', e)
-            if self.handle_claim_button() or self.handle_monthly_card():
-                self.run()
+            # 有上限: 认不出的双按钮弹窗会被当成领奖弹窗关掉, 重进后又弹, 无限循环 (#1649)
+            if retries > 0 and (self.handle_claim_button() or self.handle_monthly_card()):
+                self.run(retries - 1)
             else:
                 raise
 
@@ -179,17 +188,19 @@ class FarmEchoTask(WWOneTimeTask, BaseCombatTask):
                 if self.pick_echo():
                     logger.info(f'farm echo on the face')
                     dropped = True
-                elif self.config.get('Echo Pickup Method', "Yolo") == "Yolo":
-                    dropped = \
-                        self.yolo_find_echo(turn=self._in_realm, use_color=False, time_out=self.yolo_time_out,
-                                            threshold=self.yolo_threshold)[0]
-                    logger.info(f'farm echo yolo find {dropped}')
-                elif self.config.get('Echo Pickup Method', "Yolo") == "Run in Circle":
-                    dropped = self.run_in_circle_to_find_echo(circle_count=2)
-                    logger.info(f'farm echo walk_circle_find_echo {dropped}')
                 else:
-                    dropped = self.walk_find_echo()
-                    logger.info(f'farm echo walk_find_echo {dropped}')
+                    self.middle_click(after_sleep=0.2)
+                    if self.config.get('Echo Pickup Method', "Yolo") == "Yolo":
+                        dropped = \
+                            self.yolo_find_echo(turn=self._in_realm, use_color=False, time_out=self.yolo_time_out,
+                                                threshold=self.yolo_threshold)[0]
+                        logger.info(f'farm echo yolo find {dropped}')
+                    elif self.config.get('Echo Pickup Method', "Yolo") == "Run in Circle":
+                        dropped = self.run_in_circle_to_find_echo(circle_count=2)
+                        logger.info(f'farm echo walk_circle_find_echo {dropped}')
+                    else:
+                        dropped = self.walk_find_echo()
+                        logger.info(f'farm echo walk_find_echo {dropped}')
                 self.incr_drop(dropped)
                 if not self.bypass_end_wait:
                     if dropped and not self._has_treasure:
@@ -272,6 +283,7 @@ class FarmEchoTask(WWOneTimeTask, BaseCombatTask):
     def teleport_to_configured_boss(self):
         teleport_to_boss = self.config.get('Teleport to Boss', 'No')
         self.ensure_main(time_out=180)
+        structure = None
         if teleport_to_boss == 'Weekly Challenge':
             feature = 'zhange'
             serial_number = self.config.get('Which Weekly Boss to Teleport', 1)
@@ -280,17 +292,24 @@ class FarmEchoTask(WWOneTimeTask, BaseCombatTask):
             feature = 'qiangdi'
             serial_number = self.config.get('Which Boss Challenge to Teleport', 1)
             total_number = self.total_boss_number
+        elif teleport_to_boss == 'Special Nightmare':
+            feature = 'mengyan'
+            serial_number = self.config.get('Which Special Nightmare to Teleport', 1)
+            structure = self.nightmare_structure
+            total_number = sum(structure)
         else:
             raise RuntimeError(f'Unknown Teleport to Boss config: {teleport_to_boss}')
 
         self.info_set('Teleport to Boss', f'{teleport_to_boss} {serial_number - 1}')
         self.openF2Book('gray_book_boss')
         self.open_boss_book(feature)
-        is_team = self.click_on_book_target(serial_number, total_number)
+        # 特异梦魇排在梦魇聚落之后。
+        book_serial = serial_number + sum(structure[:-1]) if structure else serial_number
+        is_team = self.click_on_book_target(book_serial, total_number, structure)
         if is_team:
             if teleport_to_boss == 'Weekly Challenge':
                 self.click_configured_boss_level()
-                self.click(0.880, 0.911, after_sleep=2)
+                self.click_solo_challenge()
             self.click_team_challenge()
         else:
             self.wait_click_travel()
@@ -340,7 +359,7 @@ class FarmEchoTask(WWOneTimeTask, BaseCombatTask):
         self.send_key('f', after_sleep=3)
         self.click_configured_boss_level()
         self.sleep(1)
-        self.click(0.880, 0.911, after_sleep=2)
+        self.click_solo_challenge()
         self.click(0.908, 0.919, after_sleep=5)
         self.wait_in_team_and_world(time_out=120)
         self._in_realm = True
@@ -360,6 +379,12 @@ class FarmEchoTask(WWOneTimeTask, BaseCombatTask):
         if not level_box:
             raise RuntimeError(f'Can not find boss level {boss_level}')
         self.click_box(level_box)
+
+    def click_solo_challenge(self):
+        self.click(0.880, 0.911, after_sleep=2)
+        # 结晶波片(含备用)不足时, 进队伍界面前会弹「无法获取奖励, 是否继续进入」;
+        # 勾选本次登录不再提示并确认, 刷声骸不需要领奖励. 弹窗点击后立即出现, 不弹时只多等 1 秒
+        self.wait_click_skip_dialog_confirm(time_out=1)
 
     def handle_boss_restart_after_treasure(self):
         self._has_treasure = True

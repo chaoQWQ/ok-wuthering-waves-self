@@ -1138,6 +1138,9 @@ msgstr "在思考辅助方法、任务 API、状态、切人、冷却和战斗�
 msgid "Rover: Spectro"
 msgstr "漂泊者·衍射"
 
+msgid "Rover: Electro"
+msgstr "漂泊者·导电"
+
 msgid "Rover: Havoc"
 msgstr "漂泊者·湮灭"
 
@@ -1992,3 +1995,9 @@ msgstr "绑定当前会话"
 
 msgid "允许发送已遮蔽特征码的游戏截图，用于地形识别和机关操作前后比较"
 msgstr "允许发送已遮蔽特征码的游戏截图，用于地形识别和机关操作前后比较"
+
+msgid "Special Nightmare"
+msgstr "特异梦魇"
+
+msgid "Which Special Nightmare to Teleport"
+msgstr "传送到第几个特异梦魇"

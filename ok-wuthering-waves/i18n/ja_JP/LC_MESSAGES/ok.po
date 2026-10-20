@@ -1087,6 +1087,9 @@ msgstr ""
 msgid "Rover: Spectro"
 msgstr "漂泊者・回折"
 
+msgid "Rover: Electro"
+msgstr "漂泊者・電導"
+
 msgid "Rover: Havoc"
 msgstr "漂泊者・消滅"
 
@@ -1914,3 +1917,9 @@ msgstr "現在のセッションを関連付け"
 
 msgid "允许发送已遮蔽特征码的游戏截图，用于地形识别和机关操作前后比较"
 msgstr "UIDを隠したゲーム画像の送信を許可し、地形の認識と仕掛けの操作前後の比較に使用します"
+
+msgid "Special Nightmare"
+msgstr "特異悪夢"
+
+msgid "Which Special Nightmare to Teleport"
+msgstr "テレポートする特異悪夢"

@@ -1176,6 +1176,9 @@ msgstr "Rover"
 msgid "Rover: Spectro"
 msgstr "Rover: Espectro"
 
+msgid "Rover: Electro"
+msgstr "Rover: Electro"
+
 msgid "Rover: Havoc"
 msgstr "Rover: Caos"
 
@@ -1835,3 +1838,9 @@ msgstr "Vincular sesión actual"
 
 msgid "允许发送已遮蔽特征码的游戏截图，用于地形识别和机关操作前后比较"
 msgstr "Permitir el envío de capturas con el UID oculto para reconocer el terreno y comparar los mecanismos antes y después de una acción"
+
+msgid "Special Nightmare"
+msgstr "Pesadilla especial"
+
+msgid "Which Special Nightmare to Teleport"
+msgstr "Pesadilla especial a la que teletransportar"

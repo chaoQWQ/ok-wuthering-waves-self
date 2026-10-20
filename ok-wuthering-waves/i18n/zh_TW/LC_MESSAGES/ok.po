@@ -1138,6 +1138,9 @@ msgstr "在思考輔助方法、任務 API、狀態、切人、冷卻和戰鬥�
 msgid "Rover: Spectro"
 msgstr "漂泊者·衍射"
 
+msgid "Rover: Electro"
+msgstr "漂泊者·導電"
+
 msgid "Rover: Havoc"
 msgstr "漂泊者·湮滅"
 
@@ -2070,3 +2073,9 @@ msgstr "綁定目前連線"
 
 msgid "允许发送已遮蔽特征码的游戏截图，用于地形识别和机关操作前后比较"
 msgstr "允許傳送已遮蔽特徵碼的遊戲截圖，用於地形辨識及機關操作前後比較"
+
+msgid "Special Nightmare"
+msgstr "特異夢魘"
+
+msgid "Which Special Nightmare to Teleport"
+msgstr "傳送到第幾個特異夢魘"
