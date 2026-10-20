@@ -13,7 +13,7 @@ from src.utils.DailyEmail import build_daily_report
 
 
 class TestDailyRewardRuntime(unittest.TestCase):
-    def test_game_screens_without_activity_do_not_confirm_rewards(self):
+    def test_real_activity_and_other_game_screens_at_supported_resolutions(self):
         with tempfile.TemporaryDirectory() as directory:
             runtime_config = dict(config)
             runtime_config.update({
@@ -27,6 +27,14 @@ class TestDailyRewardRuntime(unittest.TestCase):
             try:
                 task = runtime.task_executor.get_task_by_class(DailyTask)
                 runtime.task_executor.paused = False
+                completed = cv2.imread(str(Path(__file__).parent / 'images' / 'daily_rewards_claimed_140.png'))
+                if completed is None:
+                    raise FileNotFoundError('活跃度奖励领取完成截图不存在')
+                for width, height in ((1280, 720), (1600, 900), (1920, 1080), (2560, 1440)):
+                    with self.subTest(completed_resolution=(width, height)):
+                        frame = cv2.resize(completed, (width, height))
+                        self.assertEqual(task.get_total_daily_points(frame=frame), 140)
+                        self.assertTrue(task.daily_reward_claimed(frame=frame))
                 for name in ('account_logged_out_title.png', 'quest_map_detail.png'):
                     original = cv2.imread(str(Path(__file__).parent / 'images' / name))
                     if original is None:

@@ -1,5 +1,8 @@
 import re
+from functools import lru_cache
+from pathlib import Path
 
+import cv2
 
 from ok import Logger, TaskDisabledException
 from src.task.FarmEchoTask import FarmEchoTask
@@ -20,6 +23,15 @@ AUTO_FARM_RESIDUAL_NEST = 'Farm all Residual Settlements'
 MERGE_ECHO_IF_DISCARDED_OVER_1000 = 'Merge Echo If discarded > 1000'
 TELEPORT_AND_FARM_4C_ECHO = 'Teleport and Farm 4C Echo'
 ADDITIONAL_TASKS = 'Additional Tasks to Run After Daily Task'
+
+
+@lru_cache(maxsize=1)
+def daily_reward_template():
+    path = Path(__file__).resolve().parents[2] / 'assets' / 'daily_reward_claimed.png'
+    template = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+    if template is None:
+        raise FileNotFoundError(f'找不到活跃度奖励领取图标：{path}')
+    return template
 
 
 class DailyRewardIncompleteError(RuntimeError):
@@ -292,11 +304,28 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
         return points
 
     def daily_reward_claimed(self, frame=None):
-        return bool(self.ocr(
-            0.80, 0.83, 0.99, 0.94,
-            match=re.compile(r'^(已领取|已領取|Claimed)$', re.IGNORECASE),
-            frame=frame,
+        image = self.frame if frame is None else frame
+        if image is None:
+            return False
+        height, width = image.shape[:2]
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        source = daily_reward_template()
+        template = cv2.resize(source, (
+            round(source.shape[1] * width / 1920),
+            round(source.shape[0] * height / 1080),
         ))
+        # 分别确认 20、40、60、80、100 五档奖励的领取完成图标。
+        for center_x in (0.3925, 0.5258, 0.6592, 0.7925, 0.9258):
+            region = gray[
+                round(height * 0.84):round(height * 0.95),
+                round(width * (center_x - 0.04)):round(width * (center_x + 0.04)),
+            ]
+            if region.shape[0] < template.shape[0] or region.shape[1] < template.shape[1]:
+                return False
+            confidence = cv2.minMaxLoc(cv2.matchTemplate(region, template, cv2.TM_CCOEFF_NORMED))[1]
+            if confidence < 0.88:
+                return False
+        return True
 
     def claim_daily(self, verify=True):
         self.daily_points = None
