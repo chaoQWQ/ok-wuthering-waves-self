@@ -566,6 +566,8 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             self.screenshot('daily_reward_incomplete')
             return False
         except Exception as e:
+            self._current_email_result['daily_points'] = daily_task.daily_points
+            self._current_email_result['daily_rewards_claimed'] = daily_task.daily_rewards_claimed
             self.log_error(
                 self.tr('DailyTask failed for account {account}, continuing to next account').format(
                     account=resolved_account or '(current)'

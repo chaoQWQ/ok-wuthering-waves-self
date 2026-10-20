@@ -67,6 +67,17 @@ class TestDailyRewardRuntime(unittest.TestCase):
             self.assertEqual(reopened.statuses(day), {'账号 3': 'failed'})
             self.assertEqual(reopened.completed(day), set())
 
+    def test_failed_account_report_preserves_verified_rewards(self):
+        now = datetime.now(timezone.utc)
+        message = build_daily_report([{
+            'account': '账号 3', 'status': '失败', 'daily_points': 100,
+            'daily_rewards_claimed': True,
+        }], now, now, '完成（存在失败）', '', '')
+        self.assertIn('成功 0/1', message['Subject'])
+        self.assertIn('账号 3：失败', message.get_content())
+        self.assertIn('活跃度：100/100', message.get_content())
+        self.assertIn('活跃度奖励：已全部领取', message.get_content())
+
 
 if __name__ == '__main__':
     unittest.main()

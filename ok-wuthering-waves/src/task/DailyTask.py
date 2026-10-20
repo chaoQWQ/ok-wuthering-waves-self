@@ -80,6 +80,8 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
         }
         self.add_exit_after_config()
         self.description = "Login, claim monthly card, farm echo, and claim daily reward"
+        self.daily_points = None
+        self.daily_rewards_claimed = False
 
     def run(self):
         self.daily_points = None
@@ -158,12 +160,21 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
                 if nest_task is not None:
                     nest_task.__dict__.pop('ensure_main', None)
 
-        self.claim_daily()
+        self.claim_daily(verify=False)
 
-        self.claim_mail()
-        self.sleep(1)
-        self.claim_battle_pass()
-        self.run_additional_tasks()
+        try:
+            self.claim_mail()
+            self.sleep(1)
+            self.claim_battle_pass()
+            self.run_additional_tasks()
+        except TaskDisabledException:
+            raise
+        except Exception as error:
+            self.log_error('后续任务执行失败，继续领取并检查日常活跃度奖励', error)
+            self.claim_daily()
+            raise
+        else:
+            self.claim_daily()
         self.log_info('Daily Task Completed', notify=True)
 
     def validate_additional_tasks(self):
@@ -287,7 +298,8 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
             frame=frame,
         ))
 
-    def claim_daily(self):
+    def claim_daily(self, verify=True):
+        self.daily_points = None
         self.daily_rewards_claimed = False
         self.info_set('current task', 'claim daily')
         self.openF2Book('gray_book_quest')
@@ -299,6 +311,8 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
         self.log_info(f'claim daily reward via  coordinate')
         self.click(0.930, 0.882, after_sleep=1)
         self.ensure_main(time_out=10)
+        if not verify:
+            return
         self.openF2Book('gray_book_quest')
         self.click(0.17, 0.12, after_sleep=1)
         points = self.get_total_daily_points()
