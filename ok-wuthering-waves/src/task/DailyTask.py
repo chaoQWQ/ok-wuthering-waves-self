@@ -2,7 +2,6 @@ import re
 
 
 from ok import Logger, TaskDisabledException
-from src.task.BaseWWTask import number_re
 from src.task.FarmEchoTask import FarmEchoTask
 from src.task.ForgeryTask import ForgeryTask
 from src.task.GardenTask import GardenTask
@@ -21,6 +20,12 @@ AUTO_FARM_RESIDUAL_NEST = 'Farm all Residual Settlements'
 MERGE_ECHO_IF_DISCARDED_OVER_1000 = 'Merge Echo If discarded > 1000'
 TELEPORT_AND_FARM_4C_ECHO = 'Teleport and Farm 4C Echo'
 ADDITIONAL_TASKS = 'Additional Tasks to Run After Daily Task'
+
+
+class DailyRewardIncompleteError(RuntimeError):
+    def __init__(self, message, points=None):
+        super().__init__(message)
+        self.points = points
 
 
 class DailyTask(WWOneTimeTask, BaseCombatTask):
@@ -77,6 +82,9 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
         self.description = "Login, claim monthly card, farm echo, and claim daily reward"
 
     def run(self):
+        self.daily_points = None
+        self.daily_rewards_claimed = False
+        self.info_set('daily rewards claimed', False)
         self.validate_additional_tasks()
 
         WWOneTimeTask.run(self)
@@ -260,27 +268,51 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
         return current, self.get_total_daily_points() >= 100
         # 请注意：如果任务【累计消耗180点结晶波片】已完成，current 也可能为 0，因为翻页后也有可能识别不到已用体力。
 
-    def get_total_daily_points(self):
-        points_boxes = self.ocr(0.19, 0.8, 0.30, 0.93, match=number_re)
-        if points_boxes:
-            try:
-                points = int(re.sub(r'\D', '', points_boxes[0].name))
-            except Exception:
-                points = 0
-        else:
-            points = 0
+    def get_total_daily_points(self, frame=None):
+        points_boxes = self.ocr(
+            0.19, 0.8, 0.30, 0.93, match=re.compile(r'^\d{1,3}$'), frame=frame,
+        )
+        values = {int(box.name) for box in points_boxes}
+        if len(values) != 1:
+            raise DailyRewardIncompleteError('未能确认日常活跃度，奖励领取未完成验证')
+        points = values.pop()
+        self.daily_points = points
         self.info_set('total daily points', points)
         return points
 
+    def daily_reward_claimed(self, frame=None):
+        return bool(self.ocr(
+            0.80, 0.83, 0.99, 0.94,
+            match=re.compile(r'^(已领取|已領取|Claimed)$', re.IGNORECASE),
+            frame=frame,
+        ))
+
     def claim_daily(self):
+        self.daily_rewards_claimed = False
         self.info_set('current task', 'claim daily')
         self.openF2Book('gray_book_quest')
+        self.click(0.17, 0.12, after_sleep=1)
         if not self.find_one('boss_proceed', box=self.box_of_screen(0.803, 0.189, 0.960, 0.312)):
             self.log_info('no_boss_proceed, click claim')
             # Click [Guidebook] in [Terminal] interface
             self.click(0.885, 0.250, after_sleep=2)
         self.log_info(f'claim daily reward via  coordinate')
         self.click(0.930, 0.882, after_sleep=1)
+        self.ensure_main(time_out=10)
+        self.openF2Book('gray_book_quest')
+        self.click(0.17, 0.12, after_sleep=1)
+        points = self.get_total_daily_points()
+        if points < 100:
+            raise DailyRewardIncompleteError(
+                f'日常活跃度仅 {points}/100，活跃度奖励未全部领取', points=points,
+            )
+        if not self.daily_reward_claimed():
+            raise DailyRewardIncompleteError(
+                f'日常活跃度 {points}/100，未能确认活跃度奖励已全部领取', points=points,
+            )
+        self.daily_rewards_claimed = True
+        self.info_set('daily rewards claimed', True)
+        self.log_info(f'日常活跃度 {points}/100，活跃度奖励已全部领取')
         self.ensure_main(time_out=10)
 
     def claim_mail(self):

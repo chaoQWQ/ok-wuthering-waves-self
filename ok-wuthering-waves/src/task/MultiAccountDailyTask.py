@@ -11,7 +11,7 @@ import win32process
 
 from ok import Box, TaskDisabledException
 from src.task.DailyTask import (
-    DailyTask, ADDITIONAL_TASKS, CHECK_WEEKLY_GARDEN,
+    DailyTask, DailyRewardIncompleteError, ADDITIONAL_TASKS, CHECK_WEEKLY_GARDEN,
     AUTO_FARM_NIGHTMARE_NEST, AUTO_FARM_RESIDUAL_NEST,
     MERGE_ECHO_IF_DISCARDED_OVER_1000,
     TELEPORT_AND_FARM_4C_ECHO,
@@ -536,6 +536,8 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         self._last_account_disconnected = False
         try:
             self.run_task_by_class(DailyTask)
+            self._current_email_result['daily_points'] = daily_task.daily_points
+            self._current_email_result['daily_rewards_claimed'] = daily_task.daily_rewards_claimed
             return True
         except AccountAlreadyCompleted:
             raise
@@ -556,6 +558,13 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             return False
         except TaskDisabledException:
             raise
+        except DailyRewardIncompleteError as error:
+            self._current_email_result['daily_points'] = error.points
+            self._current_email_result['daily_rewards_claimed'] = False
+            self._current_email_result['detail'] = str(error)
+            self.log_error(str(error))
+            self.screenshot('daily_reward_incomplete')
+            return False
         except Exception as e:
             self.log_error(
                 self.tr('DailyTask failed for account {account}, continuing to next account').format(
