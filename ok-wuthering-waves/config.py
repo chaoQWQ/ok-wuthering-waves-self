@@ -181,7 +181,10 @@ config = {
     'blur_area': blur_area,
     'gui_icon': 'icons/icon.png',
     'global_configs': [basic_config_option, key_config_option, char_config_option, monthly_card_config_option],
-    'custom_tabs': [["src.gui.CharacterCodeTab", "CharacterCodeTab"]],
+    'custom_tabs': [
+        ["src.gui.MapExplorationTab", "MapExplorationTab"],
+        ["src.gui.CharacterCodeTab", "CharacterCodeTab"],
+    ],
     'ocr': {
         'lib': 'onnxocr',
         'auto_simplify': True,

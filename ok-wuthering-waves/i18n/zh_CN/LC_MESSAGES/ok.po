@@ -1595,6 +1595,9 @@ msgstr "确定要永久删除队伍 {team} 吗？"
 msgid "Team deleted."
 msgstr "队伍已删除。"
 
+msgid "Map Exploration"
+msgstr "地图探索"
+
 msgid "High-value items display"
 msgstr "地图高价值物品显示"
 

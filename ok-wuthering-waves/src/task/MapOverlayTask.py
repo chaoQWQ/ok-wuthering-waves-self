@@ -2701,6 +2701,7 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         self.name = "High-value items display"
         self.description = "Get player position and display nearby high value items"
         self.icon = FluentIcon.GLOBE
+        self.visible = False
         self.default_config.update({
             # 覆盖层会持续重绘全屏透明窗口。地图功能默认关闭，只有用户主动启用后
             # 才创建覆盖层，避免普通自动化期间占用额外的 CPU/GDI 资源。
