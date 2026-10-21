@@ -345,6 +345,7 @@ class OverlayController:
         self._path_mode = False
         self._kuro_navigation = None
         self._kuro_signature = None
+        self._kuro_route_verified = False
         self._kuro_skip_requested = False
         self._kuro_was_enabled = False
         # Parsed route + target tracker, populated lazily on entering Path_Mode.
@@ -716,6 +717,7 @@ class OverlayController:
                      self.task.config.get('_Kuro route revision', 0))
         if signature != self._kuro_signature:
             self._kuro_signature = signature
+            self._kuro_route_verified = False
             self._kuro_navigation = RouteNavigator(KuroRoute.from_data(data), section_id) if data else None
             self._route = self._kuro_navigation.path if self._kuro_navigation else None
             if self._route is not None:
@@ -727,11 +729,14 @@ class OverlayController:
             self._clear_chest_target()
             return
         if state_id is not None and str(state_id) != str(navigation.path.state_id):
+            self._kuro_route_verified = False
             self._kuro_skip_requested = False
             self._clear_chest_target()
             return
-        # 未识别地图时保留已有目标，首次选择需要有效地图识别。
-        if state_id is None and self._chest_target is None:
+        if state_id is not None:
+            self._kuro_route_verified = True
+        # 已确认路线所在地图后，短暂识别中断期间仍可选择后续目标。
+        if state_id is None and not self._kuro_route_verified and self._chest_target is None:
             return
         if self._kuro_skip_requested:
             navigation.skip()
@@ -971,12 +976,7 @@ class OverlayController:
         self._chest_guidance_filter.reset()
 
     def on_chest_confirm_hotkey(self) -> None:
-        """Request confirmation; the detection loop performs the DB write.
-
-        The read-only Win32 key-state poll calls this on the task thread.  It
-        only flips a flag; the normal position-update path validates distance
-        and performs the database write.
-        """
+        """快捷键线程提交确认请求，检测线程校验坐标并保存记录。"""
         if self._chest_search_enabled():
             self._chest_confirm_requested = True
 
@@ -986,7 +986,6 @@ class OverlayController:
 
     def _process_map_display_toggle(self) -> bool:
         """Toggle both minimap and world-map high-value-item overlays."""
-        self._poll_map_display_toggle_hotkey()
         if not self._display_toggle_requested:
             return False
         self._display_toggle_requested = False
@@ -2844,6 +2843,12 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         self._overlay = None
         self._map_overlay_view = None
         self._map_overlay_lock = threading.RLock()
+        self._detection_thread = None
+        self._hotkey_thread = None
+        self._detection_lock = threading.RLock()
+        self._detection_stop = threading.Event()
+        self._detection_frame = None
+        self._detection_frame_at = 0.0
         self._overlay_registered = False
         # Low-rate minimap render diagnostics.  This makes it possible to
         # distinguish "no nearby database items" from a native overlay that
@@ -2922,6 +2927,8 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
             communicate.executor_paused.connect(self._on_executor_paused)
         except Exception as e:  # pragma: no cover - Qt 运行时相关
             logger.warning(f'[Overlay] connect executor_paused failed: {e}')
+        if self.enabled and not self.executor.paused:
+            self._start_detection()
 
     def _migrate_chest_confirm_config(self):
         """One-time migration from the old hook and 250-unit distance guard."""
@@ -3048,9 +3055,86 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
     def _on_executor_paused(self, paused):
         """暂停时关闭覆盖层；恢复且地图任务启用时再创建。"""
         if paused:
+            self._stop_detection()
             with self._position_lock:
                 self._position_sources.stop()
                 self._position_sources = PositionSources()
+            self._force_clear_overlay()
+            self._close_map_overlay()
+        elif self.enabled:
+            self._start_detection()
+
+    @property
+    def frame(self):
+        if threading.current_thread() is self._detection_thread:
+            return self._detection_frame
+        return super().frame
+
+    def find_feature(self, *args, **kwargs):
+        if threading.current_thread() is self._detection_thread and kwargs.get('frame') is None:
+            kwargs['frame'] = self._detection_frame
+        return super().find_feature(*args, **kwargs)
+
+    def sleep(self, timeout):
+        if threading.current_thread() is not self._detection_thread:
+            return super().sleep(timeout)
+        self._detection_stop.wait(timeout)
+
+    def _start_detection(self):
+        with self._detection_lock:
+            if self._detection_thread is not None:
+                if not self._detection_thread.is_alive() or not self._hotkey_thread.is_alive():
+                    raise RuntimeError('地图检测线程意外终止')
+                return
+            self._detection_stop.clear()
+            self._overlay_ctl()
+            self._detection_thread = threading.Thread(
+                target=self._detection_loop, name='MapOverlayDetection', daemon=True)
+            self._hotkey_thread = threading.Thread(
+                target=self._hotkey_loop, name='MapOverlayHotkeys', daemon=True)
+            self._detection_thread.start()
+            self._hotkey_thread.start()
+
+    def _stop_detection(self):
+        with self._detection_lock:
+            self._detection_stop.set()
+            for thread in (self._detection_thread, self._hotkey_thread):
+                if thread is not None:
+                    thread.join(timeout=10)
+                    if thread.is_alive():
+                        raise TimeoutError('地图检测线程未能结束')
+            self._detection_thread = None
+            self._hotkey_thread = None
+            self._detection_frame = None
+
+    def _hotkey_loop(self):
+        try:
+            while not self._detection_stop.is_set() and not self.executor.exit_event.is_set():
+                if self.enabled and not self.executor.paused:
+                    controller = self._overlay_ctl()
+                    controller._poll_chest_confirm_hotkey()
+                    controller._poll_map_display_toggle_hotkey()
+                self._detection_stop.wait(0.02)
+        finally:
+            self._detection_stop.set()
+
+    def _detection_loop(self):
+        # 地图检测独立读取截图，不占用自动战斗的任务线程和截图缓存。
+        try:
+            while not self._detection_stop.is_set() and not self.executor.exit_event.is_set():
+                capture = self.executor.method
+                if self.executor.paused or not self.enabled or capture is None or og.app is None:
+                    self._detection_stop.wait(0.02)
+                    continue
+                frame = capture.get_frame()
+                if frame is None:
+                    self._detection_stop.wait(0.02)
+                    continue
+                self._detection_frame = frame
+                self._detection_frame_at = time.monotonic()
+                self._run_detection()
+        finally:
+            self._detection_stop.set()
             self._force_clear_overlay()
             self._close_map_overlay()
 
@@ -3083,8 +3167,11 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         self._configure_position_sources()
         # enable() 会 info_clear()，因此版本号等信息在其之后重新写入。
         self._ensure_feature_started()
+        if not self.executor.paused:
+            self._start_detection()
 
     def disable(self):
+        self._stop_detection()
         super().disable()
         with self._position_lock:
             self._position_sources.stop()
@@ -3930,6 +4017,10 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         return now < getattr(self, '_bigmap_visible_until', 0.0)
 
     def run(self):
+        self._start_detection()
+        return False
+
+    def _run_detection(self):
         # 资源下载/解压期间挂起检测：先释放数据库与特征文件句柄再让解压覆盖它们。
         if self._assets_suspend.is_set():
             if not self._assets_released.is_set():
@@ -3938,13 +4029,9 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
             self.sleep(0.5)
             return
 
-        # Poll before every map/display guard.  If the overlay is currently
-        # hidden, on_minimap/on_bigmap are intentionally not called, so polling
-        # only inside those methods would make the hotkey able to turn display
-        # off but unable to turn it back on.
+        # 显示开关请求在地图状态检查前处理，覆盖层隐藏时也能重新开启。
         controller = self._overlay_ctl()
         controller._process_map_display_toggle()
-        controller._poll_chest_confirm_hotkey()
 
         # 启用附加功能后的一次性检查（版本号展示 + 资源缺失自动下载）。配置里已启用、
         # 程序启动后直接进入循环的情况也会在这里覆盖到。
@@ -3960,8 +4047,8 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         # uses its unchanged ``in_team`` gate.
         in_big_map = self._in_big_map()
         self._projection_frame = self.frame
-        self._projection_frame_at = time.monotonic() - max(0, time.time() - self.executor._last_frame_time)
-        in_team = not in_big_map and self.scene.in_team(self.in_team_and_world)
+        self._projection_frame_at = self._detection_frame_at
+        in_team = not in_big_map and self.in_team_and_world()
         self._configure_position_sources()
         raw_position = None
         result = None
@@ -4015,6 +4102,9 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
                             self._second_check_done = False
                         self.sleep(2)
                         return
+
+                    if controller._chest_confirm_requested:
+                        controller.on_minimap(result, self._locked_map_id)
 
                     self._recheck_counter += 1
                     interval = self.config.get('Detect interval (ms)', 500)
@@ -4415,6 +4505,7 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
                 logger.warning(f'[Overlay] force hide interaction window failed: {e}')
 
     def on_destroy(self):
+        self._stop_detection()
         if self._image_projection is not None:
             self._image_projection.close()
         with self._position_lock:
