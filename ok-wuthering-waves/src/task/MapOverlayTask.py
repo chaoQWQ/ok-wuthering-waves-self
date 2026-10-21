@@ -26,8 +26,8 @@ from src.utils.map_geometry import make_hitbox, bearing_degrees
 from src.utils.NodeIconCache import NodeIconCache
 from src.utils.PathRoute import load_path_route, build_path_layers, PathParseError, PathLayer, PATH_NODE_ICON_KEY
 from src.utils.ChestRoute import load_chest_route, ChestRouteParseError
-from src.utils.ChestGuidanceFilter import ChestGuidanceFilter
-from src.utils.BigMapViewFilter import BigMapViewFilter
+from src.utils.ChestGuidanceFilter import ChestGuidanceFilter, GuidanceSample
+from src.utils.ImageAnchoredProjection import ImageAnchoredProjection, LogicalProjection
 from src.utils.KuroRoutes import KuroRoute, RouteNavigator
 from src.utils.MapDistance import format_distance_meters
 from src.utils.PositionSources import PositionDecision, PositionSources, SOURCE_MODES, PAUSE_SECONDS
@@ -1117,17 +1117,10 @@ class OverlayController:
             scale = float(scale_per_1000) / 1000.0
             if scale <= 0:
                 return None, None
-            if self.task.using_kuro_position():
-                sample = self._chest_guidance_filter.update_received(
-                    self.task._position_sources.decision.sample,
-                    target.location_id, target.x, target.y,
-                )
-            else:
-                sample = self._chest_guidance_filter.update(
-                    player_pos, target.location_id, target.x, target.y,
-                    map_confirmed=state_id is not None,
-                    movement_active=self._manual_movement_active(),
-                )
+            px, py = player_pos[0] * 100, player_pos[1] * 100
+            distance = math.hypot(target.x - px, target.y - py)
+            sample = GuidanceSample(px, py, bearing_degrees(px, py, target.x, target.y),
+                                    distance, distance <= 800)
             px, py = sample.player_x, sample.player_y
             center_x = minimap_box.x + minimap_box.width / 2
             center_y = minimap_box.y + minimap_box.height / 2
@@ -1179,6 +1172,9 @@ class OverlayController:
         if not self.task.config.get('_Overlay enabled'):
             self._hide_minimap_direction_window()
             return
+        state = self.task._publish_projection(player_pos, minimap=True)
+        if state is not None:
+            player_pos = (state.center[0] / 100, state.center[1] / 100, *player_pos[2:])
         if self._path_mode and self._route is not None:
             self.maybe_auto_advance(player_pos)
             status_lines = self.compute_status_lines(player_pos, minimap=True)
@@ -1200,20 +1196,11 @@ class OverlayController:
                 player_pos, state_id
             )
             status_lines = self.compute_status_lines(player_pos, minimap=True)
-            target_pixmap = None
-            if self._kuro_enabled() and self._chest_target is not None:
-                nav = self._kuro_navigation
-                if nav is not None and nav.cursor < len(nav.nodes):
-                    node = nav.nodes[nav.cursor][2]
-                    target_pixmap = self._node_pixmap(node.position_img)
-            direction_drawn = self._draw_minimap_direction_window(
-                edge_arrow, target_marker, target_pixmap=target_pixmap
-            )
             self.task._draw_overlay(
                 player_pos, state_id=state_id, completed_ids=self._completed_ids,
                 status_lines=status_lines,
-                target_marker=None if direction_drawn else target_marker,
-                edge_arrow=None if direction_drawn else edge_arrow,
+                target_marker=target_marker,
+                edge_arrow=edge_arrow,
             )
 
     def on_bigmap(self, player_pos, game_scale) -> None:
@@ -1251,6 +1238,10 @@ class OverlayController:
                 self._hide_interaction_window()
                 return
         self._sync_mode_from_config()
+        state = self.task._publish_projection(player_pos, game_scale=game_scale)
+        if state is not None:
+            player_pos = (state.center[0] / 100, state.center[1] / 100, *player_pos[2:])
+            game_scale = state.game_scale
         if not self._path_mode:
             if self._kuro_enabled():
                 if self._chest_confirm_requested:
@@ -1311,11 +1302,12 @@ class OverlayController:
         )
         self._last_status_lines = tuple(status_lines) if status_lines else ()
         # 内容、气泡、命中区和状态面板在同一个 GUI 事件中更新。
-        estimator = self.task._view_est
+        estimator = self.task._image_projection
         viewport = False
         if estimator is not None and game_scale:
-            viewport = (estimator, (player_pos[0] * 100, player_pos[1] * 100),
-                        game_scale, self._bigmap_line_window, line_layers)
+            ratio = self._client_geometry()[2] / self.task.screen_width
+            viewport = (LogicalProjection(estimator, ratio), (player_pos[0] * 100, player_pos[1] * 100),
+                        game_scale / ratio, self._bigmap_line_window, line_layers)
         window.render_frame(
             window_draw_items, bubble=self._bubble, path_layers=(),
             hitboxes=hitboxes, target_marker=self._last_target_marker,
@@ -1924,7 +1916,7 @@ class OverlayController:
 
         radius = task.config.get('_Search radius (world units)') * BIG_MAP_SEARCH_MULTIPLIER
         if game_scale is not None and 0.01 < game_scale:
-            scale = 1.0 / game_scale
+            scale = self._client_geometry()[2] / task.screen_width / game_scale
         else:
             scale = task._get_default_scale_per_1000() / 1000.0
 
@@ -2536,9 +2528,10 @@ class OverlayController:
         if self._interaction_window is not None:
             self._interaction_window.hide_overlay()
 
-    def _draw_minimap_direction_window(self, edge_arrow, target_marker=None, target_pixmap=None):
+    def _draw_minimap_direction_window(self, edge_arrow, target_marker=None, target_pixmap=None,
+                                       draw_items=(), status_lines=(), player_pos=None):
         """Render the selected chest direction through the Qt topmost layer."""
-        if edge_arrow is None and target_marker is None:
+        if edge_arrow is None and target_marker is None and not draw_items and not status_lines:
             self._hide_minimap_direction_window()
             return
         hwnd = getattr(self.task, 'hwnd', None)
@@ -2559,6 +2552,12 @@ class OverlayController:
             nearby = False
         if minimap_box is None:
             return
+        projection = None
+        if player_pos is not None and self.task._image_projection is not None:
+            target = self._chest_target
+            projection = (LogicalProjection(self.task._image_projection, 1.0), (player_pos[0] * 100, player_pos[1] * 100),
+                          1000 / self.task._minimap_scale_per_1000(),
+                          (target.x, target.y) if target is not None else None)
         window.render_direction(
             self._client_geometry(), bearing, minimap_box,
             distance=distance, target_marker=target_marker, nearby=nearby,
@@ -2566,6 +2565,8 @@ class OverlayController:
             guide_target=self._chest_guide_target(),
             position_note=self.task.position_status() if self.task.using_kuro_position() else '',
             target_pixmap=target_pixmap,
+            draw_items=draw_items, status_lines=status_lines,
+            source_size=(self.task.screen_width, self.task.screen_height), projection=projection,
         )
         self._last_minimap_direction_at = time.monotonic()
         return True
@@ -2802,6 +2803,11 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
             'icon': FluentIcon.EDIT,
             'callback': self.manage_collection_accounts,
         }
+        from src.utils.HotkeyWidget import patch_config_item_factory
+        patch_config_item_factory()
+        self.config_type['Advance hotkey'] = {'type': 'hotkey'}
+        self.config_type['Map display toggle hotkey'] = {'type': 'hotkey'}
+        self.config_type['Chest confirm hotkey'] = {'type': 'hotkey'}
         # 面板可见文案统一用英文源串，由 i18n/<locale>/LC_MESSAGES/ok.po 提供翻译。
         self.config_description = {
             'Position source': 'Choose the source used for map navigation',
@@ -2833,7 +2839,6 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         self._position_info_at = 0.0
         self._player_map_id = None
         self._bigmap_position = None
-        self._bigmap_filter = BigMapViewFilter()
         self._consecutive_far = 0
         self._overlay = None
         self._overlay_registered = False
@@ -2871,6 +2876,10 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         self._view_est = None
         self._ocr_noresult_counter = 0
         self._position_detector = None
+        self._image_projection = None
+        self._projection_capture = None
+        self._projection_frame = None
+        self._projection_frame_at = 0.0
         # 资源下载：后台线程 + 与检测循环的挂起握手。
         # ``_assets_suspend``：下载线程置位，要求检测循环释放对资源文件的占用；
         # ``_assets_released``：检测循环释放完成后置位，下载线程据此开始写文件。
@@ -3243,7 +3252,6 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         self._last_minimap_scale_per_1000 = None
         self._last_match_scale = None
         self._bigmap_position = None
-        self._bigmap_filter.reset()
         self._lock_ocr_pos = None
         self._second_check_done = False
 
@@ -3306,10 +3314,36 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
             if decision.sample.source == 'kuro':
                 self._kuro_map_verified = None
         if decision.sample is None:
-            self._overlay_ctl()._hide_minimap_direction_window()
             self._overlay_ctl()._chest_confirm_requested = False
-            self._clear_overlay()
         return decision.sample
+
+    def _publish_projection(self, player_pos, game_scale=None, minimap=False):
+        frame = self._projection_frame
+        if frame is None:
+            return None
+        capture = self.executor.method
+        if self._image_projection is None or self._projection_capture is not capture:
+            if self._image_projection is not None:
+                self._image_projection.close()
+            # WGC 的截图请求使用同一个互斥锁，可与任务执行器共同读取。
+            from ok.device.capture_methods.windows_graphics import WindowsGraphicsCaptureMethod
+            reader = capture if isinstance(capture, WindowsGraphicsCaptureMethod) else None
+            self._image_projection = ImageAnchoredProjection(reader)
+            self._projection_capture = capture
+            self._image_projection.start()
+        h, w = frame.shape[:2]
+        pixel = None
+        if minimap:
+            box = self.get_box_by_name('box_minimap')
+            region = (box.x, box.y, box.width, box.height)
+            pixel = (box.x + box.width / 2, box.y + box.height / 2)
+            game_scale = 1000 / self._minimap_scale_per_1000()
+        else:
+            region = (round(w * 0.18), round(h * 0.20), round(w * 0.62), round(h * 0.60))
+        context = (minimap, self._locked_map_id, w, h, self.config.get('Collection account'))
+        return self._image_projection.publish(
+            frame, self._projection_frame_at, region, (player_pos[0] * 100, player_pos[1] * 100),
+            game_scale, context, minimap=minimap, anchor_pixel=pixel)
 
     def _draw_position_status(self):
         if not self.config.get('_Overlay enabled') or not self.config.get('Show status panel'):
@@ -3913,6 +3947,8 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         # map.  No input is generated by this fallback and AutoCombatTask still
         # uses its unchanged ``in_team`` gate.
         in_big_map = self._in_big_map()
+        self._projection_frame = self.frame
+        self._projection_frame_at = time.monotonic() - max(0, time.time() - self.executor._last_frame_time)
         in_team = not in_big_map and self.scene.in_team(self.in_team_and_world)
         self._configure_position_sources()
         raw_position = None
@@ -3932,7 +3968,6 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
 
         if in_team or fallback_minimap:
             self._bigmap_position = None
-            self._bigmap_filter.reset()
             if self._view_est is not None and self._view_est.is_valid:
                 self._view_est.invalidate('进入大世界')
             self._fallback_failures = 0
@@ -4052,7 +4087,8 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
                 is_fourth = (self._fallback_failures == 3)
 
                 est_state = est.state() if est is not None else None
-                tracking_valid = est_state is not None and est_state.confidence >= 0.25
+                image_state = self._image_projection.state() if self._image_projection is not None else None
+                tracking_valid = image_state is not None
                 use_full_map = (is_third or is_fourth) and not tracking_valid
                 if is_fourth and self._locked_map_id is not None and not tracking_valid:
                     logger.info(f"[MapFallback] attempt {attempt}/{FALLBACK_MAX_FAILURES}, unlocking map_id={self._locked_map_id} for full-map all")
@@ -4072,7 +4108,10 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
                 # region 中心优先用推算值：拖动/缩放瞬态下它比"上次匹配结果"准得多，
                 # 实测 76~90% 的匹配失败都发生在鼠标操作 0.5s 内。
                 search_pos = self._bigmap_position or self._last_valid
-                if est_state is not None and est_state.source != 'match':
+                if image_state is not None:
+                    search_pos = (image_state.center[0] / 100, image_state.center[1] / 100,
+                                  self._last_valid[2] if len(self._last_valid) > 2 else 0)
+                elif est_state is not None and est_state.source != 'match':
                     ex, ey = est_state.ocr_pos
                     z = self._last_valid[2] if len(self._last_valid) > 2 else 0
                     search_pos = (ex, ey, z)
@@ -4085,12 +4124,9 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
                             reason='no result' if result is None else 'not success')
                     # 匹配失败但推算状态还新鲜 -> 用推算值继续渲染，避免叠加层在
                     # 拖动/缩放瞬态里闪断（原有失败计数与兜底清理逻辑保持不变）
-                    if est_state is not None and est_state.confidence >= 0.25:
-                        self._bigmap_position = (est_state.center[0] / 100, est_state.center[1] / 100,
-                                            self._last_valid[2]
-                                            if len(self._last_valid) > 2 else 0)
-                        self._overlay_ctl().on_bigmap(self._bigmap_position,
-                                                      est_state.game_scale)
+                    if image_state is not None:
+                        self._bigmap_position = (image_state.center[0] / 100, image_state.center[1] / 100,
+                                                self._last_valid[2] if len(self._last_valid) > 2 else 0)
                     self._fallback_failures += 1
                     logger.warning(
                         f"[MapFallback] failed {self._fallback_failures}/{FALLBACK_MAX_FAILURES}"
@@ -4111,11 +4147,7 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
                             game_scale=game_scale, crop_size=crop_size,
                             full_map=use_full_map)
                     if result.game_center and game_scale:
-                        center, game_scale = self._bigmap_filter.update(
-                            result.game_center, game_scale, self._locked_map_id,
-                            (self.screen_width, self.screen_height),
-                            interacting=est.recently_interacting() if est is not None else False,
-                        )
+                        center = tuple(float(value) for value in result.game_center)
                         self._bigmap_position = (center[0] / 100, center[1] / 100,
                                                 self._last_valid[2] if len(self._last_valid) > 2 else 0)
                     # 视图推算、投影和比例面板共用稳定后的匹配状态。
@@ -4191,7 +4223,15 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         height = int(getattr(self, 'screen_height', 1080) or 1080)
         geom = get_minimap_geometry(width, height)
         effective_scale = SCENE_WORLD_SCALE * geom['pixels_per_map_unit']
-        return effective_scale * 10.0
+        nominal = effective_scale * 10.0
+        if not self.config.get('_Auto map scale', True):
+            return float(self.config['_Map scale (pixels per 1000 units)'])
+        coords = (self._coords_dict or {}).get(self._locked_map_id)
+        if coords is not None and self._minimap_match_scale is not None:
+            measured = 1000 / (self._minimap_match_scale * coords['scale'][0])
+            if 0.75 * nominal <= measured <= 1.25 * nominal:
+                self._last_minimap_scale_per_1000 = measured
+        return self._last_minimap_scale_per_1000 or nominal
 
     def _get_default_scale_per_1000(self):
         return self._minimap_scale_per_1000()
@@ -4200,10 +4240,6 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
 
     def _draw_overlay(self, player_pos, state_id=None, completed_ids=None,
                       status_lines=None, edge_arrow=None, target_marker=None):
-        overlay_view = self.get_overlay_view()
-        if overlay_view is None:
-            return
-
         self._init_overlay()
 
         minimap_box = self.get_box_by_name('box_minimap')
@@ -4239,20 +4275,25 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
                 map_type_filters=self.config.get('_Collection map types', {})
             )
 
-        callback = MapItemOverlay.make_paint_callback(
-            draw_items, edge_arrow=edge_arrow, target_marker=target_marker,
-            status_lines=status_lines
-        )
-        overlay_view.draw(OVERLAY_DRAW_KEY, callback, duration=OVERLAY_DRAW_DURATION)
-        self._overlay_registered = True
+        controller = self._overlay_ctl()
+        target_pixmap = None
+        target = controller._chest_target
+        if target is not None:
+            target_pixmap = ITEM_PIXMAPS.get(target.type_id)
+            navigation = controller._kuro_navigation
+            if navigation is not None and navigation.cursor < len(navigation.nodes):
+                target_pixmap = controller._node_pixmap(navigation.nodes[navigation.cursor][2].position_img)
+        controller._draw_minimap_direction_window(
+            edge_arrow, target_marker, target_pixmap=target_pixmap, draw_items=draw_items,
+            status_lines=status_lines, player_pos=player_pos)
+        self._clear_overlay()
         self._minimap_draw_log_counter += 1
         if self._minimap_draw_log_counter <= 3 or self._minimap_draw_log_counter % 50 == 0:
             edge_bearing = edge_arrow[0] if edge_arrow is not None else None
             logger.info(
                 f"[MinimapOverlay] map_id={state_id} draw_items={len(draw_items)} "
                 f"edge_bearing={edge_bearing} target_marker={target_marker} "
-                f"overlay_hwnd={getattr(overlay_view, '_hwnd', None)} "
-                f"overlay_visible={getattr(overlay_view, '_visible', None)}"
+                f"image_frames={self._image_projection.frames if self._image_projection else 0}"
             )
 
     def _build_kuro_minimap_items(self, player_x, player_y, minimap_box, scale, completed_ids):
@@ -4344,6 +4385,8 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         标记与实际绘制不一致（例如刚画完一帧就被停用）也不会残留。``clear_draw`` 与交互
         窗口的 ``hide_overlay`` 都经排队信号派发到 GUI 线程，可从任意线程调用。
         """
+        if self._image_projection is not None:
+            self._image_projection.reset()
         overlay_view = self.get_overlay_view()
         if overlay_view is not None:
             try:
@@ -4355,10 +4398,13 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         if controller is not None:
             try:
                 controller.on_idle()
+                controller._hide_minimap_direction_window()
             except Exception as e:  # pragma: no cover - Qt 运行时相关
                 logger.warning(f'[Overlay] force hide interaction window failed: {e}')
 
     def on_destroy(self):
+        if self._image_projection is not None:
+            self._image_projection.close()
         with self._position_lock:
             self._position_sources.stop()
         self._force_clear_overlay()
