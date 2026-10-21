@@ -35,7 +35,7 @@ class MinimapDirectionWindow(QWidget):
     """Transparent, non-activating and fully click-through direction window."""
 
     _frame_requested = Signal(
-        object, object, object, object, object, object, object, object, object
+        object, object, object, object, object, object, object, object, object, object
     )
     _hide_requested = Signal()
     _close_requested = Signal()
@@ -55,6 +55,7 @@ class MinimapDirectionWindow(QWidget):
         self._minimap_box = None
         self._distance = None
         self._target_marker = None
+        self._target_pixmap = None
         self._nearby = False
         self._hint_text = ""
         self._position_note = ""
@@ -71,7 +72,7 @@ class MinimapDirectionWindow(QWidget):
 
     def render_direction(self, geometry, bearing, minimap_box, distance=None,
                          target_marker=None, nearby=False, hint_text="", guide_target=None,
-                         position_note=""):
+                         position_note="", target_pixmap=None):
         self._frame_requested.emit(
             tuple(geometry), float(bearing), minimap_box,
             None if distance is None else float(distance),
@@ -79,6 +80,7 @@ class MinimapDirectionWindow(QWidget):
             str(hint_text or ""),
             guide_target,
             str(position_note),
+            target_pixmap,
         )
 
     def close_overlay(self):
@@ -94,7 +96,7 @@ class MinimapDirectionWindow(QWidget):
         self._hide_requested.emit()
 
     def _do_frame(self, geometry, bearing, minimap_box, distance, target_marker,
-                  nearby, hint_text, guide_target=None, position_note=""):
+                  nearby, hint_text, guide_target=None, position_note="", target_pixmap=None):
         geometry = tuple(int(value) for value in geometry)
         frame_key = (
             geometry, float(bearing), minimap_box.x, minimap_box.y,
@@ -102,6 +104,7 @@ class MinimapDirectionWindow(QWidget):
             bool(nearby), str(hint_text or ""),
             guide_target,
             position_note,
+            target_pixmap,
         )
         if self.isVisible() and frame_key == self._last_frame:
             return
@@ -112,6 +115,7 @@ class MinimapDirectionWindow(QWidget):
         self._minimap_box = minimap_box
         self._distance = distance
         self._target_marker = target_marker
+        self._target_pixmap = target_pixmap
         self._nearby = bool(nearby)
         self._hint_text = str(hint_text or "")
         self._position_note = position_note
@@ -161,6 +165,7 @@ class MinimapDirectionWindow(QWidget):
         self._last_frame = None
         self._bearing = None
         self._target_marker = None
+        self._target_pixmap = None
         self._hint_text = ""
         if self.isVisible():
             self.hide()
@@ -191,7 +196,8 @@ class MinimapDirectionWindow(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
         try:
-            if not self._nearby:
+            show_arrow = (self._target_marker is None) and (not self._nearby)
+            if show_arrow:
                 tip, left, right = direction_triangle_geometry(
                     self._bearing, self._minimap_box
                 )
@@ -210,9 +216,17 @@ class MinimapDirectionWindow(QWidget):
 
             if self._target_marker is not None:
                 tx, ty = self._target_marker[:2]
+                if self._target_pixmap is not None and not self._target_pixmap.isNull():
+                    pw = self._target_pixmap.width()
+                    ph = self._target_pixmap.height()
+                    painter.drawPixmap(int(tx - pw / 2), int(ty - ph / 2), self._target_pixmap)
+                else:
+                    painter.setBrush(QColor(255, 210, 40, 220))
+                    painter.setPen(QPen(QColor(0, 0, 0, 220), 2))
+                    painter.drawEllipse(QPointF(float(tx), float(ty)), 8, 8)
                 painter.setBrush(Qt.NoBrush)
-                painter.setPen(QPen(QColor(255, 40, 40), 4))
-                painter.drawEllipse(QPointF(float(tx), float(ty)), 21, 21)
+                painter.setPen(QPen(QColor(255, 40, 40), 3))
+                painter.drawEllipse(QPointF(float(tx), float(ty)), 18, 18)
 
             box = self._minimap_box
             banner = QRectF(
