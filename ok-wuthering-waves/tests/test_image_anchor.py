@@ -59,6 +59,60 @@ def test_stationary_reference_does_not_accumulate_motion():
     assert projection.state(now=7.0) is None
 
 
+def test_subpixel_motion_keeps_geometry_until_cumulative_pan_is_visible():
+    image = read_map()
+    h, w = image.shape[:2]
+    projection = ImageAnchoredProjection()
+    first = projection.publish(image, 0, (0, 0, w, h), (1000, 2000), 50, 'map')
+    reference = projection.tracker.reference_gray
+    for index, dx in enumerate((.2, .4, .1, .3, .5), 1):
+        moved = cv2.warpAffine(image, np.float64([[1, 0, dx], [0, 1, 0]]), (w, h))
+        state = projection.observe(moved, index / 20)
+        assert state is not None
+        assert state.center == first.center
+        assert state.game_scale == first.game_scale
+        assert projection.tracker.reference_gray is reference
+    for index, dx in enumerate((1.2, 2.4, 3.6), 6):
+        moved = cv2.warpAffine(image, np.float64([[1, 0, dx], [0, 1, 0]]), (w, h))
+        state = projection.observe(moved, index / 20)
+        assert state is not None
+        assert abs((first.center[0] - state.center[0]) / state.game_scale - dx) < .75
+
+
+def test_stationary_real_capture_sequence_preserves_geometry_and_description():
+    app = QApplication.instance() or QApplication([])
+    path = ROOT / 'logs/bigmap-capture-final/frames.npz'
+    if not path.is_file():
+        import pytest
+        pytest.skip('需要真实大地图静止录制')
+    with np.load(path) as recording:
+        frames = recording['frames']
+    image = frames[0]
+    h, w = image.shape[:2]
+    projection = ImageAnchoredProjection()
+    now = time.monotonic()
+    first = projection.publish(image, now, (0, 0, w, h), (1000, 2000), 50, 'map')
+    window = InteractionOverlayWindow()
+    try:
+        window.setGeometry(0, 0, w, h)
+        window.show()
+        for index, frame in enumerate(frames, 1):
+            state = projection.publish(frame, time.monotonic(), (0, 0, w, h),
+                                       first.center, first.game_scale, 'map')
+            assert state is not None
+            assert state.center == first.center
+            assert state.game_scale == first.game_scale
+            window._do_frame([(w // 2, h // 2, None, '资源点', None, 1, 'item', 0)],
+                             BubbleSpec(w // 2, h // 2, '收集说明'), (), (),
+                             viewport=(LogicalProjection(projection, 1), first.center,
+                                       first.game_scale, None, ()))
+            assert window._bubble is not None
+            assert window._bubble.text == '收集说明'
+    finally:
+        window.close()
+        app.processEvents()
+
+
 def test_image_motion_preserves_world_target_and_logical_projection():
     image = read_map()
     h, w = image.shape[:2]

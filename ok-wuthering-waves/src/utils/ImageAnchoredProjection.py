@@ -4,6 +4,7 @@ import threading
 import time
 
 from src.utils.ScreenMotionTracker import ScreenMotionTracker
+from src.utils.OverlayMotion import viewport_motion_pixels
 
 
 @dataclass(frozen=True)
@@ -53,6 +54,8 @@ class ImageAnchoredProjection:
         self.frames = 0
         self.latest_frame = None
         self.latest_at = 0.0
+        self.frame_size = None
+        self.minimap = False
 
     def start(self):
         if self.capture is not None and self.thread is None:
@@ -95,7 +98,18 @@ class ImageAnchoredProjection:
         scale = self.reference_scale / transform.scale
         center = (self.reference_center[0] + (anchor_x - x - mapped_x) * scale,
                   self.reference_center[1] + (anchor_y - y - mapped_y) * scale)
-        return ImageViewState(center, scale, 1.0, 'image', timestamp)
+        return self._stabilize(ImageViewState(center, scale, 1.0, 'image', timestamp))
+
+    def _stabilize(self, state):
+        if self.minimap or self.current is None or state.t < self.current.t:
+            return state
+        motion = viewport_motion_pixels(
+            self.current.center, self.current.game_scale, state.center,
+            state.game_scale, self.frame_size)
+        # 保留参考图像，缓慢拖动和缩放会累计到可见移动量。
+        if motion < 0.75:
+            return replace(state, center=self.current.center, game_scale=self.current.game_scale)
+        return state
 
     def publish(self, frame, timestamp, region, center, game_scale, context, minimap=False, anchor_pixel=None):
         if self.error is not None:
@@ -104,6 +118,8 @@ class ImageAnchoredProjection:
             raise ValueError('地图图像比例无效')
         with self.lock:
             changed = context != self.context or tuple(region) != self.region
+            self.frame_size = (frame.shape[1], frame.shape[0])
+            self.minimap = minimap
             if not changed and self.tracker is not None:
                 transform = self.tracker.track(self._crop(frame), timestamp)
                 if transform is not None:
@@ -129,6 +145,10 @@ class ImageAnchoredProjection:
                         self.pending = (tuple(center), game_scale)
                         return observed
             self.pending = None
+            state = ImageViewState(tuple(center), game_scale, 1.0, 'image', timestamp)
+            if not changed:
+                state = self._stabilize(state)
+            center, game_scale = state.center, state.game_scale
             self.context = context
             self.region = tuple(region)
             self.tracker = ScreenMotionTracker(minimap=minimap, max_age=self.MAX_ABSOLUTE_AGE)
@@ -138,7 +158,7 @@ class ImageAnchoredProjection:
             self.reference_pixel = anchor_pixel or (frame.shape[1] / 2, frame.shape[0] / 2)
             self.absolute_at = timestamp
             self.image_at = timestamp
-            self.current = ImageViewState(tuple(center), game_scale, 1.0, 'image', timestamp)
+            self.current = state
             self._catch_up(timestamp)
             return self.current
 

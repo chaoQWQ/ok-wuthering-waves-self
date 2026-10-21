@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QApplication
 from config import config
 from ok import OK, Box
 from ok.core.events import communicate
+from ok.device.capture_methods.image import ImageCaptureMethod
 
 
 class TestMapOverlayIndependence(unittest.TestCase):
@@ -30,6 +31,17 @@ class TestMapOverlayIndependence(unittest.TestCase):
             app = runtime.headless_app
             task = runtime.task_executor.trigger_tasks[0]
             try:
+                runtime.device_manager.capture_method = ImageCaptureMethod(
+                    runtime.exit_event,
+                    [str(Path(__file__).resolve().parent / 'images/big_map.png')])
+                controller = task._overlay_ctl()
+                controller._close_bubble_if_panned((.99, .99, 0), 50)
+                controller._set_bubble(200, 150, '收集说明')
+                controller._close_bubble_if_panned((1.01, 1.01, 0), 50.0001)
+                self.assertIsNotNone(controller._bubble)
+                controller._close_bubble_if_panned((5, 1, 0), 50)
+                self.assertIsNone(controller._bubble)
+                runtime.device_manager.capture_method = None
                 app.set_overlay_setting('boxes', False)
                 runtime.task_executor.paused = False
                 task._enabled = True

@@ -23,6 +23,7 @@ from src.utils.MapItemOverlay import (
     format_status_lines, format_target_info, player_target_distance,
 )
 from src.utils.map_geometry import make_hitbox, bearing_degrees
+from src.utils.OverlayMotion import viewport_motion_pixels
 from src.utils.NodeIconCache import NodeIconCache
 from src.utils.PathRoute import load_path_route, build_path_layers, PathParseError, PathLayer, PATH_NODE_ICON_KEY
 from src.utils.ChestRoute import load_chest_route, ChestRouteParseError
@@ -389,8 +390,10 @@ class OverlayController:
         # Player position captured when the bubble was opened, so a subsequent
         # big-map pan/move can close it (Requirement 2.5).
         self._bubble_player_pos = None
+        self._bubble_game_scale = None
         # Most recent big-map player position (refreshed each on_bigmap frame).
         self._current_player_pos = None
+        self._current_game_scale = None
         # Click index -> ClickTarget map for the current big-map frame, kept in
         # the same order as the hit-boxes handed to the window (task 11.3).
         self._click_targets: list = []
@@ -1264,7 +1267,7 @@ class OverlayController:
             )
             return
         # A big-map pan/move closes any open Description_Bubble (Requirement 2.5).
-        self._close_bubble_if_panned(player_pos)
+        self._close_bubble_if_panned(player_pos, game_scale)
         if self._path_mode and self._route is not None:
             # Player coordinate update: auto-advance before rebuilding content so
             # the rendered target reflects the advance (Requirements 9.1, 9.2);
@@ -1758,16 +1761,25 @@ class OverlayController:
         )
         self._bubble_ref_id = ref_id
         self._bubble_player_pos = self._current_player_pos
+        self._bubble_game_scale = self._current_game_scale
 
-    def _close_bubble_if_panned(self, player_pos) -> None:
+    def _close_bubble_if_panned(self, player_pos, game_scale=None) -> None:
         """Close the bubble when the big map has panned (Requirement 2.5)."""
         self._current_player_pos = player_pos
+        self._current_game_scale = game_scale
         if self._bubble is None:
             return
         prev = self._bubble_player_pos
         if prev is None:
             return
-        if int(prev[0]) != int(player_pos[0]) or int(prev[1]) != int(player_pos[1]):
+        scale = self._bubble_game_scale
+        if scale is None or game_scale is None:
+            return
+        motion = viewport_motion_pixels(
+            (prev[0] * 100, prev[1] * 100), scale,
+            (player_pos[0] * 100, player_pos[1] * 100), game_scale,
+            (self.task.screen_width, self.task.screen_height))
+        if motion > 2:
             self._bubble = None
             self._bubble_player_pos = None
             self._bubble_ref_id = None

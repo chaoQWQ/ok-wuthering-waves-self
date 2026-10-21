@@ -468,7 +468,7 @@ class InteractionOverlayWindow(QWidget):
         if key == self._motion_key:
             return
         self._motion_key = key
-        from src.utils.OverlayMotion import transform_overlay
+        from src.utils.OverlayMotion import transform_overlay, viewport_motion_pixels
         projected, hitboxes, target, routes = transform_overlay(
             items, boxes, marker, layers, origin, scale, state.center,
             state.game_scale, (self.width(), self.height()),
@@ -476,8 +476,8 @@ class InteractionOverlayWindow(QWidget):
         self._draw_items = projected
         self._hitboxes_with_z = hitboxes
         self._target_marker = target
-        if (math.dist(origin, state.center) / state.game_scale > 2 or
-                abs(scale / state.game_scale - 1) * min(self.width(), self.height()) > 2):
+        if viewport_motion_pixels(origin, scale, state.center, state.game_scale,
+                                  (self.width(), self.height())) > 2:
             self._bubble = None
         self._apply_composed_mask()
         self.update()
