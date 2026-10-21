@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import ctypes
 import math
+import threading
 
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPolygonF
+from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal, QTimer
+from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPolygonF
 from PySide6.QtWidgets import QWidget
 from src.utils.MapDistance import format_distance_meters
 
@@ -34,10 +35,8 @@ def direction_triangle_geometry(bearing_deg, minimap_box):
 class MinimapDirectionWindow(QWidget):
     """Transparent, non-activating and fully click-through direction window."""
 
-    _frame_requested = Signal(
-        object, object, object, object, object, object, object, object, object, object
-    )
-    _hide_requested = Signal()
+    _frame_requested = Signal(int)
+    _hide_requested = Signal(int)
     _close_requested = Signal()
 
     def __init__(self, parent=None):
@@ -66,14 +65,26 @@ class MinimapDirectionWindow(QWidget):
         self._guide_cache = None
         self._no_activate_applied = False
         self._last_frame = None
-        self._frame_requested.connect(self._do_frame, Qt.QueuedConnection)
-        self._hide_requested.connect(self._do_hide, Qt.QueuedConnection)
+        self._frame_lock = threading.Lock()
+        self._pending_frame = None
+        self._frame_epoch = 0
+        self._draw_items = ()
+        self._status_lines = ()
+        self._source_size = None
+        self._projection = None
+        self._motion_frame = None
+        self._motion_timer = QTimer(self)
+        self._motion_timer.setInterval(16)
+        self._motion_timer.timeout.connect(self._refresh_motion)
+        self._frame_requested.connect(self._consume_frame, Qt.QueuedConnection)
+        self._hide_requested.connect(self._consume_hide, Qt.QueuedConnection)
         self._close_requested.connect(self._do_close, Qt.QueuedConnection)
 
     def render_direction(self, geometry, bearing, minimap_box, distance=None,
                          target_marker=None, nearby=False, hint_text="", guide_target=None,
-                         position_note="", target_pixmap=None):
-        self._frame_requested.emit(
+                         position_note="", target_pixmap=None, draw_items=(), status_lines=(),
+                         source_size=None, projection=None):
+        frame = (
             tuple(geometry), float(bearing), minimap_box,
             None if distance is None else float(distance),
             None if target_marker is None else tuple(target_marker), bool(nearby),
@@ -81,22 +92,50 @@ class MinimapDirectionWindow(QWidget):
             guide_target,
             str(position_note),
             target_pixmap,
+            tuple(draw_items), tuple(status_lines or ()), source_size, projection,
         )
+        with self._frame_lock:
+            notify = self._pending_frame is None
+            self._pending_frame = frame
+            epoch = self._frame_epoch
+        if notify:
+            self._frame_requested.emit(epoch)
+
+    def _consume_frame(self, epoch):
+        with self._frame_lock:
+            if epoch != self._frame_epoch:
+                return
+            frame, self._pending_frame = self._pending_frame, None
+        if frame is not None:
+            self._do_frame(*frame)
 
     def close_overlay(self):
         self._close_requested.emit()
 
     def _do_close(self):
+        self._do_hide()
         self._guide_target = None
         if self._guide_cache is not None:
             self._guide_cache.stop()
         self.close()
 
     def hide_overlay(self):
-        self._hide_requested.emit()
+        with self._frame_lock:
+            self._frame_epoch += 1
+            self._pending_frame = None
+            epoch = self._frame_epoch
+        self._hide_requested.emit(epoch)
+
+    def _consume_hide(self, epoch):
+        with self._frame_lock:
+            if (epoch != self._frame_epoch or self._pending_frame is not None
+                    or getattr(self, '_pending_routes', None) is not None):
+                return
+        self._do_hide()
 
     def _do_frame(self, geometry, bearing, minimap_box, distance, target_marker,
-                  nearby, hint_text, guide_target=None, position_note="", target_pixmap=None):
+                  nearby, hint_text, guide_target=None, position_note="", target_pixmap=None,
+                  draw_items=(), status_lines=(), source_size=None, projection=None):
         geometry = tuple(int(value) for value in geometry)
         frame_key = (
             geometry, float(bearing), minimap_box.x, minimap_box.y,
@@ -105,8 +144,9 @@ class MinimapDirectionWindow(QWidget):
             guide_target,
             position_note,
             target_pixmap,
+            draw_items, status_lines, source_size,
         )
-        if self.isVisible() and frame_key == self._last_frame:
+        if self.isVisible() and frame_key == self._last_frame and projection is None:
             return
         self._last_frame = frame_key
         if self.geometry().getRect() != geometry:
@@ -116,6 +156,11 @@ class MinimapDirectionWindow(QWidget):
         self._distance = distance
         self._target_marker = target_marker
         self._target_pixmap = target_pixmap
+        self._draw_items = draw_items
+        self._status_lines = status_lines
+        self._source_size = source_size
+        self._projection = projection
+        self._motion_frame = (draw_items, target_marker)
         self._nearby = bool(nearby)
         self._hint_text = str(hint_text or "")
         self._position_note = position_note
@@ -129,6 +174,41 @@ class MinimapDirectionWindow(QWidget):
         if not self.isVisible():
             self.show()
             self.raise_()
+        if projection is not None:
+            self._motion_timer.start()
+            self._refresh_motion()
+        else:
+            self._motion_timer.stop()
+        self.update()
+
+    def _refresh_motion(self):
+        if self._projection is None:
+            return
+        provider, origin, game_scale, target = self._projection
+        try:
+            state = provider.state()
+        except RuntimeError:
+            self._do_hide()
+            raise
+        if state is None:
+            self._do_hide()
+            return
+        box = self._minimap_box
+        cx, cy = box.x + box.width / 2, box.y + box.height / 2
+        from src.utils.OverlayMotion import transform_overlay
+        items, _, marker, _ = transform_overlay(
+            self._motion_frame[0], (), self._motion_frame[1], (), origin, game_scale,
+            state.center, state.game_scale, self._source_size, pixel_center=(cx, cy))
+        self._draw_items = items
+        if target is not None:
+            dx, dy = target[0] - state.center[0], target[1] - state.center[1]
+            self._distance = math.hypot(dx, dy)
+            self._bearing = math.degrees(math.atan2(dx, -dy)) % 360
+            self._nearby = self._distance <= 800
+            marker = (cx + dx / state.game_scale, cy + dy / state.game_scale)
+        radius = min(box.width, box.height) / 2
+        self._target_marker = (marker if marker is not None and
+                               math.hypot(marker[0] - cx, marker[1] - cy) <= radius else None)
         self.update()
 
     def _load_guide(self, target):
@@ -162,6 +242,8 @@ class MinimapDirectionWindow(QWidget):
         self._guide_cache.request_details(target[0], target[1], details_ready)
 
     def _do_hide(self):
+        self._motion_timer.stop()
+        self._projection = None
         self._last_frame = None
         self._bearing = None
         self._target_marker = None
@@ -196,6 +278,28 @@ class MinimapDirectionWindow(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
         try:
+            if self._source_size is not None:
+                painter.scale(self.width() / self._source_size[0], self.height() / self._source_size[1])
+            from src.utils.MapItemOverlay import paint_icon_background, paint_status_panel
+            box = self._minimap_box
+            painter.save()
+            clip = QPainterPath()
+            clip.addEllipse(QRectF(box.x, box.y, box.width, box.height))
+            painter.setClipPath(clip)
+            for item in self._draw_items:
+                x, y, pixmap, name, color = item[:5]
+                painter.setOpacity(item[5] if len(item) > 5 else 1.0)
+                if pixmap is not None and not pixmap.isNull():
+                    paint_icon_background(painter, x, y, 24)
+                    painter.drawPixmap(round(x - 12), round(y - 12), 24, 24, pixmap)
+                else:
+                    painter.setPen(QPen(color or QColor(255, 210, 40), 2))
+                    painter.drawEllipse(QPointF(x, y), 5, 5)
+            painter.restore()
+            if self._status_lines and self._source_size is not None:
+                paint_status_panel(painter, self._status_lines, QSize(*self._source_size))
+            if self._distance is None and self._target_marker is None:
+                return
             show_arrow = (self._target_marker is None) and (not self._nearby)
             if show_arrow:
                 tip, left, right = direction_triangle_geometry(
@@ -310,12 +414,25 @@ class BigmapLineWindow(MinimapDirectionWindow):
     def __init__(self):
         super().__init__()
         self._path_layers = ()
+        self._pending_routes = None
         self._routes_requested.connect(self._do_routes, Qt.QueuedConnection)
 
     def render_routes(self, geometry, layers):
-        self._routes_requested.emit(tuple(geometry), tuple(layers))
+        with self._frame_lock:
+            notify = self._pending_routes is None
+            self._pending_routes = (tuple(geometry), tuple(layers), self._frame_epoch)
+        if notify:
+            self._routes_requested.emit(None, None)
 
     def _do_routes(self, geometry, layers):
+        if geometry is None:
+            with self._frame_lock:
+                pending, self._pending_routes = self._pending_routes, None
+            if pending is None:
+                return
+            geometry, layers, epoch = pending
+            if epoch != self._frame_epoch:
+                return
         if self.isVisible() and self.geometry().getRect() == tuple(geometry) and self._path_layers == layers:
             return
         if self.geometry().getRect() != tuple(geometry):

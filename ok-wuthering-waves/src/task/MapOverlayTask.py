@@ -3691,7 +3691,10 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
             if not candidates:
                 logger.warning(f"[MapFallback] no candidate maps for game=({game_x},{game_y})")
                 return None
-            candidates.sort(key=lambda c: c[0] in SLOW_MAP_IDS)
+            route_data = self.config.get('_Kuro route') if self.config.get('Kuro route navigation') else None
+            preferred_map = str(route_data['stateId']) if route_data else None
+            # 路线地图优先进行真实图像匹配，确认门限保持不变。
+            candidates.sort(key=lambda c: (str(c[0]) != preferred_map, c[0] in SLOW_MAP_IDS))
 
         self._fallback_log_counter += 1
         verbose = self._fallback_log_counter <= 3 or self._fallback_log_counter % 20 == 0

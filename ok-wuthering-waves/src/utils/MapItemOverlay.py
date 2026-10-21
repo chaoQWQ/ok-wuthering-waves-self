@@ -1,6 +1,7 @@
 import math
 import os
 import sqlite3
+import threading
 from typing import Iterable, List, NamedTuple, Optional, Sequence, Set, Tuple
 
 from PySide6.QtCore import QPoint, QRect, Qt
@@ -974,10 +975,10 @@ def paint_status_panel(painter, lines, view_or_geometry) -> None:
 class MapItemOverlay:
 
     def __init__(self, db_path):
-        # 保存数据库路径，供 get_location_description 在 GUI 线程按需新建短生命周期
-        # 连接使用（sqlite 连接默认禁止跨线程复用，见 get_location_description 注释）。
         self._db_path = db_path
-        self._conn = sqlite3.connect(db_path)
+        # 任务查询与 GUI 退出清理共用互斥锁。
+        self._connection_lock = threading.Lock()
+        self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL")
         assets_dir = os.path.dirname(db_path)
         _load_item_pixmaps(assets_dir)
@@ -1005,7 +1006,8 @@ class MapItemOverlay:
             'JOIN item i ON i.id = l.item_id WHERE ' + ' AND '.join(conditions)
         )
 
-        rows = self._conn.execute(sql, params).fetchall()
+        with self._connection_lock:
+            rows = self._conn.execute(sql, params).fetchall()
         results = []
         if with_location_id:
             for location_id, name, type_id, x, y in rows:
@@ -1028,12 +1030,7 @@ class MapItemOverlay:
         :func:`bubble_text`, which renders the "该地点暂无描述" placeholder for an
         empty/missing description (Requirement 2.7).
 
-        线程安全说明（关键 bug 修复）：本方法通常在 GUI 线程被点击信号槽调用，而
-        ``self._conn`` 是在任务线程创建的连接，sqlite 默认禁止跨线程复用连接，复用会
-        抛 ``sqlite3.ProgrammingError``（``sqlite3.Error`` 子类）被下方 except 吞掉，
-        导致所有描述都回退为占位符。因此这里**每次调用都新建一个短生命周期连接**，
-        查询后立即关闭；点击不频繁，新建连接开销可接受。description 在库中为合法
-        UTF-8 中文，无需额外解码，直接返回原文（空串 / None 交由 bubble_text 处理）。
+        GUI 点击查询使用独立的短生命周期连接，查询结束后关闭。
         """
         try:
             conn = sqlite3.connect(self._db_path)
@@ -1225,4 +1222,5 @@ class MapItemOverlay:
         return paint
 
     def close(self):
-        self._conn.close()
+        with self._connection_lock:
+            self._conn.close()

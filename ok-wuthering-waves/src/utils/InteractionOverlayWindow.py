@@ -42,6 +42,7 @@ Requirements: 1.1, 1.2, 1.4, 1.5, 1.6, 1.7, 1.8, 2.1, 2.2, 2.8, 10.2
 from __future__ import annotations
 
 import ctypes
+import math
 import logging
 import time
 import threading
@@ -448,6 +449,8 @@ class InteractionOverlayWindow(QWidget):
             self._motion_frame = (tuple(draw_items), tuple(self._hitboxes_with_z),
                                   target_marker, previous[3], previous[4])
         self._apply_composed_mask()
+        if self._motion_frame is not None:
+            self._refresh_motion()
         self.update()
 
     def _refresh_motion(self):
@@ -456,7 +459,7 @@ class InteractionOverlayWindow(QWidget):
         items, boxes, marker, viewport, published_at = self._motion_frame
         estimator, origin, scale, line_window, layers = viewport
         state = estimator.state()
-        if state is None or state.confidence < 0.25 or time.monotonic() - published_at > 3.0:
+        if state is None or state.confidence < 0.25:
             self._do_hide()
             if line_window is not None:
                 line_window._do_hide()
@@ -473,7 +476,8 @@ class InteractionOverlayWindow(QWidget):
         self._draw_items = projected
         self._hitboxes_with_z = hitboxes
         self._target_marker = target
-        if state.source != 'match':
+        if (math.dist(origin, state.center) / state.game_scale > 2 or
+                abs(scale / state.game_scale - 1) * min(self.width(), self.height()) > 2):
             self._bubble = None
         self._apply_composed_mask()
         self.update()

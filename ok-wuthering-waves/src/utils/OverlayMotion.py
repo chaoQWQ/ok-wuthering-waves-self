@@ -4,12 +4,13 @@ from dataclasses import replace
 from src.utils.overlay_types import Rect
 
 
-def transform_overlay(items, hitboxes, marker, layers, origin, scale, center, game_scale, viewport):
+def transform_overlay(items, hitboxes, marker, layers, origin, scale, center, game_scale, viewport,
+                      pixel_center=None):
     if not all(math.isfinite(value) for value in (*origin, scale, *center, game_scale)):
         raise ValueError('地图投影参数需要有限数值')
     if scale <= 0 or game_scale <= 0:
         raise ValueError('地图比例必须大于零')
-    cx, cy = viewport[0] / 2, viewport[1] / 2
+    cx, cy = pixel_center or (viewport[0] / 2, viewport[1] / 2)
     ratio = scale / game_scale
 
     def project(x, y):
