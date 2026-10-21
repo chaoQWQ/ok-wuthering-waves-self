@@ -35,6 +35,16 @@ class TestDailyRewardRuntime(unittest.TestCase):
                         frame = cv2.resize(completed, (width, height))
                         self.assertEqual(task.get_total_daily_points(frame=frame), 140)
                         self.assertTrue(task.daily_reward_claimed(frame=frame))
+                for account in (1, 2, 3):
+                    name = f'daily_activity_zero_{account}.png'
+                    original = cv2.imread(str(Path(__file__).parent / 'images' / name))
+                    if original is None:
+                        raise FileNotFoundError(name)
+                    for width, height in ((1280, 720), (1600, 900), (1920, 1080), (2560, 1440)):
+                        with self.subTest(account=account, zero_resolution=(width, height)):
+                            frame = cv2.resize(original, (width, height))
+                            self.assertEqual(task.get_total_daily_points(frame=frame), 0)
+                            self.assertFalse(task.daily_reward_claimed(frame=frame))
                 for name in ('account_logged_out_title.png', 'quest_map_detail.png'):
                     original = cv2.imread(str(Path(__file__).parent / 'images' / name))
                     if original is None:

@@ -292,8 +292,13 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
         # 请注意：如果任务【累计消耗180点结晶波片】已完成，current 也可能为 0，因为翻页后也有可能识别不到已用体力。
 
     def get_total_daily_points(self, frame=None):
+        image = self.frame if frame is None else frame
+        if image is None:
+            raise DailyRewardIncompleteError('未能确认日常活跃度，奖励领取未完成验证')
+        image = cv2.resize(image, (1920, 1080))
         points_boxes = self.ocr(
-            0.19, 0.8, 0.30, 0.93, match=re.compile(r'^\d{1,3}$'), frame=frame,
+            0.19, 0.835, 0.30, 0.885, match=re.compile(r'^\d{1,3}$'),
+            frame=image,
         )
         values = {int(box.name) for box in points_boxes}
         if len(values) != 1:
