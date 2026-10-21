@@ -5,6 +5,7 @@ from pathlib import Path
 import cv2
 
 from ok import Logger, TaskDisabledException
+from src.task.BaseWWTask import GameWindowDisconnectedError, number_re
 from src.task.FarmEchoTask import FarmEchoTask
 from src.task.ForgeryTask import ForgeryTask
 from src.task.GardenTask import GardenTask
@@ -34,10 +35,13 @@ def daily_reward_template():
     return template
 
 
-class DailyRewardIncompleteError(RuntimeError):
-    def __init__(self, message, points=None):
-        super().__init__(message)
-        self.points = points
+def new_daily_reward_result():
+    return {
+        'daily_points': None,
+        'daily_rewards_claimed': None,
+        'daily_reward_status': '未检测',
+        'daily_reward_detail': '',
+    }
 
 
 class DailyTask(WWOneTimeTask, BaseCombatTask):
@@ -92,19 +96,31 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
         }
         self.add_exit_after_config()
         self.description = "Login, claim monthly card, farm echo, and claim daily reward"
-        self.daily_points = None
-        self.daily_rewards_claimed = False
+        self.daily_reward_result = new_daily_reward_result()
+        self.daily_reward_disconnected = False
 
     def run(self):
-        self.daily_points = None
-        self.daily_rewards_claimed = False
-        self.info_set('daily rewards claimed', False)
+        self.daily_reward_result = new_daily_reward_result()
+        self.daily_reward_disconnected = False
+        self.info_set('daily rewards claimed', None)
         self.validate_additional_tasks()
 
         WWOneTimeTask.run(self)
         self.logged_in = False
         self.ensure_main(time_out=180)
 
+        try:
+            self.run_daily_tasks()
+        except TaskDisabledException:
+            raise
+        except Exception:
+            self.check_and_claim_daily_rewards()
+            raise
+        else:
+            self.check_and_claim_daily_rewards()
+        self.log_info('Daily Task Completed', notify=True)
+
+    def run_daily_tasks(self):
         additional_tasks = self.config.get(ADDITIONAL_TASKS) or []
         multi_account_residual_only = getattr(self, '_multi_account_residual_only', False)
         residual_only = (
@@ -172,22 +188,11 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
                 if nest_task is not None:
                     nest_task.__dict__.pop('ensure_main', None)
 
-        self.claim_daily(verify=False)
-
-        try:
-            self.claim_mail()
-            self.sleep(1)
-            self.claim_battle_pass()
-            self.run_additional_tasks()
-        except TaskDisabledException:
-            raise
-        except Exception as error:
-            self.log_error('后续任务执行失败，继续领取并检查日常活跃度奖励', error)
-            self.claim_daily()
-            raise
-        else:
-            self.claim_daily()
-        self.log_info('Daily Task Completed', notify=True)
+        self.check_and_claim_daily_rewards(verify=False)
+        self.claim_mail()
+        self.sleep(1)
+        self.claim_battle_pass()
+        self.run_additional_tasks()
 
     def validate_additional_tasks(self):
         additional_tasks = self.config.get(ADDITIONAL_TASKS) or []
@@ -292,19 +297,22 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
         # 请注意：如果任务【累计消耗180点结晶波片】已完成，current 也可能为 0，因为翻页后也有可能识别不到已用体力。
 
     def get_total_daily_points(self, frame=None):
+        points_boxes = self.ocr(0.19, 0.8, 0.30, 0.93, match=number_re, frame=frame)
+        points = int(re.sub(r'\D', '', points_boxes[0].name)) if points_boxes else 0
+        self.info_set('total daily points', points)
+        return points
+
+    def get_daily_reward_points(self, frame=None):
         image = self.frame if frame is None else frame
         if image is None:
-            raise DailyRewardIncompleteError('未能确认日常活跃度，奖励领取未完成验证')
+            return None
         image = cv2.resize(image, (1920, 1080))
         points_boxes = self.ocr(
             0.19, 0.835, 0.30, 0.885, match=re.compile(r'^\d{1,3}$'),
             frame=image,
         )
         values = {int(box.name) for box in points_boxes}
-        if len(values) != 1:
-            raise DailyRewardIncompleteError('未能确认日常活跃度，奖励领取未完成验证')
-        points = values.pop()
-        self.daily_points = points
+        points = values.pop() if len(values) == 1 else None
         self.info_set('total daily points', points)
         return points
 
@@ -332,9 +340,56 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
                 return False
         return True
 
-    def claim_daily(self, verify=True):
-        self.daily_points = None
-        self.daily_rewards_claimed = False
+    def inspect_daily_rewards(self, frame=None):
+        result = new_daily_reward_result()
+        points = self.get_daily_reward_points(frame=frame)
+        result['daily_points'] = points
+        if points is None:
+            result['daily_reward_status'] = '未完成检测'
+            result['daily_reward_detail'] = '无法确认活跃度数值'
+        elif points < 100:
+            result['daily_rewards_claimed'] = False
+            result['daily_reward_status'] = '未全部领取'
+            result['daily_reward_detail'] = f'当前活跃度 {points}/100'
+        elif self.daily_reward_claimed(frame=frame):
+            result['daily_rewards_claimed'] = True
+            result['daily_reward_status'] = '已全部领取'
+        else:
+            result['daily_reward_status'] = '未确认全部领取'
+            result['daily_reward_detail'] = '未能确认五档奖励均已领取'
+        return result
+
+    def check_and_claim_daily_rewards(self, verify=True):
+        if verify:
+            self.daily_reward_result = new_daily_reward_result()
+        try:
+            self.claim_daily()
+            if verify:
+                self.openF2Book('gray_book_quest')
+                self.click(0.17, 0.12, after_sleep=1)
+                self.daily_reward_result = self.inspect_daily_rewards()
+                if self.daily_reward_result['daily_rewards_claimed'] is not True:
+                    self.screenshot('daily_reward_check')
+                self.ensure_main(time_out=10)
+        except GameWindowDisconnectedError as error:
+            self.daily_reward_disconnected = True
+            self.record_daily_reward_error(error)
+        except TaskDisabledException:
+            raise
+        except Exception as error:
+            self.record_daily_reward_error(error)
+        self.info_set('daily rewards claimed', self.daily_reward_result['daily_rewards_claimed'])
+        self.info_set('daily reward status', self.daily_reward_result['daily_reward_status'])
+
+    def record_daily_reward_error(self, error):
+        if self.daily_reward_result['daily_rewards_claimed'] is not True:
+            self.daily_reward_result['daily_reward_status'] = '检测异常'
+        self.daily_reward_result['daily_reward_detail'] = (
+            f'领取或检测发生异常（{type(error).__name__}），详情见本机日志'
+        )
+        self.log_warning('活跃度奖励领取或检测发生异常', error)
+
+    def claim_daily(self):
         self.info_set('current task', 'claim daily')
         self.openF2Book('gray_book_quest')
         self.click(0.17, 0.12, after_sleep=1)
@@ -344,23 +399,6 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
             self.click(0.885, 0.250, after_sleep=2)
         self.log_info(f'claim daily reward via  coordinate')
         self.click(0.930, 0.882, after_sleep=1)
-        self.ensure_main(time_out=10)
-        if not verify:
-            return
-        self.openF2Book('gray_book_quest')
-        self.click(0.17, 0.12, after_sleep=1)
-        points = self.get_total_daily_points()
-        if points < 100:
-            raise DailyRewardIncompleteError(
-                f'日常活跃度仅 {points}/100，活跃度奖励未全部领取', points=points,
-            )
-        if not self.daily_reward_claimed():
-            raise DailyRewardIncompleteError(
-                f'日常活跃度 {points}/100，未能确认活跃度奖励已全部领取', points=points,
-            )
-        self.daily_rewards_claimed = True
-        self.info_set('daily rewards claimed', True)
-        self.log_info(f'日常活跃度 {points}/100，活跃度奖励已全部领取')
         self.ensure_main(time_out=10)
 
     def claim_mail(self):

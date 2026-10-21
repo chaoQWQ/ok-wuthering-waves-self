@@ -7,7 +7,7 @@ import cv2
 
 from config import config
 from ok import OK
-from src.task.DailyTask import DailyTask, DailyRewardIncompleteError
+from src.task.DailyTask import DailyTask, ADDITIONAL_TASKS, TELEPORT_AND_FARM_4C_ECHO
 from src.utils.DailyAccountState import DailyAccountState
 from src.utils.DailyEmail import build_daily_report
 
@@ -33,8 +33,10 @@ class TestDailyRewardRuntime(unittest.TestCase):
                 for width, height in ((1280, 720), (1600, 900), (1920, 1080), (2560, 1440)):
                     with self.subTest(completed_resolution=(width, height)):
                         frame = cv2.resize(completed, (width, height))
-                        self.assertEqual(task.get_total_daily_points(frame=frame), 140)
-                        self.assertTrue(task.daily_reward_claimed(frame=frame))
+                        result = task.inspect_daily_rewards(frame=frame)
+                        self.assertEqual(result['daily_points'], 140)
+                        self.assertTrue(result['daily_rewards_claimed'])
+                        self.assertEqual(result['daily_reward_status'], '已全部领取')
                 for account in (1, 2, 3):
                     name = f'daily_activity_zero_{account}.png'
                     original = cv2.imread(str(Path(__file__).parent / 'images' / name))
@@ -44,6 +46,9 @@ class TestDailyRewardRuntime(unittest.TestCase):
                         with self.subTest(account=account, zero_resolution=(width, height)):
                             frame = cv2.resize(original, (width, height))
                             self.assertEqual(task.get_total_daily_points(frame=frame), 0)
+                            result = task.inspect_daily_rewards(frame=frame)
+                            self.assertEqual(result['daily_points'], 0)
+                            self.assertEqual(result['daily_reward_status'], '未全部领取')
                             self.assertFalse(task.daily_reward_claimed(frame=frame))
                 for name in ('account_logged_out_title.png', 'quest_map_detail.png'):
                     original = cv2.imread(str(Path(__file__).parent / 'images' / name))
@@ -52,49 +57,54 @@ class TestDailyRewardRuntime(unittest.TestCase):
                     for width, height in ((1920, 1080), (1280, 720)):
                         with self.subTest(image=name, resolution=(width, height)):
                             frame = cv2.resize(original, (width, height))
-                            with self.assertRaises(DailyRewardIncompleteError):
-                                task.get_total_daily_points(frame=frame)
-                            self.assertFalse(task.daily_reward_claimed(frame=frame))
+                            self.assertEqual(task.get_total_daily_points(frame=frame), 0)
+                            result = task.inspect_daily_rewards(frame=frame)
+                            self.assertIsNone(result['daily_points'])
+                            self.assertIsNone(result['daily_rewards_claimed'])
+                            self.assertEqual(result['daily_reward_status'], '未完成检测')
+                task.config[ADDITIONAL_TASKS] = [TELEPORT_AND_FARM_4C_ECHO]
+                with self.assertRaisesRegex(Exception, 'Teleport|传送'):
+                    task.run()
+                self.assertEqual(task.daily_reward_result['daily_reward_status'], '未检测')
             finally:
                 runtime.quit()
                 runtime.task_executor.destroy()
                 runtime.device_manager.close()
 
-    def test_incomplete_activity_report_and_retryable_state(self):
-        error = DailyRewardIncompleteError(
-            '日常活跃度仅 90/100，活跃度奖励未全部领取', points=90,
-        )
-        result = {
-            'account': '账号 3', 'status': '失败', 'daily_points': error.points,
-            'daily_rewards_claimed': False, 'detail': str(error),
-        }
+    def test_reward_report_and_account_state_are_independent(self):
         now = datetime.now(timezone.utc)
-        message = build_daily_report([result], now, now, '完成（存在失败）', '', '')
-        self.assertIn('成功 0/1', message['Subject'])
-        self.assertIn('账号 3：失败', message.get_content())
-        self.assertIn('活跃度：90/100', message.get_content())
-        self.assertIn('活跃度奖励：未完成验证', message.get_content())
-        self.assertIn(str(error), message.get_content())
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'daily.sqlite3'
             state = DailyAccountState(path)
             day = state.day()
-            state.record(day, ['账号 3'], 'running')
-            state.record(day, ['账号 3'], 'failed')
-            reopened = DailyAccountState(path)
-            self.assertEqual(reopened.statuses(day), {'账号 3': 'failed'})
-            self.assertEqual(reopened.completed(day), set())
+            for status, state_status in (('成功', 'success'), ('失败', 'failed')):
+                for reward_status, points, claimed in (
+                        ('已全部领取', 140, True), ('未全部领取', 0, False),
+                        ('未完成检测', None, None), ('检测异常', None, None)):
+                    with self.subTest(status=status, reward=reward_status):
+                        account = f'{status}账号：{reward_status}'
+                        result = {
+                            'account': account, 'status': status, 'daily_points': points,
+                            'daily_rewards_claimed': claimed, 'daily_reward_status': reward_status,
+                        }
+                        message = build_daily_report([result], now, now, '完成', '', '')
+                        succeeded = 1 if status == '成功' else 0
+                        self.assertIn(f'成功 {succeeded}/1', message['Subject'])
+                        self.assertIn(f'{account}：{status}', message.get_content())
+                        self.assertIn(f'活跃度奖励：{reward_status}', message.get_content())
+                        state.record(day, [account], state_status)
+                        reopened = DailyAccountState(path)
+                        self.assertEqual(reopened.statuses(day)[account], state_status)
+                        self.assertEqual(account in reopened.completed(day), status == '成功')
 
-    def test_failed_account_report_preserves_verified_rewards(self):
+    def test_report_lists_unchecked_rewards_for_login_timeout(self):
         now = datetime.now(timezone.utc)
         message = build_daily_report([{
-            'account': '账号 3', 'status': '失败', 'daily_points': 100,
-            'daily_rewards_claimed': True,
+            'account': '账号 3', 'status': '登录超时',
         }], now, now, '完成（存在失败）', '', '')
         self.assertIn('成功 0/1', message['Subject'])
-        self.assertIn('账号 3：失败', message.get_content())
-        self.assertIn('活跃度：100/100', message.get_content())
-        self.assertIn('活跃度奖励：已全部领取', message.get_content())
+        self.assertIn('账号 3：登录超时', message.get_content())
+        self.assertIn('活跃度奖励：未检测', message.get_content())
 
 
 if __name__ == '__main__':

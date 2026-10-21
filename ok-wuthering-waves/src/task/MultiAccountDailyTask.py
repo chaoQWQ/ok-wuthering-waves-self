@@ -11,7 +11,7 @@ import win32process
 
 from ok import Box, TaskDisabledException
 from src.task.DailyTask import (
-    DailyTask, DailyRewardIncompleteError, ADDITIONAL_TASKS, CHECK_WEEKLY_GARDEN,
+    DailyTask, ADDITIONAL_TASKS, CHECK_WEEKLY_GARDEN,
     AUTO_FARM_NIGHTMARE_NEST, AUTO_FARM_RESIDUAL_NEST,
     MERGE_ECHO_IF_DISCARDED_OVER_1000,
     TELEPORT_AND_FARM_4C_ECHO,
@@ -536,8 +536,6 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         self._last_account_disconnected = False
         try:
             self.run_task_by_class(DailyTask)
-            self._current_email_result['daily_points'] = daily_task.daily_points
-            self._current_email_result['daily_rewards_claimed'] = daily_task.daily_rewards_claimed
             return True
         except AccountAlreadyCompleted:
             raise
@@ -558,16 +556,7 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             return False
         except TaskDisabledException:
             raise
-        except DailyRewardIncompleteError as error:
-            self._current_email_result['daily_points'] = error.points
-            self._current_email_result['daily_rewards_claimed'] = False
-            self._current_email_result['detail'] = str(error)
-            self.log_error(str(error))
-            self.screenshot('daily_reward_incomplete')
-            return False
         except Exception as e:
-            self._current_email_result['daily_points'] = daily_task.daily_points
-            self._current_email_result['daily_rewards_claimed'] = daily_task.daily_rewards_claimed
             self.log_error(
                 self.tr('DailyTask failed for account {account}, continuing to next account').format(
                     account=resolved_account or '(current)'
@@ -577,6 +566,11 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             self.screenshot('daily_task_failed')
             return False
         finally:
+            if getattr(self, '_current_email_result', None) is not None:
+                self._current_email_result.update(daily_task.daily_reward_result)
+            self._last_account_disconnected = (
+                self._last_account_disconnected or daily_task.daily_reward_disconnected
+            )
             if executor is not None:
                 if had_disconnect_recovery:
                     executor._multi_account_disconnect_recovery = previous_disconnect_recovery
@@ -682,7 +676,7 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             # A second miss is terminal by design: never spend stamina with a
             # default config when account-specific overrides are enabled.
             daily_succeeded = self._run_daily_for_account(initial_account)
-        self._return_to_account_list(restart=not daily_succeeded)
+        self._return_to_account_list(restart=not daily_succeeded or self._last_account_disconnected)
         # OCR here is only for login-list progress bookkeeping.  DailyTask
         # settings have already been selected from the in-game ESC Profile
         # Code and never depend on this short-lived login-screen text.
@@ -725,7 +719,7 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
                 self.log_warning(f'账号 {next_account} 执行期间游戏窗口断开，重启后重试该账号')
             else:
                 self._mark_failed(next_account)
-            self._return_to_account_list(restart=not daily_succeeded)
+            self._return_to_account_list(restart=not daily_succeeded or self._last_account_disconnected)
 
     def _return_to_account_list(self, restart=False):
         if not restart:
@@ -734,7 +728,7 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             self.ensure_main(time_out=100)
             self._switch_to_login()
             return
-        self.log_warning('当前账号无法完成登录或日常任务，重新启动游戏并返回账号列表')
+        self.log_warning('重新启动游戏并返回账号列表')
         self.executor.check_enabled()
         device_manager = self.executor.device_manager
         device_manager.stop_hwnd()

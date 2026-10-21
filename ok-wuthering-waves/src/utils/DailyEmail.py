@@ -53,14 +53,14 @@ def build_daily_report(results, started, ended, status, sender, recipient):
         lines.append(f"{index}. {result['account']}：{result['status']}")
         if result.get('daily_points') is not None:
             lines.append(f"   活跃度：{result['daily_points']}/100")
-        if 'daily_rewards_claimed' in result:
-            reward_status = '已全部领取' if result['daily_rewards_claimed'] else '未完成验证'
-            lines.append(f'   活跃度奖励：{reward_status}')
+        lines.append(f"   活跃度奖励：{result.get('daily_reward_status', '未检测')}")
+        if result.get('daily_reward_detail'):
+            lines.append(f"   奖励说明：{result['daily_reward_detail']}")
         if result.get('detail'):
             lines.append(f"   原因：{result['detail']}")
     if not results:
         lines.append('尚无账号执行结果。')
     lines.extend(['', '仅列出本轮实际尝试的账号；跳过或未运行的账号不计入成功。',
-                  '成功表示活跃度达到 100、活跃度奖励领取验证通过，且日常任务正常结束。'])
+                  '成功表示日常任务正常结束。活跃度奖励领取结果作为每个账号的独立汇报项。'])
     message.set_content('\n'.join(lines))
     return message
