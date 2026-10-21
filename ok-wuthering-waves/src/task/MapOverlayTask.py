@@ -2842,6 +2842,8 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         self._bigmap_position = None
         self._consecutive_far = 0
         self._overlay = None
+        self._map_overlay_view = None
+        self._map_overlay_lock = threading.RLock()
         self._overlay_registered = False
         # Low-rate minimap render diagnostics.  This makes it possible to
         # distinguish "no nearby database items" from a native overlay that
@@ -2899,9 +2901,6 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         from src.utils.KuroDirectClient import KuroCredentialStore
 
         self._kuro_credential = KuroCredentialStore().read()
-        # ``use_overlay`` 会持久化在 configs/_ok.json；旧版本可能留下 True。
-        # 以地图任务的实际启用状态为准同步一次，确保普通自动化启动时不会创建覆盖层。
-        self._set_global_overlay_enabled(self.enabled)
         self._migrate_chest_confirm_config()
         # Convert the former free-text value into a durable profile, then build
         # the dropdown before the task card is created.  This preserves custom
@@ -3053,25 +3052,34 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
                 self._position_sources.stop()
                 self._position_sources = PositionSources()
             self._force_clear_overlay()
-            self._set_global_overlay_enabled(False)
-        elif self.enabled:
-            self._set_global_overlay_enabled(True)
+            self._close_map_overlay()
 
-    @staticmethod
-    def _set_global_overlay_enabled(enabled):
-        """让全局识别框/覆盖层只跟随地图任务生命周期启用。"""
-        app = getattr(og, 'app', None)
-        setter = getattr(app, 'set_overlay_setting', None)
-        if not callable(setter):
-            return
-        try:
-            setter('boxes', bool(enabled))
-        except Exception as e:  # pragma: no cover - Qt 运行时相关
-            logger.warning(f'[Overlay] set global overlay enabled={enabled} failed: {e}')
+    def get_overlay_view(self):
+        from ok.core.events import communicate
+        from ok.ui.overlay import Win32GdiOverlay
+
+        with self._map_overlay_lock:
+            if not self.enabled or self.executor.paused:
+                return None
+            if self._map_overlay_view is None:
+                overlay = Win32GdiOverlay(
+                    og.device_manager.hwnd_window, exit_event=og.app.exit_event)
+                overlay.set_boxes_enabled(False)
+                # 地图窗口只显示地图内容，识别框和 UID 遮挡由全局窗口负责。
+                communicate.blur_overlay.disconnect(overlay.update_blur_patches)
+                communicate.clear_blur_overlay.disconnect(overlay.clear_blur_overlay)
+                communicate.window.connect(overlay.update_overlay)
+                self._map_overlay_view = overlay
+            return self._map_overlay_view
+
+    def _close_map_overlay(self):
+        with self._map_overlay_lock:
+            if self._map_overlay_view is not None:
+                self._map_overlay_view.close()
+                self._map_overlay_view = None
 
     def enable(self):
         super().enable()
-        self._set_global_overlay_enabled(True)
         self._configure_position_sources()
         # enable() 会 info_clear()，因此版本号等信息在其之后重新写入。
         self._ensure_feature_started()
@@ -3084,7 +3092,7 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         self._feature_started = False
         # 停用附加功能时强制清一遍附加层，避免最后一帧残留在游戏画面上。
         self._force_clear_overlay()
-        self._set_global_overlay_enabled(False)
+        self._close_map_overlay()
 
     def validate_config(self, key, value):
         """校验配置项；返回非空消息表示拒绝该值。
@@ -4377,7 +4385,7 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
     def _clear_overlay(self):
         if not self._overlay_registered:
             return
-        overlay_view = self.get_overlay_view()
+        overlay_view = self._map_overlay_view
         if overlay_view is not None:
             overlay_view.clear_draw(OVERLAY_DRAW_KEY)
         self._overlay_registered = False
@@ -4391,7 +4399,7 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         """
         if self._image_projection is not None:
             self._image_projection.reset()
-        overlay_view = self.get_overlay_view()
+        overlay_view = self._map_overlay_view
         if overlay_view is not None:
             try:
                 overlay_view.clear_draw(OVERLAY_DRAW_KEY)
@@ -4412,7 +4420,7 @@ class MapOverlayTask(TriggerTask, BaseWWTask):
         with self._position_lock:
             self._position_sources.stop()
         self._force_clear_overlay()
-        self._set_global_overlay_enabled(False)
+        self._close_map_overlay()
         if self._view_probe is not None:
             try:
                 self._view_probe.stop()

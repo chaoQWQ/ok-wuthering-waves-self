@@ -25,21 +25,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class TestMapOverlayCore(unittest.TestCase):
-    def test_global_overlay_follows_map_task_lifecycle_setting(self):
-        class App:
-            def __init__(self):
-                self.calls = []
-
-            def set_overlay_setting(self, name, value):
-                self.calls.append((name, value))
-
-        app = App()
-        with patch.object(og, 'app', app):
-            MapOverlayTask._set_global_overlay_enabled(False)
-            MapOverlayTask._set_global_overlay_enabled(True)
-
-        self.assertEqual(app.calls, [('boxes', False), ('boxes', True)])
-
     def test_map_overlay_task_is_disabled_by_default(self):
         source = (REPO_ROOT / 'src' / 'task' / 'MapOverlayTask.py').read_text(
             encoding='utf-8'
