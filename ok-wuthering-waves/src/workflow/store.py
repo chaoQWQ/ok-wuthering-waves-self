@@ -48,12 +48,26 @@ class WorkflowStateStore:
                 CREATE TABLE IF NOT EXISTS validations (
                     id INTEGER PRIMARY KEY, revision TEXT NOT NULL, kind TEXT NOT NULL,
                     evidence TEXT NOT NULL, created REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS recording_sessions (
+                    recording_id TEXT PRIMARY KEY REFERENCES recordings(id),
+                    plan_status TEXT NOT NULL DEFAULT 'pending', plan_reason TEXT NOT NULL DEFAULT '',
+                    revisions TEXT NOT NULL DEFAULT '[]');
             ''')
             columns = {row['name'] for row in db.execute('PRAGMA table_info(recordings)')}
             if 'name' not in columns:
                 db.execute("ALTER TABLE recordings ADD COLUMN name TEXT NOT NULL DEFAULT ''")
             if 'deleted' not in columns:
                 db.execute('ALTER TABLE recordings ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0')
+            for column, definition in (
+                    ('parent_id', "TEXT NOT NULL DEFAULT ''"),
+                    ('position', 'INTEGER NOT NULL DEFAULT 0'),
+                    ('name_source', "TEXT NOT NULL DEFAULT ''"),
+                    ('analysis_noop', 'INTEGER NOT NULL DEFAULT 0')):
+                if column not in columns:
+                    db.execute(f'ALTER TABLE recordings ADD COLUMN {column} {definition}')
+            db.execute("UPDATE recordings SET name_source='manual' WHERE name!='' AND name_source=''")
+            db.execute("CREATE UNIQUE INDEX IF NOT EXISTS recording_child_position ON recordings(parent_id,position) "
+                       "WHERE parent_id!=''")
 
     @contextmanager
     def connect(self):
@@ -73,13 +87,61 @@ class WorkflowStateStore:
             raise ValueError('证据路径超出记录目录')
         return path
 
-    def start_recording(self):
+    def start_recording(self, parent_id=''):
         identifier = uuid.uuid4().hex
-        (self.root / identifier).mkdir()
         with self.connect() as db:
-            db.execute('INSERT INTO recordings(id,started,status) VALUES(?,?,?)',
-                       (identifier, time.time(), 'recording'))
+            db.execute('BEGIN IMMEDIATE')
+            position = 0
+            if parent_id:
+                parent = db.execute('SELECT r.status FROM recordings r JOIN recording_sessions s '
+                                    'ON s.recording_id=r.id WHERE r.id=? AND r.deleted=0', (parent_id,)).fetchone()
+                if parent is None or parent['status'] != 'recording':
+                    raise ValueError('整次录制已经结束，不能添加分段')
+                position = db.execute('SELECT COALESCE(MAX(position),0)+1 FROM recordings WHERE parent_id=?',
+                                      (parent_id,)).fetchone()[0]
+            (self.root / identifier).mkdir()
+            db.execute('INSERT INTO recordings(id,started,status,parent_id,position) VALUES(?,?,?,?,?)',
+                       (identifier, time.time(), 'recording', parent_id, position))
         return identifier
+
+    def start_session(self):
+        identifier = self.start_recording()
+        with self.connect() as db:
+            db.execute('INSERT INTO recording_sessions(recording_id) VALUES(?)', (identifier,))
+        return identifier
+
+    def session_segments(self, identifier):
+        with self.connect() as db:
+            return [dict(row) for row in db.execute(
+                'SELECT * FROM recordings WHERE parent_id=? ORDER BY position', (identifier,))]
+
+    def is_session(self, identifier):
+        with self.connect() as db:
+            return db.execute('SELECT 1 FROM recording_sessions WHERE recording_id=?', (identifier,)).fetchone() is not None
+
+    def finish_session(self, identifier):
+        if not self.is_session(identifier):
+            raise ValueError('完整录制记录不存在')
+        if self.recording(identifier)['status'] != 'recording':
+            return
+        segments = self.session_segments(identifier)
+        gaps = [item['reason'] or '分段录制未完整结束' for item in segments if item['status'] != 'complete']
+        gaps.extend(json.loads(item['payload'])['reason'] for item in self.events(identifier)
+                    if item['kind'] == 'capture_gap')
+        if segments:
+            environments = [self.environment(item['id']) for item in segments]
+            if any(item != environments[0] for item in environments):
+                gaps.append('录制期间游戏版本或语言发生变化')
+            self.set_environment(identifier, **environments[0])
+        self.finish_recording(identifier, 'interrupted' if gaps else 'complete', '；'.join(dict.fromkeys(gaps)))
+
+    def pending_sessions(self):
+        with self.connect() as db:
+            return [row['id'] for row in db.execute('''SELECT r.id FROM recordings r
+                JOIN recording_sessions s ON s.recording_id=r.id
+                WHERE r.status!='recording' AND s.plan_status='pending' AND r.deleted=0
+                AND (r.analyzed=1 OR r.status!='complete'
+                    OR NOT EXISTS (SELECT 1 FROM recordings c WHERE c.parent_id=r.id)) ORDER BY r.started''')]
 
     def finish_recording(self, identifier, status, reason=''):
         with self.connect() as db:
@@ -109,8 +171,9 @@ class WorkflowStateStore:
 
     def observations(self, recording_id):
         with self.connect() as db:
-            rows = db.execute('SELECT payload FROM observations WHERE recording_id=? ORDER BY timestamp',
-                              (recording_id,)).fetchall()
+            rows = db.execute('SELECT payload FROM observations WHERE recording_id=? OR recording_id IN '
+                              '(SELECT id FROM recordings WHERE parent_id=?) ORDER BY timestamp',
+                              (recording_id, recording_id)).fetchall()
         return [Observation.model_validate_json(row['payload']) for row in rows]
 
     def event(self, recording_id, timestamp, kind, payload):
@@ -126,13 +189,16 @@ class WorkflowStateStore:
 
     def events(self, recording_id):
         with self.connect() as db:
-            return [dict(row) for row in db.execute('SELECT * FROM events WHERE recording_id=? ORDER BY timestamp,id',
-                                                  (recording_id,))]
+            return [dict(row) for row in db.execute('SELECT * FROM events WHERE recording_id=? OR recording_id IN '
+                                                  '(SELECT id FROM recordings WHERE parent_id=?) ORDER BY timestamp,id',
+                                                  (recording_id, recording_id))]
 
     def pending_recordings(self):
         with self.connect() as db:
             return [row['id'] for row in db.execute(
-                "SELECT id FROM recordings WHERE status='complete' AND analyzed=0 AND deleted=0 ORDER BY started")]
+                "SELECT id FROM recordings WHERE status='complete' AND analyzed=0 AND deleted=0 AND parent_id='' "
+                "AND (id NOT IN (SELECT recording_id FROM recording_sessions) OR EXISTS "
+                "(SELECT 1 FROM recordings c WHERE c.parent_id=recordings.id)) ORDER BY started")]
 
     def recording(self, identifier):
         with self.connect() as db:
@@ -154,16 +220,82 @@ class WorkflowStateStore:
     def list_recordings(self):
         with self.connect() as db:
             return [dict(row) for row in db.execute(
-                'SELECT id,name,started,status,analyzed,reason FROM recordings WHERE deleted=0 ORDER BY started DESC LIMIT 100')]
+                "SELECT id,name,started,status,analyzed,reason FROM recordings WHERE deleted=0 AND parent_id='' "
+                'ORDER BY started DESC LIMIT 100')]
 
     def rename_recording(self, identifier, name):
         name = name.strip()
         if not name or len(name) > 160:
             raise ValueError('记录名称需要包含 1 至 160 个字符')
         with self.connect() as db:
-            result = db.execute('UPDATE recordings SET name=? WHERE id=? AND deleted=0', (name, identifier))
+            result = db.execute("UPDATE recordings SET name=?,name_source='manual' WHERE id=? AND deleted=0", (name, identifier))
             if result.rowcount != 1:
                 raise ValueError('录制记录不存在')
+
+    def analysis_name(self, identifier, name):
+        name = name.strip()
+        if not name or len(name) > 160:
+            raise ValueError('分析生成的记录名称需要包含 1 至 160 个字符')
+        with self.connect() as db:
+            db.execute("UPDATE recordings SET name=?,name_source='analysis' WHERE id=? AND name_source!='manual'",
+                       (name, identifier))
+
+    def save_session_plan(self, identifier, revisions, reason=''):
+        status = 'blocked' if reason else 'ready'
+        with self.connect() as db:
+            db.execute('UPDATE recording_sessions SET plan_status=?,plan_reason=?,revisions=? WHERE recording_id=?',
+                       (status, reason, json.dumps(revisions), identifier))
+            db.execute('UPDATE recordings SET analyzed=1,reason=? WHERE id=?', (reason, identifier))
+
+    def session_plan(self, identifier):
+        with self.connect() as db:
+            row = db.execute('SELECT * FROM recording_sessions WHERE recording_id=?', (identifier,)).fetchone()
+        if row is None:
+            raise ValueError('完整录制记录不存在')
+        return {**dict(row), 'revisions': json.loads(row['revisions'])}
+
+    def list_contents(self):
+        with self.connect() as db:
+            legacy = [dict(row) for row in db.execute('''SELECT w.revision,w.title,w.status,w.created FROM workflows w
+                JOIN recordings r ON r.id=json_extract(w.payload,'$.recording_id') WHERE r.parent_id=''
+                AND r.id NOT IN (SELECT recording_id FROM recording_sessions)''')]
+            sessions = db.execute('''SELECT r.*,s.plan_status,s.plan_reason FROM recordings r
+                JOIN recording_sessions s ON s.recording_id=r.id WHERE r.deleted=0 ORDER BY r.started''').fetchall()
+        for row in sessions:
+            status = {'pending': 'analyzing', 'blocked': 'needs_attention', 'ready': 'offline_checked'}[row['plan_status']]
+            if row['status'] == 'recording':
+                status = 'recording'
+            elif row['status'] in ('interrupted', 'error'):
+                status = 'needs_attention'
+            elif row['status'] == 'materials_deleted':
+                status = 'materials_deleted'
+            legacy.append({'revision': f'recording:{row["id"]}', 'title': row['name'] or '整次录制（等待分析命名）',
+                           'status': status, 'created': row['started'], 'reason': row['plan_reason'] or row['reason']})
+        return sorted(legacy, key=lambda item: item['created'], reverse=True)
+
+    def execution_workflows(self, selections):
+        from src.workflow.validator import WorkflowValidator
+        workflows = []
+        seen = set()
+        for selection in selections:
+            if selection.startswith('recording:'):
+                identifier = selection.removeprefix('recording:')
+                plan = self.session_plan(identifier)
+                if self.recording(identifier)['deleted'] or plan['plan_status'] != 'ready':
+                    raise ValueError(plan['plan_reason'] or '整次录制尚未完成分析和连续性检查')
+                revisions = WorkflowValidator(self).session_revisions(identifier)
+                if revisions != plan['revisions']:
+                    raise ValueError('完整流程与已检查的执行顺序不符')
+            else:
+                workflow = self.workflow(selection)
+                if self.recording(workflow.recording_id)['parent_id'] or self.is_session(workflow.recording_id):
+                    raise ValueError('请选择整次录制记录执行')
+                revisions = [selection]
+            for revision in revisions:
+                if revision not in seen:
+                    workflows.append(self.workflow(revision))
+                    seen.add(revision)
+        return workflows
 
     def recording_materials(self, identifier):
         recording = self.recording(identifier)
@@ -176,6 +308,7 @@ class WorkflowStateStore:
             raise FileNotFoundError('录制材料目录不存在')
         observations = self.observations(identifier)
         events = [{**event, 'payload': json.loads(event['payload'])} for event in self.events(identifier)]
+        segments = self.session_segments(identifier) if self.is_session(identifier) else []
         with self.connect() as db:
             environment = db.execute('SELECT game_version,language FROM recording_environment WHERE recording_id=?',
                                      (identifier,)).fetchone()
@@ -184,6 +317,9 @@ class WorkflowStateStore:
             'observations.json': ('画面与任务识别', [item.model_dump() for item in observations]),
             'events.json': ('键鼠与记录事件', events),
         }
+        if self.is_session(identifier):
+            exports['segments.json'] = ('内部片段顺序', segments)
+            exports['execution-plan.json'] = ('完整执行顺序', self.session_plan(identifier))
         materials = []
         for name, (kind, payload) in exports.items():
             path = directory / name
@@ -225,15 +361,24 @@ class WorkflowStateStore:
                     raise ValueError('分析材料文件不能使用符号链接')
                 if path.is_file():
                     materials.append({'kind': kind, 'path': path})
+        observation_count = len(observations)
+        input_count = sum(event['kind'] == 'input' for event in events)
+        for segment in segments:
+            child = self.recording_materials(segment['id'])
+            materials.extend(child['files'])
+        materials = list({item['path']: item for item in materials}.values())
         return {
             'recording': recording, 'directory': directory, 'files': materials,
-            'observations': len(observations), 'input_events': sum(event['kind'] == 'input' for event in events),
+            'observations': observation_count, 'input_events': input_count, 'segments': segments,
         }
 
     def delete_recordings(self, identifiers, delete_materials=False):
         identifiers = set(identifiers)
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
+            for identifier in tuple(identifiers):
+                identifiers.update(row['id'] for row in db.execute(
+                    'SELECT id FROM recordings WHERE parent_id=?', (identifier,)))
             directories = {}
             for identifier in identifiers:
                 row = db.execute('SELECT status,deleted FROM recordings WHERE id=?', (identifier,)).fetchone()
@@ -278,10 +423,10 @@ class WorkflowStateStore:
             for path in analysis_files:
                 path.unlink()
 
-    def analyzed(self, recording_id, reasons):
+    def analyzed(self, recording_id, reasons, no_action_needed=False):
         with self.connect() as db:
-            db.execute('UPDATE recordings SET analyzed=1,reason=? WHERE id=?',
-                       ('；'.join(reasons), recording_id))
+            db.execute('UPDATE recordings SET analyzed=1,reason=?,analysis_noop=? WHERE id=?',
+                       ('；'.join(reasons), int(no_action_needed), recording_id))
 
     def save_workflow(self, workflow, status='compiled'):
         if status != 'compiled':
@@ -316,9 +461,14 @@ class WorkflowStateStore:
             raise ValueError('流程内容与已检查版本不符')
         return workflow
 
-    def list_workflows(self):
+    def list_workflows(self, recording_id=None):
         with self.connect() as db:
-            return [dict(row) for row in db.execute('SELECT revision,title,status,created FROM workflows ORDER BY created DESC')]
+            query = 'SELECT revision,title,status,created FROM workflows'
+            parameters = ()
+            if recording_id is not None:
+                query += " WHERE json_extract(payload,'$.recording_id')=?"
+                parameters = (recording_id,)
+            return [dict(row) for row in db.execute(query + ' ORDER BY created DESC', parameters)]
 
     def list_progress(self):
         with self.connect() as db:

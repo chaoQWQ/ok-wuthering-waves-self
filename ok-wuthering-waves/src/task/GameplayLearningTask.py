@@ -1,4 +1,6 @@
 import threading
+import queue
+import time
 from pathlib import Path
 
 from ok import TriggerTask
@@ -7,6 +9,7 @@ from ok.core.events import communicate
 from src.workflow.compiler import AgyVisionProvider, WorkflowCompiler
 from src.workflow.recorder import GameplayRecorderService, WindowsGameplaySource
 from src.workflow.store import WorkflowStateStore
+from src.workflow.validator import WorkflowValidator
 from src.utils.ManualRouteRecorder import parse_hotkey_vk_codes
 
 
@@ -44,6 +47,9 @@ class GameplayLearningTask(TriggerTask):
         self._analysis = None
         self._analyzing = False
         self.game_version = ''
+        self._session_lock = threading.RLock()
+        self._recording_session_id = None
+        self._stopping_sessions = queue.SimpleQueue()
 
     def validate_config(self, key, value):
         if key == 'Recording Toggle Hotkey' and value.strip():
@@ -54,6 +60,8 @@ class GameplayLearningTask(TriggerTask):
     def post_init(self):
         super().post_init()
         self.get_store()
+        if self.enabled:
+            self.enable()
         if self._supervisor is None:
             self._supervisor = threading.Thread(target=self._supervise, name='GameplayLearning', daemon=True)
             self._analysis = threading.Thread(target=self._analyze, name='GameplayAnalysis', daemon=True)
@@ -61,18 +69,40 @@ class GameplayLearningTask(TriggerTask):
             self._analysis.start()
 
     def enable(self):
-        self._enabled = True
-        self.config['_enabled'] = True
+        with self._session_lock:
+            if self._recording_session_id is None:
+                self._recording_session_id = self.get_store().start_session()
+            self._enabled = True
+            self.config['_enabled'] = True
         communicate.task.emit(self)
 
+    def disable(self):
+        with self._session_lock:
+            super().disable()
+            if self._recording_session_id is not None:
+                self._stopping_sessions.put(self._recording_session_id)
+                self._recording_session_id = None
+
+    def _finish_stopped_sessions(self):
+        while not self._stopping_sessions.empty():
+            identifier = self._stopping_sessions.get_nowait()
+            try:
+                if self.recorder is not None and self.recorder.recording_session_id == identifier:
+                    recorder, self.recorder = self.recorder, None
+                    recorder.stop()
+            finally:
+                self.store.finish_session(identifier)
+
     def get_store(self):
-        directory = Path(self.config.get('Recording folder')).resolve()
-        if self.store is None or directory != self.store.root:
-            if self.recorder is not None or self._analyzing:
-                raise RuntimeError('运行期间不能修改记录目录')
-            self.store = WorkflowStateStore(directory)
-            self.store.recover()
-        return self.store
+        with self._session_lock:
+            directory = Path(self.config.get('Recording folder')).resolve()
+            if self.store is None or directory != self.store.root:
+                if (self.recorder is not None or self._analyzing or self._recording_session_id is not None
+                        or not self._stopping_sessions.empty()):
+                    raise RuntimeError('运行期间不能修改记录目录')
+                self.store = WorkflowStateStore(directory)
+                self.store.recover()
+            return self.store
 
     def _version(self, window):
         override = self.config.get('Game version').strip()
@@ -91,9 +121,15 @@ class GameplayLearningTask(TriggerTask):
     def _supervise(self):
         try:
             while not self._shutdown.is_set() and not self.executor.exit_event.is_set():
+                self._finish_stopped_sessions()
+                with self._session_lock:
+                    active_session = self._recording_session_id
                 replay_running = type(self.executor.current_task).__name__ == 'MultiAccountWorkflowTask'
-                if not self.enabled or replay_running:
+                if not self.enabled or active_session is None or replay_running:
                     if self.recorder is not None:
+                        if replay_running:
+                            self.store.event(self.recorder.recording_session_id, time.monotonic(), 'capture_gap',
+                                             {'reason': '录制期间开始执行其他内容'})
                         self.recorder.stop()
                         self.recorder = None
                 else:
@@ -108,12 +144,15 @@ class GameplayLearningTask(TriggerTask):
                                 self.store, project, configuration['template_matching'],
                                 dict(configuration['ocr'].get('default', configuration['ocr']).get('params', {})),
                                 self.executor.exit_event, {'game_version': self.game_version, 'language': str(self.executor.locale)})
-                            self.recorder.start(WindowsGameplaySource(window), self.config.get('Storage limit (GiB)'))
+                            self.recorder.start(WindowsGameplaySource(window), self.config.get('Storage limit (GiB)'),
+                                                parent_id=active_session)
                         self.recorder.poll()
                         if self.recorder.error is not None:
                             raise self.recorder.error
                         self.info_set('Recording status', self.recorder.status)
                     elif self.recorder is not None:
+                        self.store.event(self.recorder.recording_session_id, time.monotonic(), 'capture_gap',
+                                         {'reason': '录制期间游戏窗口消失'})
                         self.recorder.stop()
                         self.recorder = None
                         self.info_set('Recording status', '等待游戏窗口')
@@ -129,24 +168,44 @@ class GameplayLearningTask(TriggerTask):
                     self.recorder.stop()
                 finally:
                     self.recorder = None
+            self._finish_stopped_sessions()
+            if self._recording_session_id is not None:
+                self.store.event(self._recording_session_id, time.monotonic(), 'capture_gap',
+                                 {'reason': '程序退出时录制尚未结束'})
+                self.store.finish_session(self._recording_session_id)
+                self._recording_session_id = None
 
     def _analyze(self):
         try:
             while not self._shutdown.is_set() and not self.executor.exit_event.is_set():
                 if self.failure is not None:
                     return
-                if self.store is not None and self.config.get('Automatic analysis'):
-                    for recording_id in self.store.pending_recordings():
-                        self._analyzing = True
-                        self.analysis_status = 'AGY 正在分析已完成的游玩片段'
+                with self._session_lock:
+                    store = self.store
+                    analyze = store is not None and self.config.get('Automatic analysis')
+                    self._analyzing = bool(analyze)
+                if analyze:
+                    for recording_id in store.pending_recordings():
+                        if (self._shutdown.is_set() or self.executor.exit_event.is_set()
+                                or not self.config.get('Automatic analysis')):
+                            break
+                        self.analysis_status = 'AGY 正在分析完整录制流程'
                         provider = AgyVisionProvider(
-                            self.store.root / 'agy', self._shutdown,
+                            store.root / 'agy', self._shutdown,
                             self.config.get('Node executable'), self.config.get('AGY companion'))
-                        workflows = WorkflowCompiler(self.store, provider).compile(
-                            recording_id, **self.store.environment(recording_id))
+                        workflows = WorkflowCompiler(store, provider).compile(
+                            recording_id, **store.environment(recording_id))
                         self.analysis_status = f'分析完成，生成 {len(workflows)} 项流程'
-                        self._analyzing = False
                         self.info_set('Analysis status', self.analysis_status)
+                    for identifier in store.pending_sessions():
+                        if (self._shutdown.is_set() or self.executor.exit_event.is_set()
+                                or not self.config.get('Automatic analysis')):
+                            break
+                        revisions, reason = WorkflowValidator(store).session_report(identifier)
+                        store.save_session_plan(identifier, revisions, reason)
+                        self.analysis_status = reason or f'完整录制分析完成，包含 {len(revisions)} 项连续内容'
+                        self.info_set('Analysis status', self.analysis_status)
+                self._analyzing = False
                 self._shutdown.wait(1)
         except BaseException as error:
             self.analysis_status = str(error)
@@ -167,4 +226,11 @@ class GameplayLearningTask(TriggerTask):
             self._supervisor.join(timeout=25)
         if self._analysis is not None:
             self._analysis.join(timeout=50)
+        if self._supervisor is None:
+            self._finish_stopped_sessions()
+            if self._recording_session_id is not None:
+                self.store.event(self._recording_session_id, time.monotonic(), 'capture_gap',
+                                 {'reason': '程序退出时录制尚未结束'})
+                self.store.finish_session(self._recording_session_id)
+                self._recording_session_id = None
         super().on_destroy()

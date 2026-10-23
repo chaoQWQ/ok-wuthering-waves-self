@@ -22,6 +22,7 @@ STATUS_TEXT = {
     'running': '正在执行', 'completed': '已经完成',
     'needs_attention': '需要处理',
     'materials_deleted': '材料已删除',
+    'analyzing': '等待完整分析',
 }
 
 
@@ -75,6 +76,10 @@ class WorkflowPage(CustomTab):
         self.materials_button.setToolTip('选择一条记录，查看录像、截图、操作数据及 AGY 分析文件。')
         self.materials_button.clicked.connect(self.view_selected_recording_materials)
         recording_actions.addWidget(self.materials_button)
+        self.execute_recording_button = PushButton('执行选中的完整记录', self.view)
+        self.execute_recording_button.setEnabled(False)
+        self.execute_recording_button.clicked.connect(self.execute_selected_recording)
+        recording_actions.addWidget(self.execute_recording_button)
         self.delete_recordings_button = PushButton('删除选中的记录', self.view)
         self.delete_recordings_button.clicked.connect(self.delete_selected_recordings)
         self.recordings.itemSelectionChanged.connect(self.update_recording_actions)
@@ -170,15 +175,34 @@ class WorkflowPage(CustomTab):
             self.status_label.setText('请选择需要执行的内容。')
             return
         learning = self.task()
-        workflows = {item['revision']: item for item in learning.store.list_workflows()}
+        workflows = {item['revision']: item for item in learning.store.list_contents()}
         if any(workflows[revision]['status'] == 'materials_deleted' for revision in revisions):
             dialog = MessageBox('无法执行', '选中的内容包含已删除材料的流程，需要重新录制和学习。', self.window())
             dialog.cancelButton.hide()
             dialog.exec()
             return
+        unavailable = [workflows[revision] for revision in revisions
+                       if workflows[revision]['status'] not in ('offline_checked', 'runtime_verified')]
+        if unavailable:
+            self.status_label.setText(unavailable[0].get('reason') or '选中的完整记录尚未完成分析和检查。')
+            return
         created = {revision: item['created'] for revision, item in workflows.items()}
         revisions.sort(key=created.__getitem__)
         task.config['Workflow revisions'] = revisions
+        task._app.start_controller.start(task)
+
+    def execute_selected_recording(self):
+        rows = self.recordings.selectionModel().selectedRows()
+        if len(rows) != 1:
+            return
+        identifier = self.recordings.item(rows[0].row(), 0).data(Qt.UserRole)
+        selection = f'recording:{identifier}'
+        contents = {item['revision']: item for item in self.task().store.list_contents()}
+        if selection not in contents or contents[selection]['status'] not in ('offline_checked', 'runtime_verified'):
+            self.status_label.setText(contents.get(selection, {}).get('reason') or '完整记录尚未完成分析和检查。')
+            return
+        task = self.execution_task()
+        task.config['Workflow revisions'] = [selection]
         task._app.start_controller.start(task)
 
     def import_accounts(self):
@@ -202,6 +226,12 @@ class WorkflowPage(CustomTab):
     def update_recording_actions(self):
         rows = self.recordings.selectionModel().selectedRows()
         self.materials_button.setEnabled(len(rows) == 1)
+        ready = False
+        if len(rows) == 1:
+            identifier = self.recordings.item(rows[0].row(), 0).data(Qt.UserRole)
+            store = self.task().store
+            ready = store.is_session(identifier) and store.session_plan(identifier)['plan_status'] == 'ready'
+        self.execute_recording_button.setEnabled(ready)
         self.delete_recordings_button.setEnabled(bool(rows) and all(
             self.recordings.item(index.row(), 2).data(Qt.UserRole) != 'recording' for index in rows))
 
@@ -310,14 +340,16 @@ class WorkflowPage(CustomTab):
         self.status_label.setText(f'{recording_status}；{task.analysis_status}')
         if task.store is None:
             return
-        workflows = task.store.list_workflows()
+        workflows = task.store.list_contents()
         selected = {self.table.item(index.row(), 0).data(Qt.UserRole)
                     for index in self.table.selectionModel().selectedRows()}
         self.table.setRowCount(len(workflows))
         for row, item in enumerate(workflows):
             values = (item['title'], STATUS_TEXT[item['status']], datetime.fromtimestamp(item['created']).strftime('%m-%d %H:%M'))
             for column, text in enumerate(values):
-                self.table.setItem(row, column, QTableWidgetItem(text))
+                cell = QTableWidgetItem(text)
+                cell.setToolTip(item.get('reason', '') or item['title'])
+                self.table.setItem(row, column, cell)
             self.table.item(row, 0).setData(Qt.UserRole, item['revision'])
             if item['revision'] in selected:
                 for column in range(3):

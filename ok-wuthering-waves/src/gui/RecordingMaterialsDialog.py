@@ -18,16 +18,16 @@ class RecordingMaterialsDialog(QDialog):
         layout = QVBoxLayout(self)
         counts = Counter(item['kind'] for item in self.materials['files'])
         self.summary = BodyLabel(
-            f'录像 {counts["录像"]} 段，关键截图 {counts["关键截图"]} 张，'
+            f'内部片段 {len(self.materials["segments"])} 段，录像 {counts["录像"]} 段，关键截图 {counts["关键截图"]} 张，'
             f'观察记录 {self.materials["observations"]} 条，'
             f'键鼠事件 {self.materials["input_events"]} 条。', self)
         self.summary.setWordWrap(True)
         layout.addWidget(self.summary)
-        hint = BodyLabel('双击文件或点击“打开选中文件”，使用系统应用查看。JSON 文件包含该段保存的原始数据。', self)
+        hint = BodyLabel('双击文件或点击“打开选中文件”，使用系统应用查看。材料按内部片段顺序排列。', self)
         hint.setWordWrap(True)
         layout.addWidget(hint)
         if recording['status'] == 'recording':
-            hint = BodyLabel('该段正在录制，录像结束后才能完整播放；数据文件为打开此窗口时的内容。', self)
+            hint = BodyLabel('该记录正在录制，录像结束后才能完整播放；数据文件为打开此窗口时的内容。', self)
             hint.setWordWrap(True)
             layout.addWidget(hint)
         self.table = TableWidget(self)
@@ -59,7 +59,7 @@ class RecordingMaterialsDialog(QDialog):
         self.location_button.setEnabled(False)
         self.location_button.clicked.connect(self.open_selected_location)
         buttons.addWidget(self.location_button)
-        self.folder_button = PushButton('打开本段材料目录', self)
+        self.folder_button = PushButton('打开记录材料目录', self)
         self.folder_button.clicked.connect(self.open_recording_directory)
         buttons.addWidget(self.folder_button)
         buttons.addStretch()

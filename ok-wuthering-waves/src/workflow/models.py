@@ -147,5 +147,7 @@ class Account(Record):
 
 
 class CompilerResponse(Record):
+    recording_name: str = Field(min_length=2, max_length=160)
     workflows: list[Workflow]
     unsupported_reasons: list[str]
+    no_action_needed: bool = False

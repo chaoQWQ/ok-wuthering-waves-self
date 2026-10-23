@@ -94,6 +94,11 @@ def main():
         if not {'capture_gap', 'stop_requested'} <= {entry['trigger'] for entry in finished}:
             raise AssertionError('片段结束原因记录不完整')
         recordings = store.list_recordings()
+        if len(recordings) != 1:
+            raise AssertionError('同次启停产生了多条界面记录')
+        segments = store.session_segments(recordings[0]['id'])
+        if not {'complete', 'interrupted'} <= {item['status'] for item in segments}:
+            raise AssertionError('整次录制没有保留中断前后的内部片段')
         for recording in recordings:
             materials = store.recording_materials(recording['id'])
             if sum(item['kind'] == '录制会话日志' for item in materials['files']) != 2:
@@ -104,6 +109,7 @@ def main():
         report = {'verified': True, 'source': '真实 Windows Qt 验证窗口，展示已有真实游戏截图',
                   'capture_events': sorted(capture_events), 'worker_events': sorted(worker_events),
                   'recordings': recordings, 'decoded_frames': decoded,
+                  'segments': segments,
                   'capture_missing_events': len(missing_events),
                   'missing_window': missing['window'], 'request_seconds': missing['frame_request_seconds'],
                   'output': str(output)}

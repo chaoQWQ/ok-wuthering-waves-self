@@ -23,6 +23,11 @@ recording_id、game_version 和 language 与输入一致。content_id 使用内�
 cycle 按实际规则选择 once、daily、weekly 或 event。每日和每周周期由程序按北京时间 04:00 计算。
 不同起止目标的片段使用独立内容编号。quest_title 只填写截图中实际出现的任务名称。
 title 使用截图中实际显示的任务或活动名称。
+recording_name 使用材料中可确认的任务或活动名称概括本次内容，长度为 2 至 160 个字符。
+recording_context 给出同次录制内部片段的顺序。必须覆盖整次录制从首张到末张有效截图的全部流程。
+内部片段用于保存材料，步骤可以跨越片段边界，导航、对白和战斗按照实际完成状态连接。
+无法覆盖的导航、工具操作或其他过程必须写入 unsupported_reasons，不得仅生成中间能够完成的部分。
+no_action_needed 仅用于没有任何输入、任务和界面文字始终相同的世界或菜单停留片段。
 步骤按证据时间连接，最后一个 next_step 为 null。
 条件引用对应画面实际出现的目标或文字。通用文字不能单独证明任务完成。
 evidence_before、evidence_after、route_frames 引用输入 frame_id。
@@ -122,12 +127,17 @@ class WorkflowCompiler:
         self.store, self.provider = store, provider
 
     def compile(self, recording_id, game_version, language='zh_CN'):
+        recording = self.store.recording(recording_id)
+        if recording['status'] != 'complete' or recording['parent_id']:
+            raise ValueError('需要完整结束的整次录制才能进行流程分析')
+        session = self.store.is_session(recording_id)
         observations = self.store.observations(recording_id)
         keyframes = [item for item in observations if item.screenshot and not item.gap]
         if len(keyframes) < 2:
-            self.store.analyzed(recording_id, ['记录缺少任务推进的前后截图'])
+            noop = WorkflowValidator(self.store).can_skip_recording(recording_id)
+            self.store.analyzed(recording_id, [] if noop else ['记录缺少任务推进的前后截图'], no_action_needed=noop)
             return []
-        if len(keyframes) > 64:
+        if len(keyframes) > 64 and not session:
             raise ValueError('单段记录超过 64 张关键画面，需要按任务目标划分材料')
         events, trajectories = describe_input_events(self.store.events(recording_id))
         payload = {
@@ -137,9 +147,16 @@ class WorkflowCompiler:
             'recorded_at': datetime.fromtimestamp(self.store.recording(recording_id)['started'],
                                                    timezone(timedelta(hours=8))).isoformat(),
         }
+        if session:
+            payload['recording_context'] = {'session_id': recording_id, 'segments': [
+                {'recording_id': item['id'], 'position': item['position'],
+                 'frame_ids': [frame.frame_id for frame in self.store.observations(item['id'])]}
+                for item in self.store.session_segments(recording_id)]}
         images = [(item.frame_id, self.store.resolve(item.screenshot)) for item in keyframes]
         response = self.provider.compile(payload, images)
-        for workflow in response.workflows:
+        if response.no_action_needed and (response.workflows or not WorkflowValidator(self.store).can_skip_recording(recording_id)):
+            raise ValueError('分析结果将含有操作或状态变化的片段标记为停留')
+        for position, workflow in enumerate(response.workflows):
             if workflow.recording_id != recording_id or workflow.game_version != game_version or workflow.language != language:
                 raise ValueError('AGY 返回的内容来源或适用环境不符')
             indexed = {item.frame_id: item for item in observations}
@@ -147,8 +164,14 @@ class WorkflowCompiler:
             last = indexed[workflow.steps[-1].evidence_after]
             identity = (workflow.cycle, workflow.quest_title or workflow.title,
                         first.objective, last.objective, first.interaction, last.interaction)
+            if session:
+                identity += (recording_id, position)
             workflow.content_id = 'learned_' + hashlib.sha256(
                 json.dumps(identity, ensure_ascii=False).encode('utf-8')).hexdigest()[:24]
             WorkflowValidator(self.store).check_and_save(workflow)
-        self.store.analyzed(recording_id, response.unsupported_reasons)
+        reasons = list(response.unsupported_reasons)
+        if not response.workflows and not response.no_action_needed and not reasons:
+            reasons.append('片段分析没有生成可执行步骤')
+        self.store.analysis_name(recording_id, response.recording_name)
+        self.store.analyzed(recording_id, reasons, no_action_needed=response.no_action_needed)
         return response.workflows

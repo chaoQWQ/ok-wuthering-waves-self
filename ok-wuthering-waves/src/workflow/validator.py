@@ -70,3 +70,83 @@ class WorkflowValidator:
         evidence = self.check(workflow)
         self.store.save_workflow(workflow)
         self.store.validate(workflow.revision, 'offline_checked', evidence)
+
+    @staticmethod
+    def no_action_needed(observations, events):
+        if not observations or any(item['kind'] == 'input' for item in events):
+            return False
+        first = observations[0]
+        identity = first.scene, first.objective, first.interaction, first.texts
+        return all(not item.gap and not item.combat and not item.timer_visible
+                   and item.scene in ('world', 'menu', 'result')
+                   and (item.scene, item.objective, item.interaction, item.texts) == identity
+                   for item in observations)
+
+    def can_skip_recording(self, identifier):
+        if not self.no_action_needed(self.store.observations(identifier), self.store.events(identifier)):
+            return False
+        if self.store.is_session(identifier):
+            return all(self.can_skip_recording(item['id']) for item in self.store.session_segments(identifier))
+        diagnostic = self.store.resolve(f'{identifier}/diagnostics.json')
+        if diagnostic.is_file():
+            summary = json.loads(diagnostic.read_text(encoding='utf-8'))
+            return summary['inputs']['received'] == 0
+        return not self.store.recording(identifier)['parent_id']
+
+    def session_report(self, identifier):
+        recording = self.store.recording(identifier)
+        if recording['status'] != 'complete':
+            return [], recording['reason'] or '整次录制尚未完整结束'
+        segments = self.store.session_segments(identifier)
+        if not segments:
+            return [], '整次录制没有取得游玩材料'
+        for segment in segments:
+            if segment['status'] != 'complete' or segment['deleted']:
+                return [], f'第 {segment["position"]} 段：' + (segment['reason'] or '片段尚未完整保存')
+        if recording['reason'] or not recording['analyzed']:
+            return [], recording['reason'] or '整次录制尚未完成分析'
+        observations = self.store.observations(identifier)
+        if any(item.gap for item in observations):
+            return [], '完整观察材料存在缺口'
+        frames = [item for item in observations if item.screenshot]
+        if not frames:
+            return [], '完整录制没有关键画面'
+        indexed = {item.frame_id: item for item in observations}
+        rows = self.store.list_workflows(identifier)
+        workflows = [self.store.workflow(row['revision'], executable=False) for row in rows]
+        states = {row['revision']: row['status'] for row in rows}
+        workflows.sort(key=lambda item: indexed[item.steps[0].evidence_before].timestamp)
+        if not workflows:
+            return [], '整次录制没有需要复现的操作'
+        if not workflows[0].steps[0].preconditions.matches(frames[0]):
+            return [], '生成步骤没有覆盖整次录制的起始状态'
+        if not workflows[-1].steps[-1].completion.matches(frames[-1]):
+            return [], '生成步骤没有覆盖整次录制的结束状态'
+        revisions, identities = [], set()
+        previous, completion = None, None
+        for workflow in workflows:
+            if states[workflow.revision] not in ('offline_checked', 'runtime_verified'):
+                return [], '完整流程尚未通过录像检查'
+            identity = workflow.content_id, workflow.execution_period()
+            if identity in identities:
+                return [], '前后内容的进度标识重复'
+            identities.add(identity)
+            self.check(workflow)
+            for earlier, later in zip(workflow.steps, workflow.steps[1:]):
+                if (not earlier.completion.matches(indexed[later.evidence_before])
+                        or not later.preconditions.matches(indexed[earlier.evidence_after])):
+                    return [], '相邻步骤的观察状态无法连续连接'
+            before = indexed[workflow.steps[0].evidence_before]
+            if previous is not None and (not workflow.steps[0].preconditions.matches(previous)
+                                         or not completion.matches(before)):
+                return [], '前后内容的观察状态无法连续连接'
+            previous = indexed[workflow.steps[-1].evidence_after]
+            completion = workflow.steps[-1].completion
+            revisions.append(workflow.revision)
+        return revisions, ''
+
+    def session_revisions(self, identifier):
+        revisions, reason = self.session_report(identifier)
+        if reason:
+            raise ValueError(reason)
+        return revisions

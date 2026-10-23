@@ -48,7 +48,7 @@ def persist_inputs(store, recording_id, inputs, observations):
 
 
 def recording_worker(root, project_root, matching, ocr_params, frames, frame_consumed, replies, max_bytes,
-                     environment, target_hwnd, session_id):
+                     environment, target_hwnd, session_id, parent_id):
     from pathlib import Path
     from src.workflow.input_capture import WindowsInputCapture
     store = WorkflowStateStore(root)
@@ -143,6 +143,8 @@ def recording_worker(root, project_root, matching, ocr_params, frames, frame_con
                 return
             if item[0] == 'gap':
                 capture.enabled.clear()
+                if store.session_segments(parent_id):
+                    store.event(parent_id, time.monotonic(), 'capture_gap', {'reason': item[1]})
                 diagnostics.write('capture_gap', '处理进程收到画面采集中断通知', level='warning',
                                   recording_id=recording_id, reason=item[1],
                                   capture_details=item[2] if len(item) > 2 else None)
@@ -219,7 +221,7 @@ def recording_worker(root, project_root, matching, ocr_params, frames, frame_con
                 pending_frames.clear()
                 continue
             if recording_id is None:
-                recording_id = store.start_recording()
+                recording_id = store.start_recording(parent_id=parent_id)
                 store.set_environment(recording_id, environment['game_version'], environment['language'])
                 writer = SegmentedVideoWriter(store.resolve(recording_id))
                 keyframe_count = 0
@@ -344,7 +346,7 @@ class GameplayRecorderService:
         self.observation_count = 0
         self.recording_id = None
 
-    def start(self, source, max_gib=20):
+    def start(self, source, max_gib=20, parent_id=None):
         if self.process is not None:
             raise RuntimeError('录制服务已经启动')
         self.source = source
@@ -354,6 +356,8 @@ class GameplayRecorderService:
         self.observation_count = 0
         self.recording_id = None
         self.stop_event.clear()
+        self.owns_recording_session = parent_id is None
+        self.recording_session_id = parent_id if parent_id is not None else self.store.start_session()
         self.session_id = uuid.uuid4().hex
         self.diagnostics = RecordingDiagnostics(self.store.root, self.session_id, 'capture')
         source.set_diagnostics(self.diagnostics)
@@ -368,7 +372,8 @@ class GameplayRecorderService:
                                        args=(str(self.store.root), str(self.project_root), self.matching,
                                              self.ocr_params, self.frames, self.frame_consumed, self.replies,
                                              int(max_gib * 1024 ** 3),
-                                             self.environment, int(source.window.hwnd), self.session_id),
+                                             self.environment, int(source.window.hwnd), self.session_id,
+                                             self.recording_session_id),
                                        name='GameplayRecording', daemon=True)
         self.process.start()
         self.capture_thread = threading.Thread(target=self._capture, name='GameplayCapture', daemon=True)
@@ -514,6 +519,10 @@ class GameplayRecorderService:
             self.diagnostics.write('session_stopped', '录制采集服务已经结束',
                                    worker_exitcode=self.process.exitcode, captured_frames=self.captured_frames,
                                    observations=self.observation_count, error=str(self.error) if self.error else None)
+            if self.error is not None:
+                self.store.event(self.recording_session_id, time.monotonic(), 'capture_gap', {'reason': str(self.error)})
+            if self.owns_recording_session:
+                self.store.finish_session(self.recording_session_id)
         self.process = None
         self.capture_thread = None
         if self.error is not None:

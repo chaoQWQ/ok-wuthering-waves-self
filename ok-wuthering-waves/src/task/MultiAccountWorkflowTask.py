@@ -162,7 +162,7 @@ class MultiAccountWorkflowTask(QuestStoryTask):
         revisions = self.config.get('Workflow revisions')
         if not revisions:
             raise ValueError('请在剧情与活动学习页面选择需要执行的内容')
-        workflows = [store.workflow(revision) for revision in revisions]
+        workflows = store.execution_workflows(revisions)
         game_version = learning._version(self.hwnd)
         for workflow in workflows:
             if workflow.game_version != game_version or workflow.language != str(self.executor.locale):
