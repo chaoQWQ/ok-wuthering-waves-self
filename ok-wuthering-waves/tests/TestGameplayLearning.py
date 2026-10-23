@@ -152,7 +152,8 @@ def test_combat_input_filter_uses_actual_scene_classification(tmp_path, observat
     before = observations['quest_yangyang_interaction'].model_copy(update={'timestamp': 0.0})
     combat = observations['in_combat'].model_copy(update={'timestamp': 1.0})
     after = observations['quest_after_story_combat'].model_copy(update={'timestamp': 2.0})
-    persist_inputs(store, recording, [(.5, {'keys': ['w']})], [before, combat, after])
+    statistics = persist_inputs(store, recording, [(.5, {'keys': ['w']})], [before, combat, after])
+    assert statistics == {'received': 1, 'saved': 0, 'excluded': {'excluded_scene': 1}}
     assert not store.events(recording)
 
 
@@ -164,10 +165,27 @@ def test_noncombat_input_is_retained_after_combat(tmp_path, observations):
     combat = observations['in_combat'].model_copy(update={'timestamp': 0.0})
     before = observations['quest_yangyang_interaction'].model_copy(update={'timestamp': 2.0})
     after = observations['quest_after_story_combat'].model_copy(update={'timestamp': 3.0})
-    persist_inputs(store, recording, [(2.5, payload)], [combat, before, after])
+    statistics = persist_inputs(store, recording, [(2.5, payload)], [combat, before, after])
+    assert statistics == {'received': 1, 'saved': 1, 'excluded': {}}
     events = store.events(recording)
     assert len(events) == 1
     assert json.loads(events[0]['payload']) == payload
+
+
+def test_input_diagnostics_distinguish_interval_background_and_missing_observation(tmp_path, observations):
+    store = WorkflowStateStore(tmp_path)
+    recording = store.start_recording()
+    observed = observations['quest_yangyang_interaction']
+    before = observed.model_copy(update={'timestamp': 0.0})
+    after = observed.model_copy(update={'timestamp': 3.0})
+    statistics = persist_inputs(store, recording, [(1.5, {'keys': ['w']})], [before, after])
+    assert statistics == {'received': 1, 'saved': 0, 'excluded': {'observation_interval': 1}}
+    background = observed.model_copy(update={'timestamp': 1.0, 'foreground': False})
+    statistics = persist_inputs(store, recording, [(.5, {'keys': ['w']})], [before, background])
+    assert statistics == {'received': 1, 'saved': 0, 'excluded': {'background': 1}}
+    statistics = persist_inputs(store, recording, [(2.0, {'keys': ['w']})], [before, background])
+    assert statistics == {'received': 1, 'saved': 0, 'excluded': {'missing_observation': 1}}
+    assert not store.events(recording)
 
 
 def test_daily_and_weekly_cycles_use_beijing_four_am():

@@ -16,6 +16,7 @@ class SegmentedVideoWriter:
         self.last_timestamp = None
         self.size = None
         self.segment = 0
+        self.frames_written = 0
 
     def write(self, frame, timestamp):
         if self.last_timestamp is not None and timestamp <= self.last_timestamp:
@@ -43,6 +44,7 @@ class SegmentedVideoWriter:
         picture.time_base = Fraction(1, 1_000_000)
         for packet in self.stream.encode(picture):
             self.container.mux(packet)
+        self.frames_written += 1
 
     def close(self):
         if self.container is not None:

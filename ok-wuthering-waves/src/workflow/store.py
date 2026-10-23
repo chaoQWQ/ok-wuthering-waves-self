@@ -196,6 +196,19 @@ class WorkflowStateStore:
                 if path.is_symlink() or not path.is_file():
                     raise ValueError('录制材料文件无效')
                 materials.append({'kind': '关键截图' if path.suffix.lower() == '.png' else '录像', 'path': path})
+        summary = directory / 'diagnostics.json'
+        if summary.is_symlink():
+            raise ValueError('录制诊断文件不能使用符号链接')
+        if summary.is_file():
+            materials.append({'kind': '片段诊断汇总', 'path': summary})
+            diagnostics = json.loads(summary.read_text(encoding='utf-8'))
+            for relative in diagnostics['session_logs']:
+                path = self.resolve(relative)
+                if (not path.is_relative_to(self.root / 'diagnostics') or path.suffix != '.jsonl'
+                        or (self.root / relative).is_symlink()):
+                    raise ValueError('录制会话日志路径无效')
+                if path.is_file():
+                    materials.append({'kind': '录制会话日志', 'path': path})
         analysis_directory = self.resolve('agy')
         if analysis_directory.parent != self.root or (self.root / 'agy').is_symlink():
             raise ValueError('分析材料目录无效')
