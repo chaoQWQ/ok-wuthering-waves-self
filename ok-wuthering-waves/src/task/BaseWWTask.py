@@ -284,13 +284,19 @@ class BaseWWTask(BaseTask):
     def has_target(self):
         return False
 
-    def walk_to_yolo_echo(self, time_out=8, update_function=None, echo_threshold=0.5):
+    def walk_to_yolo_echo(self, time_out=8, update_function=None, echo_threshold=0.5, pick_function=None):
         last_direction = None
         start = time.time()
         no_echo_start = 0
+
+        def stop_walking():
+            nonlocal last_direction
+            last_direction = self._stop_last_direction(last_direction)
+
         while time.time() - start < time_out:
             self.next_frame()
-            if self.pick_f():
+            picked = pick_function(before_pick=stop_walking) if pick_function else self.pick_f()
+            if picked:
                 self.log_debug('pick echo success')
                 self._stop_last_direction(last_direction)
                 return True
@@ -1219,7 +1225,7 @@ class BaseWWTask(BaseTask):
             raise Exception(f'unknown_lang {name}')
         self.click_relative(x, y, after_sleep=after_sleep, name=name)
 
-    def openF2Book(self, feature="gray_book_all_monsters"):
+    def openF2Book(self, feature="gray_book_all_monsters", raise_if_not_found=True):
         if hasattr(self, 'reset_to_false'):
             self.reset_to_false('opening book')
         self.ensure_main()
@@ -1238,8 +1244,11 @@ class BaseWWTask(BaseTask):
             self.sleep(4)
         gray_book_boss = self.wait_book(feature, time_out=8)
         if not gray_book_boss:
-            self.log_error("can't find gray_book_boss, make sure f2 is the hotkey for book", notify=True)
-            raise Exception("can't find gray_book_boss, make sure f2 is the hotkey for book")
+            self.log_error("can't find gray_book_boss, make sure f2 is the hotkey for book",
+                           notify=raise_if_not_found)
+            if raise_if_not_found:
+                raise Exception("can't find gray_book_boss, make sure f2 is the hotkey for book")
+            return None
         self.sleep(2)
         self.click_box(gray_book_boss, after_sleep=1.5)
         return gray_book_boss
