@@ -107,6 +107,23 @@ def test_recording_shortcut_editor_persists_and_clears(learning_page):
     assert manager.interaction is None
 
 
+def test_analysis_configuration_failure_keeps_recording_enabled(learning_page, tmp_path):
+    app, page, learning, manager = learning_page
+    store = learning.get_store()
+    recording = store.start_recording()
+    store.set_environment(recording, 'fixture', 'zh_CN')
+    store.finish_recording(recording, 'complete')
+    learning.config['AGY companion'] = str(tmp_path / 'missing_companion.mjs')
+    learning.enable()
+    learning._analyze()
+    assert learning.enabled
+    assert learning.failure is None
+    assert 'AGY companion 文件不存在' in learning.analysis_status
+    assert not learning._analyzing
+    assert not learning.run()
+    assert manager.interaction is None
+
+
 def test_recording_notification_centers_replaces_and_hides_without_focus(learning_page):
     app, page, learning, manager = learning_page
     other = QWidget()

@@ -38,7 +38,8 @@ def persist_inputs(store, recording_id, inputs, observations):
     store.events_batch(recording_id, accepted)
 
 
-def recording_worker(root, project_root, matching, ocr_params, frames, replies, max_bytes, environment, target_hwnd):
+def recording_worker(root, project_root, matching, ocr_params, frames, frame_consumed, replies, max_bytes,
+                     environment, target_hwnd):
     from pathlib import Path
     from src.workflow.input_capture import WindowsInputCapture
     store = WorkflowStateStore(root)
@@ -92,6 +93,7 @@ def recording_worker(root, project_root, matching, ocr_params, frames, replies, 
         replies.put(('ready', '等待游戏画面'))
         while True:
             item = frames.get()
+            frame_consumed.set()
             if item is None:
                 capture.enabled.clear()
                 if recording_id is not None and pending_frames:
@@ -247,11 +249,14 @@ class GameplayRecorderService:
         self.error = None
         self.stop_event.clear()
         context = multiprocessing.get_context('spawn')
-        self.frames = context.Queue(maxsize=40)
+        self.frames = context.Queue(maxsize=2)
+        self.frame_consumed = context.Event()
+        self.frame_consumed.set()
         self.replies = context.Queue(maxsize=128)
         self.process = context.Process(target=recording_worker,
                                        args=(str(self.store.root), str(self.project_root), self.matching,
-                                             self.ocr_params, self.frames, self.replies, int(max_gib * 1024 ** 3),
+                                             self.ocr_params, self.frames, self.frame_consumed, self.replies,
+                                             int(max_gib * 1024 ** 3),
                                              self.environment, int(source.window.hwnd)),
                                        name='GameplayRecording', daemon=True)
         self.process.start()
@@ -270,6 +275,7 @@ class GameplayRecorderService:
                     break
                 self.stop_event.wait(.1)
             missing = False
+            waiting_since = time.monotonic()
             while not self.stop_event.is_set() and not self.exit_event.is_set():
                 started = time.monotonic()
                 self.poll()
@@ -277,10 +283,17 @@ class GameplayRecorderService:
                     raise self.error
                 if not self.process.is_alive():
                     raise RuntimeError('录制进程已经终止')
+                # 处理进程取出前一张截图后才继续采集，保留实际采集时间。
+                if not self.frame_consumed.wait(.1):
+                    if time.monotonic() - waiting_since >= 30:
+                        raise TimeoutError('游戏画面的识别与保存连续 30 秒没有响应，录制已经停止')
+                    continue
                 picture = self.source.frame()
                 if picture is None:
                     if not missing:
+                        self.frame_consumed.clear()
                         self.frames.put(('gap', '无法取得游戏画面，当前记录已中断'), timeout=1)
+                        waiting_since = time.monotonic()
                     missing = True
                     self.stop_event.wait(.5)
                     continue
@@ -289,7 +302,9 @@ class GameplayRecorderService:
                 height, width = picture.shape[:2]
                 if height > 1080:
                     picture = cv2.resize(picture, (round(width * 1080 / height), 1080), interpolation=cv2.INTER_AREA)
+                self.frame_consumed.clear()
                 self.frames.put(('frame', time.monotonic(), picture, self.source.foreground()), timeout=1)
+                waiting_since = time.monotonic()
                 self.stop_event.wait(max(0, .05 - (time.monotonic() - started)))
         except BaseException as error:
             self.error = error
@@ -323,6 +338,8 @@ class GameplayRecorderService:
                 raise RuntimeError('录制采集线程未能结束')
         if self.process is not None:
             if self.process.is_alive():
+                if self.error is not None:
+                    self.frames.put(('gap', f'采集异常：{self.error}'), timeout=5)
                 self.frames.put(None, timeout=5)
                 self.process.join(timeout=15)
             self.poll()

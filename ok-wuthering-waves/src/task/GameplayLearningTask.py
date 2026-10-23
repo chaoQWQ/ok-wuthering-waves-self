@@ -149,7 +149,6 @@ class GameplayLearningTask(TriggerTask):
                         self.info_set('Analysis status', self.analysis_status)
                 self._shutdown.wait(1)
         except BaseException as error:
-            self.failure = error
             self.analysis_status = str(error)
             self.info_set('Analysis status', str(error))
             self.log_error('AGY 自动分析已经停止', error, notify=True)

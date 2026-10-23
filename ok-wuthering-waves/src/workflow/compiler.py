@@ -85,7 +85,12 @@ class AgyVisionProvider:
         request.write_text(json.dumps({**payload, 'images': [
             {'frame_id': frame_id, 'path': str(path.resolve())} for frame_id, path in images
         ]}, ensure_ascii=False, indent=2), encoding='utf-8')
-        prompt.write_text(COMPILER_INSTRUCTIONS + '\n请求文件：' + str(request), encoding='utf-8')
+        prompt.write_text(
+            '立即执行鸣潮录制分析任务。读取下面指定的 JSON 请求文件及其中列出的全部本地截图，'
+            '按照文件内的 schema 返回分析结果。任务材料已经提供。\n'
+            '请求文件：' + str(request) + '\n\n' + COMPILER_INSTRUCTIONS + '\n'
+            '现在读取请求文件并完成分析。证据不足时返回 workflows 为空的 JSON，'
+            '并在 unsupported_reasons 中说明具体原因。', encoding='utf-8')
         launched = self.command('staffer', '--restricted', '--prompt-file', str(prompt))
         if launched.returncode != 0:
             raise RuntimeError('AGY 分析未能启动：' + launched.stderr[-1500:])
