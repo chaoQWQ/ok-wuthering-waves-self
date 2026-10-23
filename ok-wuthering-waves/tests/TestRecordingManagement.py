@@ -316,7 +316,7 @@ def test_recording_selection_stays_visible_after_hover_and_refresh(learning_page
     QTest.mouseClick(table.viewport(), Qt.LeftButton, pos=table.visualItemRect(cell).center())
     QTest.mouseMove(page.delete_recordings_button, page.delete_recordings_button.rect().center())
     app.processEvents()
-    marker = QPoint(5, table.visualItemRect(cell).center().y())
+    marker = QPoint(5, table.visualItemRect(table.item(1, 0)).center().y())
     selected_color = table.viewport().grab().toImage().pixelColor(marker)
     assert selected_color.saturation() > 100
     QTest.qWait(1200)

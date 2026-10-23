@@ -135,7 +135,7 @@ class GameplayLearningTask(TriggerTask):
             while not self._shutdown.is_set() and not self.executor.exit_event.is_set():
                 if self.failure is not None:
                     return
-                if self.enabled and self.store is not None and self.config.get('Automatic analysis'):
+                if self.store is not None and self.config.get('Automatic analysis'):
                     for recording_id in self.store.pending_recordings():
                         self._analyzing = True
                         self.analysis_status = 'AGY 正在分析已完成的游玩片段'

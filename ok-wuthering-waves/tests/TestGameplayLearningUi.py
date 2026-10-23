@@ -1,4 +1,6 @@
 import os
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -21,6 +23,7 @@ from src.gui.WorkflowPage import WorkflowPage
 from src.scene.WWScene import WWScene
 from src.task.GameplayLearningTask import GameplayLearningTask
 from src.task.MultiAccountWorkflowTask import MultiAccountWorkflowTask
+from src.workflow.compiler import find_agy_runtime
 
 
 @pytest.fixture
@@ -122,6 +125,55 @@ def test_analysis_configuration_failure_keeps_recording_enabled(learning_page, t
     assert not learning._analyzing
     assert not learning.run()
     assert manager.interaction is None
+
+
+@pytest.mark.parametrize('automatic_analysis', [True, False])
+def test_analysis_drains_late_completed_recordings_while_recording_disabled(learning_page, automatic_analysis):
+    app, page, learning, manager = learning_page
+    try:
+        node, companion = find_agy_runtime()
+    except FileNotFoundError as error:
+        pytest.skip(str(error))
+    learning.config['Node executable'] = node
+    learning.config['AGY companion'] = companion
+    learning.config['Automatic analysis'] = automatic_analysis
+    store = learning.get_store()
+    first = store.start_recording()
+    store.set_environment(first, 'fixture', 'zh_CN')
+    store.finish_recording(first, 'complete')
+    learning.enable()
+    learning.disable()
+    analysis = threading.Thread(target=learning._analyze, name='GameplayAnalysisTest')
+    analysis.start()
+
+    def wait_analyzed(recording):
+        deadline = time.monotonic() + 6
+        while not store.recording(recording)['analyzed'] and time.monotonic() < deadline:
+            QTest.qWait(50)
+        assert store.recording(recording)['analyzed'], learning.analysis_status
+
+    try:
+        if not automatic_analysis:
+            QTest.qWait(1200)
+            assert store.pending_recordings() == [first]
+            learning.config['Automatic analysis'] = True
+        wait_analyzed(first)
+        final = store.start_recording()
+        store.set_environment(final, 'fixture', 'zh_CN')
+        QTest.qWait(1200)
+        assert not store.recording(final)['analyzed']
+        store.finish_recording(final, 'complete')
+        wait_analyzed(final)
+        # 没有关键画面的片段由实际 compiler 标记为证据不足。
+        assert store.recording(final)['reason'] == '记录缺少任务推进的前后截图'
+        assert store.pending_recordings() == []
+        assert not learning.enabled
+        assert learning.recorder is None
+        assert manager.interaction is None
+    finally:
+        learning._shutdown.set()
+        analysis.join(timeout=5)
+        assert not analysis.is_alive()
 
 
 def test_recording_notification_centers_replaces_and_hides_without_focus(learning_page):
