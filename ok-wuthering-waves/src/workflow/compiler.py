@@ -28,7 +28,7 @@ title 使用截图中实际显示的任务或活动名称。
 evidence_before、evidence_after、route_frames 引用输入 frame_id。
 只有任务、画面稳定且没有计时信息的停留可以省略。对白、演出、加载按实际状态结束。
 战斗使用 combat，由 ok-ww 执行。禁止生成战斗按键或根据录制战斗时间决定结束。
-输入事件包含按下、释放和 held_since 时间。长按 T 打开工具菜单、鼠标选择工具、释放 T、短按 T 使用能力需要结合实际画面分别识别。
+输入事件包含按下、释放和 held_since 时间。按住 Tab 打开工具轮盘、保持 Tab 时移动鼠标选择工具、释放 Tab、短按 T 使用当前工具，需要结合实际画面分别识别。
 input_trajectories 是鼠标轨迹摘要，first_event 和 last_event 对应本地数据库保存的原始事件，原始轨迹按实际时间完整保留。
 鼠标 relative_total 是设备相对移动量，不能直接作为视角角度；cursor_start 和 cursor_end 是窗口内光标位置。
 当前执行动作不包含任意键鼠轨迹回放，需要长按工具选择或车辆、飞行轨迹控制时写入 unsupported_reasons。
