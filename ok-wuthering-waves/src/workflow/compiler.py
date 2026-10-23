@@ -91,7 +91,8 @@ class AgyVisionProvider:
             '请求文件：' + str(request) + '\n\n' + COMPILER_INSTRUCTIONS + '\n'
             '现在读取请求文件并完成分析。证据不足时返回 workflows 为空的 JSON，'
             '并在 unsupported_reasons 中说明具体原因。', encoding='utf-8')
-        launched = self.command('staffer', '--restricted', '--prompt-file', str(prompt))
+        launched = self.command('staffer', '--restricted', '--model', 'gemini-3.8-flash-low',
+                                '--prompt-file', str(prompt))
         if launched.returncode != 0:
             raise RuntimeError('AGY 分析未能启动：' + launched.stderr[-1500:])
         match = re.search(r'job id: ([a-zA-Z0-9_-]+)', launched.stdout)

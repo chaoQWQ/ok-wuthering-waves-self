@@ -36,7 +36,7 @@
 
 ## AGY
 
-使用已安装的 `agy-staff` companion，以受限权限启动独立分析任务，通过 `wait` 收集最终结果。请求包含已遮蔽账号标识的截图、任务文字、必要操作证据和 JSON Schema。AGY 没有游戏输入权限。
+使用已安装的 `agy-staff` companion，以受限权限和 `gemini-3.8-flash-low` 模型启动独立分析任务，通过 `wait` 收集最终结果。请求包含已遮蔽账号标识的截图、任务文字、必要操作证据和 JSON Schema。AGY 没有游戏输入权限。
 
 默认自动寻找插件目录及 Node.js 18 或更新版本。可以在任务设置中指定 `agy-companion.mjs` 和 Node.js 路径。AGY 异常、权限不足或超时会停止分析并保留诊断；录制继续运行。失败的分析任务保留原始材料，不会自动重新启动。
 
