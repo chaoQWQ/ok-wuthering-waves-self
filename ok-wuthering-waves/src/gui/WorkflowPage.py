@@ -1,0 +1,211 @@
+from datetime import datetime
+
+from PySide6.QtCore import QTimer, Qt
+from PySide6.QtWidgets import QApplication, QAbstractItemView, QTableWidgetItem
+from qfluentwidgets import BodyLabel, FluentIcon, PushButton, TableWidget, TitleLabel
+
+from ok import og
+from ok.gui.widget.CustomTab import CustomTab
+from src.task.GameplayLearningTask import GameplayLearningTask
+from src.task.MultiAccountWorkflowTask import MultiAccountWorkflowTask
+from src.utils.HotkeyWidget import HotkeyLineEdit, LabelAndHotkey
+from src.utils.ManualRouteRecorder import HotkeyEdgePoller
+from ok.ui.qt.tasks.TaskCard import TaskCard
+
+
+STATUS_TEXT = {
+    'compiled': '已生成', 'offline_checked': '已通过录像检查', 'runtime_verified': '已通过游戏验证',
+    'recording': '正在记录', 'complete': '记录完整', 'interrupted': '记录中断', 'error': '记录异常',
+    'running': '正在执行', 'completed': '已经完成',
+    'needs_attention': '需要处理',
+}
+
+
+class WorkflowPage(CustomTab):
+    def __init__(self):
+        super().__init__()
+        self.add_widget(TitleLabel('剧情与活动学习', self.view))
+        self.status_label = BodyLabel('启用记录后正常游玩，程序自动整理已完成的内容。', self.view)
+        self.status_label.setWordWrap(True)
+        self.add_widget(self.status_label)
+        self.record_button = PushButton('启用自动记录', self.view)
+        self.record_button.clicked.connect(self.toggle_recording)
+        self.add_widget(self.record_button)
+        self.hotkey_setting = None
+        self._hotkey_value = None
+        self._hotkey_poller = None
+        self._hotkey_ready = False
+        self.table = TableWidget(self.view)
+        self.table.setColumnCount(3)
+        self.table.setHorizontalHeaderLabels(['内容', '验证状态', '生成时间'])
+        self.table.setMinimumHeight(260)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.add_widget(self.table)
+        self.execute_button = PushButton('执行选中的内容', self.view)
+        self.execute_button.clicked.connect(self.execute_selected)
+        self.add_widget(self.execute_button)
+        self.import_button = PushButton('从多账号日常导入账号配置', self.view)
+        self.import_button.clicked.connect(self.import_accounts)
+        self.add_widget(self.import_button)
+        self.recordings = TableWidget(self.view)
+        self.recordings.setColumnCount(3)
+        self.recordings.setHorizontalHeaderLabels(['记录时间', '状态', '说明'])
+        self.recordings.setMinimumHeight(200)
+        self.recordings.horizontalHeader().setStretchLastSection(True)
+        self.add_widget(self.recordings)
+        self.progress = TableWidget(self.view)
+        self.progress.setColumnCount(4)
+        self.progress.setHorizontalHeaderLabels(['账号', '内容', '当前步骤', '状态'])
+        self.progress.setMinimumHeight(150)
+        self.progress.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.progress.horizontalHeader().setStretchLastSection(True)
+        self.add_widget(self.progress)
+        self.cards = []
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.refresh)
+        self.timer.start(1000)
+        self.hotkey_timer = QTimer(self)
+        self.hotkey_timer.timeout.connect(self.poll_recording_hotkey)
+        self.hotkey_timer.start(50)
+
+    @property
+    def name(self):
+        return '剧情与活动学习'
+
+    @property
+    def icon(self):
+        return FluentIcon.BOOK_SHELF
+
+    def task(self):
+        executor = self.executor or getattr(og, 'executor', None)
+        return executor.get_task_by_class(GameplayLearningTask) if executor else None
+
+    def toggle_recording(self):
+        task = self.task()
+        if task is None:
+            return
+        if task.enabled:
+            task.disable()
+        elif task.failure is not None:
+            self.status_label.setText('记录服务已经异常停止，请查看任务日志并重新启动程序。')
+        else:
+            task.enable()
+        self.refresh()
+
+    def suppress_recording_hotkey(self, _value=''):
+        # 设置按键时保持停用，直到组合键全部释放。
+        self._hotkey_ready = False
+
+    def poll_recording_hotkey(self):
+        task = self.task()
+        if task is None:
+            return
+        value = task.config.get('Recording Toggle Hotkey').strip()
+        if value != self._hotkey_value:
+            self._hotkey_value = value
+            self._hotkey_poller = HotkeyEdgePoller(value) if value else None
+            self._hotkey_ready = False
+            if self._hotkey_poller is not None and not self._hotkey_poller.supported:
+                self.hotkey_timer.stop()
+                raise ValueError('录制快捷键包含不支持的按键')
+        poller = self._hotkey_poller
+        if poller is None:
+            return
+        pressed = poller.poll()
+        focus = QApplication.focusWidget()
+        if isinstance(focus, HotkeyLineEdit):
+            self._hotkey_ready = False
+            return
+        if not self._hotkey_ready:
+            if not any(poller.key_reader(code) for code in poller.vk_codes):
+                self._hotkey_ready = True
+            return
+        if pressed:
+            self.toggle_recording()
+
+    def execution_task(self):
+        executor = self.executor or getattr(og, 'executor', None)
+        return executor.get_task_by_class(MultiAccountWorkflowTask) if executor else None
+
+    def execute_selected(self):
+        task = self.execution_task()
+        if task is None:
+            return
+        revisions = [self.table.item(index.row(), 0).data(Qt.UserRole)
+                     for index in self.table.selectionModel().selectedRows()]
+        if not revisions:
+            self.status_label.setText('请选择需要执行的内容。')
+            return
+        learning = self.task()
+        created = {item['revision']: item['created'] for item in learning.store.list_workflows()}
+        revisions.sort(key=created.__getitem__)
+        task.config['Workflow revisions'] = revisions
+        task._app.start_controller.start(task)
+
+    def import_accounts(self):
+        task = self.execution_task()
+        if task is not None:
+            count = task.import_daily_accounts()
+            self.status_label.setText(f'已导入 {count} 个账号的完整身份配置。')
+
+    def refresh(self):
+        task = self.task()
+        if task is None:
+            return
+        if self.hotkey_setting is None:
+            self.hotkey_setting = LabelAndHotkey(task.config_description, task.config, 'Recording Toggle Hotkey',
+                                                {'minimum_width': 320})
+            self.hotkey_setting.line_edit.hotkey_committed.connect(self.suppress_recording_hotkey)
+            self.vBoxLayout.insertWidget(3, self.hotkey_setting)
+        if not self.cards and self.execution_task() is not None:
+            for entry in (task, self.execution_task()):
+                card = TaskCard(entry, isinstance(entry, MultiAccountWorkflowTask))
+                self.cards.append(card)
+                self.add_widget(card)
+                for editor in card.findChildren(HotkeyLineEdit):
+                    editor.hotkey_committed.connect(self.suppress_recording_hotkey)
+        for setting in self.findChildren(LabelAndHotkey):
+            if setting.config is task.config and setting.key == 'Recording Toggle Hotkey' and not setting.line_edit.hasFocus():
+                setting.update_value()
+        self.record_button.setText('停止自动记录' if task.enabled else '启用自动记录')
+        recording_status = task.recorder.status if task.recorder else '未记录'
+        if task.failure is not None:
+            recording_status = str(task.failure)
+        self.status_label.setText(f'{recording_status}；{task.analysis_status}')
+        if task.store is None:
+            return
+        workflows = task.store.list_workflows()
+        selected = {self.table.item(index.row(), 0).data(Qt.UserRole)
+                    for index in self.table.selectionModel().selectedRows()}
+        self.table.setRowCount(len(workflows))
+        for row, item in enumerate(workflows):
+            values = (item['title'], STATUS_TEXT[item['status']], datetime.fromtimestamp(item['created']).strftime('%m-%d %H:%M'))
+            for column, text in enumerate(values):
+                self.table.setItem(row, column, QTableWidgetItem(text))
+            self.table.item(row, 0).setData(Qt.UserRole, item['revision'])
+            if item['revision'] in selected:
+                for column in range(3):
+                    self.table.item(row, column).setSelected(True)
+        recordings = task.store.list_recordings()
+        self.recordings.setRowCount(len(recordings))
+        for row, item in enumerate(recordings):
+            values = (datetime.fromtimestamp(item['started']).strftime('%m-%d %H:%M'),
+                      STATUS_TEXT[item['status']], item['reason'])
+            for column, text in enumerate(values):
+                self.recordings.setItem(row, column, QTableWidgetItem(text))
+        progress = task.store.list_progress()
+        self.progress.setRowCount(len(progress))
+        for row, item in enumerate(progress):
+            name = '当前账号' if item['account_name'] == 'current' else item['account_name']
+            values = (name, item['title'] or item['content_id'], item['step_id'] or '', STATUS_TEXT[item['status']])
+            for column, text in enumerate(values):
+                self.progress.setItem(row, column, QTableWidgetItem(text))
+
+    def dispose(self):
+        self.timer.stop()
+        self.hotkey_timer.stop()
+        for card in self.cards:
+            card.dispose()

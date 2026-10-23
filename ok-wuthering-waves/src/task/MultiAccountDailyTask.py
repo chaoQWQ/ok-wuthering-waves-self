@@ -976,10 +976,7 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
                     ).format(max_retries=max_retries, account=account))
                     raise Exception(self.tr('Failed to switch account'))
             self._login_attempt_account = current_account
-            self._account_state.record(
-                self._daily_date, [normalize_account_name(current_account)], 'running'
-            )
-            self._update_daily_status_info()
+            self._record_login_attempt(current_account)
             self.sleep(4)
             texts = self.ocr()
             login_btn = self.find_boxes(texts, boundary=self.box_of_screen(0.3, 0.3, 0.7, 0.8),
@@ -996,6 +993,10 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             self._allow_bring_to_front = False
             if mouse_reset_was_enabled:
                 mouse_reset_task.enable()
+
+    def _record_login_attempt(self, account):
+        self._account_state.record(self._daily_date, [normalize_account_name(account)], 'running')
+        self._update_daily_status_info()
 
 
     def find_account_drop_down(self):

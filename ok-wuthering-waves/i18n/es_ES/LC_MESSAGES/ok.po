@@ -1844,3 +1844,69 @@ msgstr "Pesadilla especial"
 
 msgid "Which Special Nightmare to Teleport"
 msgstr "Pesadilla especial a la que teletransportar"
+
+msgid "Gameplay Learning"
+msgstr "Aprendizaje de partidas"
+
+msgid "Record normal gameplay and learn quest and event workflows with local AGY"
+msgstr "Graba partidas normales y aprende los pasos de misiones y eventos con AGY local"
+
+msgid "Recording folder"
+msgstr "Carpeta de grabaciones"
+
+msgid "Storage limit (GiB)"
+msgstr "Límite de almacenamiento (GiB)"
+
+msgid "Automatic analysis"
+msgstr "Análisis automático"
+
+msgid "Game version"
+msgstr "Versión del juego"
+
+msgid "AGY companion"
+msgstr "Archivo AGY companion"
+
+msgid "Node executable"
+msgstr "Ejecutable de Node.js"
+
+msgid "Local recordings, screenshots, learned workflows and account progress."
+msgstr "Guarda grabaciones, capturas, procedimientos aprendidos y progreso de cuentas."
+
+msgid "Use the installed AGY to analyze completed recordings automatically."
+msgstr "Analiza automáticamente las grabaciones completas con el AGY instalado."
+
+msgid "Optional game version override. Empty uses the game executable version."
+msgstr "Permite indicar la versión del juego. Si está vacío, usa la del ejecutable."
+
+msgid "Optional path to agy-companion.mjs. Empty discovers the installed plugin."
+msgstr "Ruta opcional a agy-companion.mjs. Si está vacía, detecta el complemento instalado."
+
+msgid "Optional Node.js 18 or newer executable path."
+msgstr "Ruta opcional al ejecutable de Node.js 18 o posterior."
+
+msgid "Learned Quest and Event Workflows"
+msgstr "Procedimientos de misiones y eventos aprendidos"
+
+msgid "Run learned workflows with verified account progress and ok-ww combat"
+msgstr "Ejecuta los procedimientos tras verificar el progreso y usa el combate de ok-ww"
+
+msgid "Workflow revisions"
+msgstr "Versiones de procedimientos seleccionadas"
+
+msgid "Account profiles"
+msgstr "Identidades de cuentas"
+
+msgid "Workflow versions selected from the learning page."
+msgstr "Versiones seleccionadas en la página de aprendizaje."
+
+msgid "Account identities imported from Multi Account Daily Task. Empty runs the current account."
+msgstr "Identidades importadas de las tareas diarias multicuenta. Si está vacío, usa la cuenta actual."
+
+msgid "Recording Toggle Hotkey"
+msgstr "Atajo para alternar la grabación"
+
+msgid "Global hotkey to start or stop recording. Clear to disable."
+msgstr "Atajo global para iniciar o detener la grabación. Déjalo vacío para desactivarlo."
+
+msgid "Use letters, numbers, F1–F24, Space, Tab or Enter with optional Ctrl, Alt or Shift."
+msgstr "Usa letras, números, F1–F24, Espacio, Tab o Intro, con Ctrl, Alt o Mayús opcionales."

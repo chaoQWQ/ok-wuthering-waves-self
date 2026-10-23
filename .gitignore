@@ -77,6 +77,7 @@ ok-wuthering-waves/assets/result.json
 # Local Codex attachments and resumable map-asset downloads are workspace
 # artifacts, not source assets.
 .codex-remote-attachments/
+.agy-staff/
 ok-wuthering-waves/assets/.assets_download.zip
 # Map-overlay runtime assets are downloaded from wuwa-map releases. Keep only
 # the placeholder in Git so local feature databases and maps are never staged.

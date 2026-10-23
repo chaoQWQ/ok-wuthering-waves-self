@@ -2004,3 +2004,69 @@ msgstr "特异梦魇"
 
 msgid "Which Special Nightmare to Teleport"
 msgstr "传送到第几个特异梦魇"
+
+msgid "Gameplay Learning"
+msgstr "游玩过程学习"
+
+msgid "Record normal gameplay and learn quest and event workflows with local AGY"
+msgstr "记录正常游玩过程，通过本地 AGY 学习剧情和活动流程"
+
+msgid "Recording folder"
+msgstr "记录目录"
+
+msgid "Storage limit (GiB)"
+msgstr "记录容量上限（GiB）"
+
+msgid "Automatic analysis"
+msgstr "自动分析"
+
+msgid "Game version"
+msgstr "游戏版本"
+
+msgid "AGY companion"
+msgstr "AGY companion 文件"
+
+msgid "Node executable"
+msgstr "Node.js 程序路径"
+
+msgid "Local recordings, screenshots, learned workflows and account progress."
+msgstr "保存本地录像、截图、已学习流程和账号进度。"
+
+msgid "Use the installed AGY to analyze completed recordings automatically."
+msgstr "自动调用已安装的 AGY 分析完整记录。"
+
+msgid "Optional game version override. Empty uses the game executable version."
+msgstr "可以指定游戏版本；留空时读取游戏程序版本。"
+
+msgid "Optional path to agy-companion.mjs. Empty discovers the installed plugin."
+msgstr "可以指定 agy-companion.mjs 路径；留空时自动寻找已安装插件。"
+
+msgid "Optional Node.js 18 or newer executable path."
+msgstr "可以指定 Node.js 18 或更新版本的程序路径。"
+
+msgid "Learned Quest and Event Workflows"
+msgstr "已学习的剧情与活动流程"
+
+msgid "Run learned workflows with verified account progress and ok-ww combat"
+msgstr "核查账号进度后执行已学习流程，战斗由 ok-ww 处理"
+
+msgid "Workflow revisions"
+msgstr "选中的流程版本"
+
+msgid "Account profiles"
+msgstr "账号身份配置"
+
+msgid "Workflow versions selected from the learning page."
+msgstr "在剧情与活动学习页面选择需要执行的流程版本。"
+
+msgid "Account identities imported from Multi Account Daily Task. Empty runs the current account."
+msgstr "从多账号日常任务导入账号身份；留空时执行当前账号。"
+
+msgid "Recording Toggle Hotkey"
+msgstr "录制切换快捷键"
+
+msgid "Global hotkey to start or stop recording. Clear to disable."
+msgstr "全局快捷键，按一次开启或停止录制；清空后停用快捷键。"
+
+msgid "Use letters, numbers, F1–F24, Space, Tab or Enter with optional Ctrl, Alt or Shift."
+msgstr "支持字母、数字、F1–F24、Space、Tab、Enter，以及 Ctrl、Alt、Shift 组合。"

@@ -6,6 +6,10 @@
 #
 certifi==2026.7.22
     # via requests
+annotated-types==0.8.0
+    # via pydantic
+av==19.0.2
+    # via ok-ww
 charset-normalizer==3.5.1
     # via requests
 comtypes==1.4.16
@@ -47,6 +51,10 @@ pyappify==1.0.13
     #   ok-ww (pyproject.toml)
 pycaw==20240210
     # via ok-script
+pydantic==2.14.1
+    # via ok-ww
+pydantic-core==2.50.1
+    # via pydantic
 pyclipper==1.4.0
     # via onnxocr-ppocrv5
 pydirectinput==1.0.4
@@ -85,6 +93,8 @@ six==1.17.0
     # via pynput
 typing-extensions==4.16.0
     # via ok-script
+typing-inspection==0.4.4
+    # via pydantic
 urllib3==2.7.0
     # via requests
 zhconv==1.4.3

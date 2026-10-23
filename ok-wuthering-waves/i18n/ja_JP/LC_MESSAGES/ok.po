@@ -1923,3 +1923,69 @@ msgstr "特異悪夢"
 
 msgid "Which Special Nightmare to Teleport"
 msgstr "テレポートする特異悪夢"
+
+msgid "Gameplay Learning"
+msgstr "プレイ内容の学習"
+
+msgid "Record normal gameplay and learn quest and event workflows with local AGY"
+msgstr "通常のプレイを記録し、ローカルの AGY で任務とイベントの手順を学習します"
+
+msgid "Recording folder"
+msgstr "記録フォルダー"
+
+msgid "Storage limit (GiB)"
+msgstr "保存容量の上限（GiB）"
+
+msgid "Automatic analysis"
+msgstr "自動解析"
+
+msgid "Game version"
+msgstr "ゲームのバージョン"
+
+msgid "AGY companion"
+msgstr "AGY companion ファイル"
+
+msgid "Node executable"
+msgstr "Node.js の実行ファイル"
+
+msgid "Local recordings, screenshots, learned workflows and account progress."
+msgstr "録画、画像、学習済み手順、アカウントの進行状況を保存します。"
+
+msgid "Use the installed AGY to analyze completed recordings automatically."
+msgstr "インストール済みの AGY で完了した記録を自動解析します。"
+
+msgid "Optional game version override. Empty uses the game executable version."
+msgstr "ゲームのバージョンを指定できます。空欄では実行ファイルから取得します。"
+
+msgid "Optional path to agy-companion.mjs. Empty discovers the installed plugin."
+msgstr "agy-companion.mjs のパスを指定できます。空欄ではプラグインを自動検出します。"
+
+msgid "Optional Node.js 18 or newer executable path."
+msgstr "Node.js 18 以降の実行ファイルを指定できます。"
+
+msgid "Learned Quest and Event Workflows"
+msgstr "学習済みの任務とイベントの手順"
+
+msgid "Run learned workflows with verified account progress and ok-ww combat"
+msgstr "進行状況を確認して学習済み手順を実行し、戦闘を ok-ww に任せます"
+
+msgid "Workflow revisions"
+msgstr "選択した手順のバージョン"
+
+msgid "Account profiles"
+msgstr "アカウントの識別設定"
+
+msgid "Workflow versions selected from the learning page."
+msgstr "学習ページで実行する手順のバージョンを選択します。"
+
+msgid "Account identities imported from Multi Account Daily Task. Empty runs the current account."
+msgstr "複数アカウントの日課から識別設定を読み込みます。空欄では現在のアカウントを使用します。"
+
+msgid "Recording Toggle Hotkey"
+msgstr "録画切り替えショートカット"
+
+msgid "Global hotkey to start or stop recording. Clear to disable."
+msgstr "録画の開始と停止を切り替えるグローバルショートカットです。空欄で無効になります。"
+
+msgid "Use letters, numbers, F1–F24, Space, Tab or Enter with optional Ctrl, Alt or Shift."
+msgstr "英数字、F1–F24、Space、Tab、Enter と Ctrl、Alt、Shift の組み合わせを使用できます。"

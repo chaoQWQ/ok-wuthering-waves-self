@@ -1924,3 +1924,69 @@ msgstr "특이 악몽"
 
 msgid "Which Special Nightmare to Teleport"
 msgstr "텔레포트할 특이 악몽 번호"
+
+msgid "Gameplay Learning"
+msgstr "플레이 과정 학습"
+
+msgid "Record normal gameplay and learn quest and event workflows with local AGY"
+msgstr "일반 플레이를 기록하고 로컬 AGY로 임무와 이벤트 진행 과정을 학습합니다"
+
+msgid "Recording folder"
+msgstr "기록 폴더"
+
+msgid "Storage limit (GiB)"
+msgstr "저장 용량 한도(GiB)"
+
+msgid "Automatic analysis"
+msgstr "자동 분석"
+
+msgid "Game version"
+msgstr "게임 버전"
+
+msgid "AGY companion"
+msgstr "AGY companion 파일"
+
+msgid "Node executable"
+msgstr "Node.js 실행 파일"
+
+msgid "Local recordings, screenshots, learned workflows and account progress."
+msgstr "녹화, 스크린샷, 학습한 절차와 계정 진행 상황을 저장합니다."
+
+msgid "Use the installed AGY to analyze completed recordings automatically."
+msgstr "설치된 AGY로 완료된 기록을 자동 분석합니다."
+
+msgid "Optional game version override. Empty uses the game executable version."
+msgstr "게임 버전을 지정할 수 있습니다. 비워 두면 실행 파일의 버전을 사용합니다."
+
+msgid "Optional path to agy-companion.mjs. Empty discovers the installed plugin."
+msgstr "agy-companion.mjs 경로를 지정할 수 있습니다. 비워 두면 설치된 플러그인을 찾습니다."
+
+msgid "Optional Node.js 18 or newer executable path."
+msgstr "Node.js 18 이상 실행 파일의 경로를 지정할 수 있습니다."
+
+msgid "Learned Quest and Event Workflows"
+msgstr "학습한 임무 및 이벤트 절차"
+
+msgid "Run learned workflows with verified account progress and ok-ww combat"
+msgstr "계정 진행 상황을 확인해 학습한 절차를 실행하고 전투는 ok-ww로 처리합니다"
+
+msgid "Workflow revisions"
+msgstr "선택한 절차 버전"
+
+msgid "Account profiles"
+msgstr "계정 식별 설정"
+
+msgid "Workflow versions selected from the learning page."
+msgstr "학습 페이지에서 실행할 절차 버전을 선택합니다."
+
+msgid "Account identities imported from Multi Account Daily Task. Empty runs the current account."
+msgstr "다중 계정 일일 임무에서 식별 설정을 가져옵니다. 비워 두면 현재 계정을 사용합니다."
+
+msgid "Recording Toggle Hotkey"
+msgstr "녹화 전환 단축키"
+
+msgid "Global hotkey to start or stop recording. Clear to disable."
+msgstr "녹화를 시작하거나 중지하는 전역 단축키입니다. 비워 두면 사용하지 않습니다."
+
+msgid "Use letters, numbers, F1–F24, Space, Tab or Enter with optional Ctrl, Alt or Shift."
+msgstr "영문자, 숫자, F1–F24, Space, Tab, Enter와 Ctrl, Alt, Shift 조합을 지원합니다."

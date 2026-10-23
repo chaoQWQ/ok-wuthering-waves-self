@@ -182,6 +182,7 @@ config = {
     'gui_icon': 'icons/icon.png',
     'global_configs': [basic_config_option, key_config_option, char_config_option, monthly_card_config_option],
     'custom_tabs': [
+        ["src.gui.WorkflowPage", "WorkflowPage"],
         ["src.gui.MapExplorationTab", "MapExplorationTab"],
         ["src.gui.CharacterCodeTab", "CharacterCodeTab"],
     ],
@@ -277,6 +278,7 @@ config = {
     'launcher_error_log_file': 'logs/launcher_error.log',
     'version': version,
     'onetime_tasks': [  # tasks to execute
+        ["src.task.MultiAccountWorkflowTask", "MultiAccountWorkflowTask"],
         ["src.task.QuestStoryTask", "QuestStoryTask"],
         ["src.task.ManualRouteRecorderTask", "ManualRouteRecorderTask"],
         ["src.task.DailyTask", "DailyTask"],
@@ -292,6 +294,7 @@ config = {
         ["src.task.GardenTask", "GardenTask"],
         # ["src.task.DiagnosisTask", "DiagnosisTask"],
     ], 'trigger_tasks': [
+        ["src.task.GameplayLearningTask", "GameplayLearningTask"],
         ["src.task.AutoCombatTask", "AutoCombatTask"],
         ["src.task.AutoPickTask", "AutoPickTask"],
         ["src.task.AutoLoginTask", "AutoLoginTask"],
