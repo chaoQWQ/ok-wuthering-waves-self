@@ -7,7 +7,7 @@ from src.utils.DailyAccountState import DailyAccountState
 
 
 Scene = Literal['world', 'dialog', 'cutscene', 'combat', 'menu', 'result', 'loading', 'login', 'unknown']
-Action = Literal['navigate', 'interact', 'select', 'wait', 'dialog', 'combat', 'mechanism', 'claim']
+Action = Literal['navigate', 'interact', 'select', 'wait', 'dialog', 'combat', 'mechanism', 'claim', 'input_sequence']
 
 
 def cycle_period(cycle, period, now=None):
@@ -94,7 +94,7 @@ class Step(Record):
     def check_action(self):
         if self.preconditions == self.completion:
             raise ValueError('步骤完成条件必须能够区分执行前后的状态')
-        if self.action in ('interact', 'select', 'claim', 'mechanism') and not self.target:
+        if self.action in ('interact', 'select', 'claim', 'mechanism', 'input_sequence') and not self.target:
             raise ValueError('交互步骤必须指定当前画面中的目标文字')
         if self.evidence_before == self.evidence_after:
             raise ValueError('执行前后必须具有不同的证据')

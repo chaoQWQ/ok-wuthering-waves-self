@@ -8,7 +8,23 @@ class WorkflowRunner:
         self.store, self.task, self.coordinator = store, task, coordinator
 
     @staticmethod
-    def locate(workflow, observation):
+    def locate(workflow, observation, saved=None):
+        if saved is not None:
+            if saved['revision'] != workflow.revision:
+                raise WorkflowStopped('保存的进度属于其他流程版本，需要确认当前进度')
+            step_id = saved['step_id']
+            if step_id is not None:
+                index = next((index for index, step in enumerate(workflow.steps) if step.step_id == step_id), None)
+                if index is None:
+                    raise WorkflowStopped('保存的步骤不存在于当前流程中')
+                step = workflow.steps[index]
+                before = step.preconditions.matches(observation)
+                after = step.completion.matches(observation)
+                if before == after:
+                    raise WorkflowStopped('当前画面无法确认保存步骤的执行状态')
+                return index + int(after)
+            if saved['status'] != 'needs_attention':
+                raise WorkflowStopped('保存的进度缺少步骤标识')
         positions = set()
         for index, step in enumerate(workflow.steps):
             if step.preconditions.matches(observation):
@@ -27,10 +43,11 @@ class WorkflowRunner:
         observation = self.task.observe_workflow()
         self.coordinator.observe(observation)
         try:
-            index = self.locate(workflow, observation)
+            index = self.locate(workflow, observation, saved)
         except WorkflowStopped as error:
-            self.store.checkpoint(account, workflow, None, 'needs_attention',
-                                  {'observation': observation.model_dump(), 'reason': str(error)}, period=period)
+            if saved is None or saved['revision'] == workflow.revision:
+                self.store.checkpoint(account, workflow, saved['step_id'] if saved else None, 'needs_attention',
+                                      {'observation': observation.model_dump(), 'reason': str(error)}, period=period)
             raise
         if index == len(workflow.steps):
             self.task.sleep(.2)
@@ -83,12 +100,13 @@ class WorkflowRunner:
                 'resolution': [self.task.width, self.task.height],
             })
             return 'completed'
-        except BaseException:
+        except BaseException as error:
             evidence = self.task.save_workflow_evidence(self.store)
             if evidence is not None:
                 observation = evidence
             step_id = workflow.steps[min(index, len(workflow.steps) - 1)].step_id
-            self.store.checkpoint(account, workflow, step_id, 'interrupted', observation.model_dump(), period=period)
+            failure = {'observation': observation.model_dump(), 'reason': str(error)}
+            self.store.checkpoint(account, workflow, step_id, 'interrupted', failure, period=period)
             if attempt is not None:
-                self.store.finish_attempt(attempt, 'interrupted', observation.model_dump())
+                self.store.finish_attempt(attempt, 'interrupted', failure)
             raise

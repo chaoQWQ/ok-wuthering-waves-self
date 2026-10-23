@@ -14,9 +14,12 @@ from src.workflow.combat import CombatSceneChanged, CombatSession
 from src.workflow.input import WorkflowStopped, coordinated_task
 from src.workflow.models import Account
 from src.workflow.navigation import RouteFollower
-from src.workflow.observer import SceneObserver, protect_observation_frame
+from src.workflow.observer import SceneObserver, protect_observation_frame, workflow_combat_visible
 from src.workflow.runner import WorkflowRunner
 from src.workflow.validator import WorkflowValidator
+from src.workflow.environment import workflow_language
+from src.workflow.playback import InputSequencePlayer
+from src.workflow.dialogue import RecordedDialogue, ensure_allowed_target
 
 
 class MultiAccountWorkflowTask(QuestStoryTask):
@@ -81,9 +84,15 @@ class MultiAccountWorkflowTask(QuestStoryTask):
         if time.monotonic() - self._guard_at < .15:
             return
         self._guard_at = time.monotonic()
-        frame = self.next_frame()
+        sequence_running = self._coordinator.sequence_input is not None
+        frame = self.executor.next_frame(time_out=.1) if sequence_running else self.next_frame()
         if frame is None:
             raise WorkflowStopped('输入前无法确认游戏画面')
+        if sequence_running:
+            if (workflow_combat_visible(frame) or detect_dialog_advance_indicator(frame).found
+                    or detect_letterbox(frame).is_letterbox):
+                raise WorkflowStopped('轨迹复现遇到战斗或剧情，停止输入并重新确认步骤')
+            return
         if self._combat_session:
             if time.monotonic() >= self._combat_deadline:
                 raise WorkflowStopped('战斗没有在规定时间内完成')
@@ -119,14 +128,16 @@ class MultiAccountWorkflowTask(QuestStoryTask):
                 self.send_key('f', down_time=.1)
         elif step.action in ('select', 'claim'):
             if not performed:
-                if re.search(r'购买|充值|唤取|兑换|分解|丢弃|purchase|buy|exchange|discard|delete', step.target, re.I):
-                    raise WorkflowStopped('当前按钮不属于允许的剧情或活动操作')
+                ensure_allowed_target(step.target)
                 controls = [control for control in observation.controls if control.text == step.target and control.confidence >= .8]
                 if len(controls) != 1:
                     raise WorkflowStopped('当前按钮无法唯一确定')
                 self.click(controls[0].x, controls[0].y)
         elif step.action == 'dialog':
             self._advance_workflow_dialog(observation)
+        elif step.action == 'input_sequence':
+            if not performed:
+                self._sequence_player.run(step, deadline)
         elif step.action == 'combat':
             result = CombatSession(self).run(observation, deadline)
             self.info_set('Combat state', result)
@@ -134,6 +145,8 @@ class MultiAccountWorkflowTask(QuestStoryTask):
             raise ValueError('未知的流程动作')
 
     def _advance_workflow_dialog(self, observation):
+        if self._recorded_dialogue.advance(self, self._current_step, observation):
+            return
         if observation.scene == 'dialog':
             completion = self._current_step.completion
             may_skip = completion.scene in ('world', 'combat', 'result') or (
@@ -165,7 +178,7 @@ class MultiAccountWorkflowTask(QuestStoryTask):
         workflows = store.execution_workflows(revisions)
         game_version = learning._version(self.hwnd)
         for workflow in workflows:
-            if workflow.game_version != game_version or workflow.language != str(self.executor.locale):
+            if workflow.game_version != game_version or workflow.language != workflow_language(self.executor.locale):
                 raise ValueError('流程版本或语言与当前游戏环境不符，需要重新学习对应内容')
             WorkflowValidator(store).check(workflow)
         profiles = [Account.model_validate(item) for item in json.loads(self.config.get('Account profiles'))]
@@ -211,6 +224,8 @@ class MultiAccountWorkflowTask(QuestStoryTask):
                     with self._coordinator.control('quest_selection'):
                         self._select_workflow_quest(workflow.quest_title)
             self._route = RouteFollower(self, store, workflow)
+            self._sequence_player = InputSequencePlayer(self, store, workflow)
+            self._recorded_dialogue = RecordedDialogue(store, workflow, self._get_observer())
             WorkflowRunner(store, self, self._coordinator).run(account, workflow)
 
     def _select_workflow_quest(self, title):

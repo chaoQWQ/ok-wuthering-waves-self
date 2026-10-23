@@ -52,6 +52,9 @@ class WorkflowStateStore:
                     recording_id TEXT PRIMARY KEY REFERENCES recordings(id),
                     plan_status TEXT NOT NULL DEFAULT 'pending', plan_reason TEXT NOT NULL DEFAULT '',
                     revisions TEXT NOT NULL DEFAULT '[]');
+                CREATE TABLE IF NOT EXISTS recording_material_cleanup (
+                    recording_id TEXT PRIMARY KEY REFERENCES recordings(id),
+                    paths TEXT NOT NULL);
             ''')
             columns = {row['name'] for row in db.execute('PRAGMA table_info(recordings)')}
             if 'name' not in columns:
@@ -163,6 +166,7 @@ class WorkflowStateStore:
             db.execute("UPDATE recordings SET status='interrupted', reason='进程退出时录制尚未结束' WHERE status='recording'")
             db.execute("UPDATE step_attempts SET status='interrupted' WHERE status='prepared'")
             db.execute("UPDATE account_progress SET status='interrupted' WHERE status='running'")
+        self.cleanup_recording_materials()
 
     def observe(self, recording_id, observation):
         with self.connect() as db:
@@ -382,17 +386,19 @@ class WorkflowStateStore:
             directories = {}
             for identifier in identifiers:
                 row = db.execute('SELECT status,deleted FROM recordings WHERE id=?', (identifier,)).fetchone()
-                if row is None or row['deleted'] or row['status'] == 'recording':
+                if row is None or (row['deleted'] and not delete_materials) or row['status'] == 'recording':
                     raise ValueError('记录不存在或仍在录制，无法删除')
                 if delete_materials:
                     directory = self.resolve(identifier)
-                    if directory.parent != self.root or directory.name != identifier or (self.root / identifier).is_symlink():
+                    if (directory.parent != self.root or directory.name != identifier
+                            or (self.root / identifier).is_symlink() or (self.root / identifier).is_junction()):
                         raise ValueError('录制材料目录无效')
                     directories[identifier] = directory
             analysis_files = []
             if delete_materials:
                 analysis_directory = self.resolve('agy')
-                if analysis_directory.parent != self.root or analysis_directory.name != 'agy' or (self.root / 'agy').is_symlink():
+                if (analysis_directory.parent != self.root or analysis_directory.name != 'agy'
+                        or (self.root / 'agy').is_symlink() or (self.root / 'agy').is_junction()):
                     raise ValueError('分析材料目录无效')
                 for request in analysis_directory.glob('*.json'):
                     if request.is_symlink() or request.resolve().parent != analysis_directory:
@@ -404,24 +410,62 @@ class WorkflowStateStore:
                             if path.is_symlink() or path.resolve().parent != analysis_directory:
                                 raise ValueError('分析材料路径无效')
                             if path.exists():
-                                analysis_files.append(path)
+                                analysis_files.append((payload['recording_id'], path))
             for identifier in identifiers:
-                result = db.execute("UPDATE recordings SET deleted=1 WHERE id=? AND deleted=0 AND status!='recording'",
+                result = db.execute("UPDATE recordings SET deleted=1 WHERE id=? AND status!='recording'",
                                     (identifier,))
                 if result.rowcount != 1:
                     raise ValueError('记录不存在或仍在录制，无法删除')
                 if delete_materials:
-                    directory = directories[identifier]
-                    if directory.exists():
-                        shutil.rmtree(directory)
-                    db.execute('DELETE FROM observations WHERE recording_id=?', (identifier,))
-                    db.execute('DELETE FROM events WHERE recording_id=?', (identifier,))
-                    db.execute('DELETE FROM recording_environment WHERE recording_id=?', (identifier,))
-                    db.execute("UPDATE recordings SET status='materials_deleted' WHERE id=?", (identifier,))
-                    db.execute("UPDATE workflows SET status='materials_deleted' WHERE json_extract(payload,'$.recording_id')=?",
+                    pending = db.execute('SELECT 1 FROM recording_material_cleanup WHERE recording_id=?',
+                                         (identifier,)).fetchone()
+                    status = db.execute('SELECT status FROM recordings WHERE id=?', (identifier,)).fetchone()['status']
+                    if status == 'materials_deleted' or pending is not None:
+                        continue
+                    paths = [{'kind': 'recording', 'path': str(directories[identifier].relative_to(self.root))}]
+                    paths.extend({'kind': 'analysis', 'path': str(path.relative_to(self.root))}
+                                 for owner, path in analysis_files if owner == identifier)
+                    db.execute('INSERT INTO recording_material_cleanup VALUES(?,?)',
+                               (identifier, json.dumps(paths, ensure_ascii=False)))
+                    db.execute("UPDATE recordings SET status='materials_deleting' WHERE id=?", (identifier,))
+                    db.execute("UPDATE workflows SET status='materials_deleting' WHERE json_extract(payload,'$.recording_id')=?",
                                (identifier,))
-            for path in analysis_files:
-                path.unlink()
+        if delete_materials:
+            self.cleanup_recording_materials(identifiers)
+
+    def cleanup_recording_materials(self, identifiers=None):
+        with self.connect() as db:
+            pending = [dict(row) for row in db.execute('SELECT * FROM recording_material_cleanup ORDER BY recording_id')]
+        for row in pending:
+            identifier = row['recording_id']
+            if identifiers is not None and identifier not in identifiers:
+                continue
+            for item in json.loads(row['paths']):
+                original = self.root / item['path']
+                path = self.resolve(item['path'])
+                if original.is_symlink() or original.is_junction():
+                    raise ValueError('待清理材料不能使用符号链接或目录连接')
+                if item['kind'] == 'recording':
+                    if path.parent != self.root or path.name != identifier:
+                        raise ValueError('待清理录制材料目录无效')
+                    if path.exists():
+                        shutil.rmtree(path)
+                elif item['kind'] == 'analysis':
+                    analysis = self.root / 'agy'
+                    if (path.parent != analysis or original.parent != analysis or analysis.is_symlink()
+                            or analysis.is_junction() or not path.name.endswith(('.json', '.md', '.result.txt'))):
+                        raise ValueError('待清理分析材料路径无效')
+                    path.unlink(missing_ok=True)
+                else:
+                    raise ValueError('未知的材料清理类型')
+            with self.connect() as db:
+                db.execute('DELETE FROM observations WHERE recording_id=?', (identifier,))
+                db.execute('DELETE FROM events WHERE recording_id=?', (identifier,))
+                db.execute('DELETE FROM recording_environment WHERE recording_id=?', (identifier,))
+                db.execute("UPDATE recordings SET status='materials_deleted' WHERE id=?", (identifier,))
+                db.execute("UPDATE workflows SET status='materials_deleted' WHERE json_extract(payload,'$.recording_id')=?",
+                           (identifier,))
+                db.execute('DELETE FROM recording_material_cleanup WHERE recording_id=?', (identifier,))
 
     def analyzed(self, recording_id, reasons, no_action_needed=False):
         with self.connect() as db:
@@ -433,7 +477,7 @@ class WorkflowStateStore:
             raise ValueError('新流程必须经过独立验证')
         with self.connect() as db:
             row = db.execute('SELECT status FROM recordings WHERE id=?', (workflow.recording_id,)).fetchone()
-            if row is None or row['status'] == 'materials_deleted':
+            if row is None or row['status'] in ('materials_deleting', 'materials_deleted'):
                 raise ValueError('流程所需的录制材料不存在')
             db.execute('INSERT OR IGNORE INTO workflows VALUES(?,?,?,?,?,?,?)',
                        (workflow.revision, workflow.content_id, workflow.period, workflow.title,
@@ -444,7 +488,7 @@ class WorkflowStateStore:
             raise ValueError('未知验证状态')
         with self.connect() as db:
             row = db.execute('SELECT status FROM workflows WHERE revision=?', (revision,)).fetchone()
-            if row is None or row['status'] == 'materials_deleted' or (kind == 'runtime_verified' and row['status'] not in ('offline_checked', 'runtime_verified')):
+            if row is None or row['status'] in ('materials_deleting', 'materials_deleted') or (kind == 'runtime_verified' and row['status'] not in ('offline_checked', 'runtime_verified')):
                 raise ValueError('流程尚未通过必要检查')
             if row['status'] != 'runtime_verified':
                 db.execute('UPDATE workflows SET status=? WHERE revision=?', (kind, revision))

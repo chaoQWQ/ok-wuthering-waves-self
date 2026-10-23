@@ -10,6 +10,7 @@ from src.workflow.compiler import AgyVisionProvider, WorkflowCompiler
 from src.workflow.recorder import GameplayRecorderService, WindowsGameplaySource
 from src.workflow.store import WorkflowStateStore
 from src.workflow.validator import WorkflowValidator
+from src.workflow.environment import workflow_language
 from src.utils.ManualRouteRecorder import parse_hotkey_vk_codes
 
 
@@ -143,7 +144,7 @@ class GameplayLearningTask(TriggerTask):
                             self.recorder = GameplayRecorderService(
                                 self.store, project, configuration['template_matching'],
                                 dict(configuration['ocr'].get('default', configuration['ocr']).get('params', {})),
-                                self.executor.exit_event, {'game_version': self.game_version, 'language': str(self.executor.locale)})
+                                self.executor.exit_event, {'game_version': self.game_version, 'language': workflow_language(self.executor.locale)})
                             self.recorder.start(WindowsGameplaySource(window), self.config.get('Storage limit (GiB)'),
                                                 parent_id=active_session)
                         self.recorder.poll()

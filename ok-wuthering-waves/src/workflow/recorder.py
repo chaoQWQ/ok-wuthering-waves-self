@@ -63,6 +63,7 @@ def recording_worker(root, project_root, matching, ocr_params, frames, frame_con
     observation_at = 0.0
     idle_state = False
     keyframe_count = 0
+    last_keyframe_at = float('-inf')
     last_saved_idle = 0.0
     used_bytes = sum(path.stat().st_size for path in store.root.rglob('*') if path.is_file())
     capture = WindowsInputCapture(target_hwnd)
@@ -73,7 +74,7 @@ def recording_worker(root, project_root, matching, ocr_params, frames, frame_con
     last_slow_log = 0.0
 
     def save_keyframe(observation, picture):
-        nonlocal used_bytes, keyframe_count
+        nonlocal used_bytes, keyframe_count, last_keyframe_at
         image_path = f'{recording_id}/{observation.frame_id}.png'
         success, encoded = cv2.imencode('.png', protect_observation_frame(picture, observation))
         if not success:
@@ -84,6 +85,7 @@ def recording_worker(root, project_root, matching, ocr_params, frames, frame_con
         observation.image_sha256 = hashlib.sha256(data).hexdigest()
         used_bytes += len(data)
         keyframe_count += 1
+        last_keyframe_at = observation.timestamp
 
     def finish(status, reason='', trigger=''):
         nonlocal recording_id, writer, inputs, observations, pending_frames, boundary, boundary_input
@@ -245,7 +247,7 @@ def recording_worker(root, project_root, matching, ocr_params, frames, frame_con
                 replies.put(('status', '正在自动记录游玩过程'))
             if used_bytes > max_bytes or shutil.disk_usage(store.root).free < 512 * 1024 * 1024:
                 raise OSError('记录容量或磁盘可用空间达到限制')
-            if observation.changed or not observations or timestamp - observations[-1].timestamp >= 2:
+            if observation.changed or not observations or timestamp - last_keyframe_at >= 1:
                 save_keyframe(observation, frame)
             store.observe(recording_id, observation)
             observations.append(observation)
@@ -272,15 +274,50 @@ class WindowsGameplaySource:
         self.window = hwnd_window
         self.diagnostic_sink = None
         self.pending_callback_errors = []
+        self.callback_failure = None
         self.callback_lock = threading.Lock()
         source = self
 
         class RecordingGraphicsCapture(WindowsGraphicsCaptureMethod):
+            def __init__(self, window):
+                self.pending_reset = None
+                super().__init__(window)
+
+            def reset_framepool(self, size, reset_device=False):
+                self.pending_reset = size, reset_device
+
             def frame_arrived_callback(self, *args):
                 try:
-                    return super().frame_arrived_callback(*args)
-                except BaseException:
+                    with self.lock:
+                        if self.exit_event.is_set() or self.frame_pool is None:
+                            return
+                        next_frame = self.frame_pool.TryGetNextFrame()
+                        if not next_frame:
+                            return
+                        frame = None
+                        try:
+                            size = next_frame.ContentSize
+                            if size.Width > 0 and size.Height > 0:
+                                self.last_frame_time = time.time()
+                                if self.frame_requested.is_set():
+                                    frame = self.convert_dx_frame(next_frame)
+                        finally:
+                            next_frame.Close()
+                        # 释放当前 frame 后才能重新创建其所属的 frame pool。
+                        if self.pending_reset is not None:
+                            super().reset_framepool(*self.pending_reset)
+                            self.pending_reset = None
+                        if frame is not None:
+                            self.last_frame = frame
+                            self.frame_requested.clear()
+                            self.frame_event.set()
+                except BaseException as error:
+                    source.callback_failure = error
                     source.callback_error(traceback.format_exc())
+                    with self.lock:
+                        self._frame_cancel_generation += 1
+                        self.frame_requested.clear()
+                        self.frame_event.set()
                     raise
 
         self.capture = RecordingGraphicsCapture(hwnd_window)
@@ -301,7 +338,12 @@ class WindowsGameplaySource:
                                            level='error', traceback=error)
 
     def frame(self):
-        return self.capture.get_frame()
+        if self.callback_failure is not None:
+            raise RuntimeError('WGC 图像采集回调异常') from self.callback_failure
+        frame = self.capture.get_frame()
+        if self.callback_failure is not None:
+            raise RuntimeError('WGC 图像采集回调异常') from self.callback_failure
+        return frame
 
     def foreground(self):
         import win32gui
@@ -411,6 +453,8 @@ class GameplayRecorderService:
                 request_started = time.monotonic()
                 picture = self.source.frame()
                 received = time.monotonic()
+                if self.stop_event.is_set() or self.exit_event.is_set():
+                    break
                 if picture is None:
                     if not missing:
                         missing_started = request_started

@@ -18,6 +18,15 @@ from src.utils.QuestVision import (
 from src.workflow.models import Control, Observation
 
 
+def workflow_combat_visible(frame):
+    height, width = frame.shape[:2]
+    return bool(find_color_rectangles(frame, enemy_health_color_red, width * .025, height * .0042,
+                                     max_height=height * .025)
+                or find_color_rectangles(frame, boss_health_color, width * .025, height * .0055,
+                                         max_height=height * .025,
+                                         box=Box(width * .33, height * .027, width * .33, height * .066)))
+
+
 class SceneObserver:
     def __init__(self, project_root, matching, ocr_params):
         from onnxocr.onnx_paddleocr import ONNXPaddleOcr
@@ -74,11 +83,7 @@ class SceneObserver:
                                              max(1, round(max(ys) - min(ys))),
                                              name=text, confidence=float(confidence)))
         interaction = detect_interact_action(frame, ocr_boxes=interaction_boxes, key_box=key_box)
-        combat = bool(find_color_rectangles(frame, enemy_health_color_red, width * .025, height * .0042,
-                                           max_height=height * .025)
-                      or find_color_rectangles(frame, boss_health_color, width * .025, height * .0055,
-                                              max_height=height * .025,
-                                              box=Box(width * .33, height * .027, width * .33, height * .066)))
+        combat = workflow_combat_visible(frame)
         all_text = '\n'.join(texts)
         login = bool(re.search(r'账号登录|帐号登录|验证码|密码登录|扫码登录|切换账号|点击连接|请输入.*(?:账号|手机号|邮箱)|Sign In|Log In|Click to Connect|Verification Code|Password', all_text, re.I))
         login = login or any(re.fullmatch(r'登录|登入|登錄|Sign In|Log In', text, re.I) for text in texts)

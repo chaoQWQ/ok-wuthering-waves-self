@@ -1,5 +1,4 @@
 import json
-import hashlib
 import os
 import re
 import shutil
@@ -11,6 +10,7 @@ from pathlib import Path
 from src.workflow.models import CompilerResponse
 from src.workflow.validator import WorkflowValidator
 from src.workflow.input_evidence import describe_input_events
+from src.workflow.identity import workflow_content_id
 
 
 COMPILER_INSTRUCTIONS = '''用户授权：就调用我本地的agy。
@@ -33,12 +33,18 @@ no_action_needed 仅用于没有任何输入、任务和界面文字始终相同
 evidence_before、evidence_after、route_frames 引用输入 frame_id。
 只有任务、画面稳定且没有计时信息的停留可以省略。对白、演出、加载按实际状态结束。
 战斗使用 combat，由 ok-ww 执行。禁止生成战斗按键或根据录制战斗时间决定结束。
+战斗中出现对白分支时，优先使用明确的 combat、dialog/select、combat 连续步骤；分支必须绑定画面中实际唯一的选项文字与实际点击证据。
 输入事件包含按下、释放和 held_since 时间。按住 Tab 打开工具轮盘、保持 Tab 时移动鼠标选择工具、释放 Tab、短按 T 使用当前工具，需要结合实际画面分别识别。
 input_trajectories 是鼠标轨迹摘要，first_event 和 last_event 对应本地数据库保存的原始事件，原始轨迹按实际时间完整保留。
 鼠标 relative_total 是设备相对移动量，不能直接作为视角角度；cursor_start 和 cursor_end 是窗口内光标位置。
-当前执行动作不包含任意键鼠轨迹回放，需要长按工具选择或车辆、飞行轨迹控制时写入 unsupported_reasons。
+input_sequence 支持非战斗世界中的 Tab 工具轮盘、T 使用工具、WASD/Shift/Space 移动以及鼠标视角轨迹，用于步行、跳跃、车辆与飞行的有证据路线。
+input_sequence 的 target 填写实际工具或路线名称，前后条件必须证明不同的任务状态；起止截图均须为 world，区间内只允许 world 和有 Tab 长按证据的工具轮盘 menu。
+该动作由原始事件恢复按下、释放、鼠标轨迹和持续时间；全部按键必须在步骤证据区间内按下并释放，不能从持续按住的中间开始或结束。
+该动作需要间隔不超过 2 秒的连续图像检查点；执行时要求窗口尺寸相同、起始位置及视角与录制画面一致，并连续核对图像，失配立即停止。
+input_sequence 禁止 Esc、J、M、聊天、任意菜单及战斗输入；轮盘以外的左键点击生成独立 select/interact。缺少完整输入或图像证据时写入 unsupported_reasons。
 dialog 推进可见的普通对白；对白选项使用 select，自动演出和加载使用 wait。
 navigate 需要可观察的任务信标及目标。需要复杂三维定位且缺少能力时说明 unsupported。
+录制中绕开障碍或转弯的实际按键与鼠标路径，可以使用满足完整证据要求的 input_sequence；不能凭空生成绕行路线。
 select、claim 绑定当前画面中唯一的文字。interact、mechanism 绑定实际交互对象。
 mechanism 只支持明确可观察的操作提示。随机机关缺少求解能力时说明 unsupported。
 禁止生成购买、付费、抽取、兑换、分解、丢弃、账号设置、聊天消息动作。
@@ -156,18 +162,14 @@ class WorkflowCompiler:
         response = self.provider.compile(payload, images)
         if response.no_action_needed and (response.workflows or not WorkflowValidator(self.store).can_skip_recording(recording_id)):
             raise ValueError('分析结果将含有操作或状态变化的片段标记为停留')
-        for position, workflow in enumerate(response.workflows):
+        identity_occurrences = {}
+        for workflow in response.workflows:
             if workflow.recording_id != recording_id or workflow.game_version != game_version or workflow.language != language:
                 raise ValueError('AGY 返回的内容来源或适用环境不符')
-            indexed = {item.frame_id: item for item in observations}
-            first = indexed[workflow.steps[0].evidence_before]
-            last = indexed[workflow.steps[-1].evidence_after]
-            identity = (workflow.cycle, workflow.quest_title or workflow.title,
-                        first.objective, last.objective, first.interaction, last.interaction)
-            if session:
-                identity += (recording_id, position)
-            workflow.content_id = 'learned_' + hashlib.sha256(
-                json.dumps(identity, ensure_ascii=False).encode('utf-8')).hexdigest()[:24]
+            identity = workflow_content_id(workflow, observations)
+            occurrence = identity_occurrences.get(identity, 0)
+            identity_occurrences[identity] = occurrence + 1
+            workflow.content_id = workflow_content_id(workflow, observations, occurrence)
             WorkflowValidator(self.store).check_and_save(workflow)
         reasons = list(response.unsupported_reasons)
         if not response.workflows and not response.no_action_needed and not reasons:

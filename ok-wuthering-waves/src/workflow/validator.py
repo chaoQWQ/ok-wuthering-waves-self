@@ -53,7 +53,11 @@ class WorkflowValidator:
                 raise ValueError('交互对象与实际观察不符')
             if step.action == 'combat' and not any(item.combat for item in interval):
                 raise ValueError('战斗步骤缺少实际战斗证据')
-            for frame_id in (step.evidence_before, step.evidence_after, *step.route_frames):
+            sequence_frames = []
+            if step.action == 'input_sequence':
+                from src.workflow.playback import InputSequencePlan
+                sequence_frames = [item.frame_id for item in InputSequencePlan.load(self.store, workflow, step).checkpoints]
+            for frame_id in (step.evidence_before, step.evidence_after, *step.route_frames, *sequence_frames):
                 item = indexed[frame_id]
                 if not item.screenshot or not item.image_sha256:
                     raise ValueError('步骤缺少可检查的原始截图')

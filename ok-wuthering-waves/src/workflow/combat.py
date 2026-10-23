@@ -15,12 +15,16 @@ class CombatSession:
 
     def run(self, observation, deadline):
         task = self.task
+        if task._recorded_dialogue.advance(task, task._current_step, observation):
+            return 'story_interrupted'
         if observation.scene == 'dialog':
             task._coordinator.handoff('dialog')
             task._advance_workflow_dialog(observation)
             return 'story_interrupted'
         if observation.scene in ('cutscene', 'loading', 'result'):
             return 'story_interrupted'
+        if observation.scene == 'menu':
+            raise WorkflowStopped('战斗中出现菜单，录制材料无法确认对应选项')
         if not task.in_combat():
             return 'waiting_next_wave'
         task._combat_session = True

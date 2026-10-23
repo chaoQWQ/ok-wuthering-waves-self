@@ -12,6 +12,7 @@ class InputCoordinator:
         self.owner = None
         self.thread_id = threading.get_ident()
         self.last_observation = None
+        self.sequence_input = None
 
     def observe(self, observation):
         self.last_observation = observation
@@ -32,6 +33,8 @@ class InputCoordinator:
         self.task.check_workflow_input()
 
     def release(self):
+        if self.sequence_input is not None:
+            self.sequence_input.release()
         keys = set(getattr(self.task, '_held_keys', ())) | set(getattr(self.task, 'held_movement_keys', ()))
         for key in keys:
             self.interaction.send_key_up(key)
