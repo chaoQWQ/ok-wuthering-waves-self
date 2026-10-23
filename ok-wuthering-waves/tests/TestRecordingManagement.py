@@ -1,13 +1,50 @@
 import sqlite3
+import json
+from pathlib import Path
 
+import cv2
 import pytest
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QPoint, QTimer, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QLineEdit
-from qfluentwidgets import MessageBox
+from qfluentwidgets import CheckBox, MessageBox
 
 from TestGameplayLearningUi import learning_page
+from TestGameplayLearning import observer, observations, save_observation
+from src.workflow.models import Condition, Step, Workflow
 from src.workflow.store import WorkflowStateStore
+from src.workflow.video import SegmentedVideoWriter
+
+
+@pytest.fixture
+def recorded_materials(tmp_path, observations):
+    store = WorkflowStateStore(tmp_path / 'materials')
+    recording = store.start_recording()
+    store.set_environment(recording, 'fixture', 'zh_CN')
+    before = save_observation(store, recording, observations['quest_yangyang_interaction'], 'quest_yangyang_interaction')
+    after = save_observation(store, recording, observations['quest_after_story_combat'], 'quest_after_story_combat')
+    root = Path(__file__).resolve().parents[1]
+    evidence = json.loads((root / 'tests/data/workflow_input_capture.json').read_text(encoding='utf-8'))
+    sample = evidence['samples'][0]
+    store.event(recording, sample['timestamp'], 'input', sample['payload'])
+    writer = SegmentedVideoWriter(store.resolve(recording))
+    try:
+        writer.write(cv2.imread(str(root / 'tests/images/quest_yangyang_interaction.png')), 1.0)
+    finally:
+        writer.close()
+    step = Step(step_id='observed_transition', action='wait',
+                preconditions=Condition(objective=before.objective), completion=Condition(objective=after.objective),
+                evidence_before=before.frame_id, evidence_after=after.frame_id)
+    workflow = Workflow(title='真实截图条件检查', content_id='material_removal', period='once',
+                        recording_id=recording, game_version='fixture', steps=[step])
+    store.finish_recording(recording, 'complete')
+    store.save_workflow(workflow)
+    analysis_directory = store.resolve('agy')
+    analysis_directory.mkdir()
+    request = {'recording_id': recording, 'observations': [before.model_dump(), after.model_dump()],
+               'events': store.events(recording)}
+    (analysis_directory / f'{recording}.json').write_text(json.dumps(request, ensure_ascii=False), encoding='utf-8')
+    return store, recording, workflow
 
 
 def test_existing_database_migration_and_name_persistence(tmp_path):
@@ -50,6 +87,58 @@ def test_delete_batch_rolls_back_when_recording_is_active(tmp_path):
     with pytest.raises(ValueError):
         store.delete_recordings([first, active])
     assert {item['id'] for item in store.list_recordings()} == {first, active}
+
+
+def test_optional_material_deletion_clears_files_and_database(recorded_materials):
+    store, recording, workflow = recorded_materials
+    assert list(store.resolve(recording).glob('*.mkv'))
+    assert len(store.observations(recording)) == 2
+    assert store.events(recording)
+    store.delete_recordings([recording], delete_materials=True)
+    assert not store.resolve(recording).exists()
+    assert not store.resolve(f'agy/{recording}.json').exists()
+    assert store.observations(recording) == []
+    assert store.events(recording) == []
+    with pytest.raises(ValueError):
+        store.environment(recording)
+    assert store.recording(recording)['status'] == 'materials_deleted'
+    assert store.list_workflows()[0]['status'] == 'materials_deleted'
+    assert store.workflow(workflow.revision, executable=False) == workflow
+    with pytest.raises(ValueError):
+        store.workflow(workflow.revision)
+    with pytest.raises(ValueError):
+        store.save_workflow(workflow)
+    with pytest.raises(ValueError):
+        store.validate(workflow.revision, 'offline_checked', {})
+
+
+def test_materials_are_usable_when_option_is_unchecked(recorded_materials):
+    store, recording, workflow = recorded_materials
+    store.delete_recordings([recording])
+    assert list(store.resolve(recording).glob('*.mkv'))
+    assert store.resolve(f'agy/{recording}.json').exists()
+    assert len(store.observations(recording)) == 2
+    assert store.events(recording)
+    assert store.environment(recording)['language'] == 'zh_CN'
+    assert store.list_workflows()[0]['status'] == 'compiled'
+    assert store.workflow(workflow.revision, executable=False) == workflow
+
+
+def test_material_deletion_checks_entire_batch_before_removing_files(tmp_path):
+    store = WorkflowStateStore(tmp_path / 'materials')
+    complete = store.start_recording()
+    store.finish_recording(complete, 'complete')
+    active = store.start_recording()
+    with pytest.raises(ValueError):
+        store.delete_recordings([complete, active], delete_materials=True)
+    assert store.resolve(complete).is_dir()
+    assert store.recording(complete)['deleted'] == 0
+    with store.connect() as db:
+        db.execute("INSERT INTO recordings(id,started,status) VALUES ('..',1,'complete')")
+    with pytest.raises(ValueError):
+        store.delete_recordings(['..'], delete_materials=True)
+    assert store.root.is_dir()
+    assert store.path.is_file()
 
 
 def test_recording_name_editor_refresh_selection_and_delete(learning_page):
@@ -105,3 +194,51 @@ def test_recording_name_editor_refresh_selection_and_delete(learning_page):
     assert manager.interaction is None
     output = store.root.parent / 'recording-management.png'
     assert page.grab().save(str(output))
+
+
+def test_material_deletion_checkbox_and_activity_guard(learning_page):
+    app, page, learning, manager = learning_page
+    store = learning.get_store()
+    recording = store.start_recording()
+    store.finish_recording(recording, 'complete')
+    page.refresh()
+    page.recordings.selectRow(0)
+    assert page.can_delete_recording_materials()
+
+    def confirm_with_materials():
+        dialog = next(widget for widget in page.findChildren(MessageBox) if widget.isVisible())
+        checkbox = dialog.findChild(CheckBox)
+        assert checkbox.isEnabled()
+        assert not checkbox.isChecked()
+        QTest.mouseClick(checkbox, Qt.LeftButton, pos=QPoint(10, checkbox.height() // 2))
+        assert checkbox.isChecked()
+        output = store.root.parent / 'recording-materials-dialog.png'
+        assert page.grab().save(str(output))
+        QTest.mouseClick(dialog.yesButton, Qt.LeftButton)
+
+    QTimer.singleShot(350, confirm_with_materials)
+    QTest.mouseClick(page.delete_recordings_button, Qt.LeftButton)
+    assert not store.resolve(recording).exists()
+    assert store.recording(recording)['status'] == 'materials_deleted'
+
+    recording = store.start_recording()
+    store.finish_recording(recording, 'complete')
+    page.refresh()
+    page.recordings.selectRow(0)
+    learning.enable()
+    assert not page.can_delete_recording_materials()
+
+    def confirm_without_materials():
+        dialog = next(widget for widget in page.findChildren(MessageBox) if widget.isVisible())
+        checkbox = dialog.findChild(CheckBox)
+        assert not checkbox.isEnabled()
+        assert not checkbox.isChecked()
+        QTest.mouseClick(dialog.yesButton, Qt.LeftButton)
+
+    QTimer.singleShot(100, confirm_without_materials)
+    QTest.mouseClick(page.delete_recordings_button, Qt.LeftButton)
+    assert store.resolve(recording).exists()
+    assert store.recording(recording)['deleted'] == 1
+    learning.disable()
+    assert page.can_delete_recording_materials()
+    assert manager.interaction is None

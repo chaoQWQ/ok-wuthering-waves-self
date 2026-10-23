@@ -2,7 +2,7 @@ from datetime import datetime
 
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import QApplication, QAbstractItemView, QTableWidgetItem
-from qfluentwidgets import BodyLabel, FluentIcon, MessageBox, PushButton, TableWidget, TitleLabel
+from qfluentwidgets import BodyLabel, CheckBox, FluentIcon, MessageBox, PushButton, TableWidget, TitleLabel
 
 from ok import og
 from ok.gui.widget.CustomTab import CustomTab
@@ -19,6 +19,7 @@ STATUS_TEXT = {
     'recording': '正在记录', 'complete': '记录完整', 'interrupted': '记录中断', 'error': '记录异常',
     'running': '正在执行', 'completed': '已经完成',
     'needs_attention': '需要处理',
+    'materials_deleted': '材料已删除',
 }
 
 
@@ -160,7 +161,13 @@ class WorkflowPage(CustomTab):
             self.status_label.setText('请选择需要执行的内容。')
             return
         learning = self.task()
-        created = {item['revision']: item['created'] for item in learning.store.list_workflows()}
+        workflows = {item['revision']: item for item in learning.store.list_workflows()}
+        if any(workflows[revision]['status'] == 'materials_deleted' for revision in revisions):
+            dialog = MessageBox('无法执行', '选中的内容包含已删除材料的流程，需要重新录制和学习。', self.window())
+            dialog.cancelButton.hide()
+            dialog.exec()
+            return
+        created = {revision: item['created'] for revision, item in workflows.items()}
         revisions.sort(key=created.__getitem__)
         task.config['Workflow revisions'] = revisions
         task._app.start_controller.start(task)
@@ -194,12 +201,42 @@ class WorkflowPage(CustomTab):
         if not identifiers:
             return
         dialog = MessageBox('删除记录', f'确认删除选中的 {len(identifiers)} 条记录？\n'
-                            '记录将从列表移除，相关材料会保留供生成内容使用。', self.window())
+                            '删除关联材料会清除录像、截图、观察数据和操作记录，无法恢复。\n'
+                            '依赖这些材料的生成内容将无法执行。', self.window())
+        delete_materials = CheckBox('同时删除关联材料', dialog)
+        dialog.textLayout.addWidget(delete_materials)
+        activity_hint = BodyLabel('删除材料需要关闭自动记录，并等待分析和执行结束。', dialog)
+        activity_hint.setWordWrap(True)
+        dialog.textLayout.addWidget(activity_hint)
+
+        def update_materials_option():
+            available = self.can_delete_recording_materials()
+            delete_materials.setEnabled(available)
+            if not available:
+                delete_materials.setChecked(False)
+            activity_hint.setVisible(not available)
+
+        update_materials_option()
+        activity_timer = QTimer(dialog)
+        activity_timer.timeout.connect(update_materials_option)
+        activity_timer.start(100)
         dialog.yesButton.setText('删除')
         dialog.cancelButton.setText('取消')
-        if dialog.exec():
-            self.task().store.delete_recordings(identifiers)
+        accepted = dialog.exec()
+        activity_timer.stop()
+        if accepted:
+            remove_materials = delete_materials.isChecked()
+            if remove_materials and not self.can_delete_recording_materials():
+                raise RuntimeError('录制、分析或执行期间无法删除材料')
+            self.task().store.delete_recordings(identifiers, delete_materials=remove_materials)
             self.refresh_recordings(self.task().store)
+            self.refresh()
+
+    def can_delete_recording_materials(self):
+        task = self.task()
+        execution = self.execution_task()
+        return (not task.enabled and task.recorder is None and not task._analyzing
+                and (execution is None or task.executor.current_task is not execution))
 
     def refresh_recordings(self, store):
         if self.recordings.state() == QAbstractItemView.EditingState:

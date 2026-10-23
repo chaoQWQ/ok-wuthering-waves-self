@@ -1,4 +1,5 @@
 import json
+import shutil
 import sqlite3
 import time
 import uuid
@@ -164,13 +165,53 @@ class WorkflowStateStore:
             if result.rowcount != 1:
                 raise ValueError('录制记录不存在')
 
-    def delete_recordings(self, identifiers):
+    def delete_recordings(self, identifiers, delete_materials=False):
+        identifiers = set(identifiers)
         with self.connect() as db:
-            for identifier in set(identifiers):
+            db.execute('BEGIN IMMEDIATE')
+            directories = {}
+            for identifier in identifiers:
+                row = db.execute('SELECT status,deleted FROM recordings WHERE id=?', (identifier,)).fetchone()
+                if row is None or row['deleted'] or row['status'] == 'recording':
+                    raise ValueError('记录不存在或仍在录制，无法删除')
+                if delete_materials:
+                    directory = self.resolve(identifier)
+                    if directory.parent != self.root or directory.name != identifier or (self.root / identifier).is_symlink():
+                        raise ValueError('录制材料目录无效')
+                    directories[identifier] = directory
+            analysis_files = []
+            if delete_materials:
+                analysis_directory = self.resolve('agy')
+                if analysis_directory.parent != self.root or analysis_directory.name != 'agy' or (self.root / 'agy').is_symlink():
+                    raise ValueError('分析材料目录无效')
+                for request in analysis_directory.glob('*.json'):
+                    if request.is_symlink() or request.resolve().parent != analysis_directory:
+                        raise ValueError('分析材料路径无效')
+                    payload = json.loads(request.read_text(encoding='utf-8'))
+                    if payload['recording_id'] in identifiers:
+                        for suffix in ('.json', '.md', '.result.txt'):
+                            path = request.with_suffix(suffix)
+                            if path.is_symlink() or path.resolve().parent != analysis_directory:
+                                raise ValueError('分析材料路径无效')
+                            if path.exists():
+                                analysis_files.append(path)
+            for identifier in identifiers:
                 result = db.execute("UPDATE recordings SET deleted=1 WHERE id=? AND deleted=0 AND status!='recording'",
                                     (identifier,))
                 if result.rowcount != 1:
                     raise ValueError('记录不存在或仍在录制，无法删除')
+                if delete_materials:
+                    directory = directories[identifier]
+                    if directory.exists():
+                        shutil.rmtree(directory)
+                    db.execute('DELETE FROM observations WHERE recording_id=?', (identifier,))
+                    db.execute('DELETE FROM events WHERE recording_id=?', (identifier,))
+                    db.execute('DELETE FROM recording_environment WHERE recording_id=?', (identifier,))
+                    db.execute("UPDATE recordings SET status='materials_deleted' WHERE id=?", (identifier,))
+                    db.execute("UPDATE workflows SET status='materials_deleted' WHERE json_extract(payload,'$.recording_id')=?",
+                               (identifier,))
+            for path in analysis_files:
+                path.unlink()
 
     def analyzed(self, recording_id, reasons):
         with self.connect() as db:
@@ -181,6 +222,9 @@ class WorkflowStateStore:
         if status != 'compiled':
             raise ValueError('新流程必须经过独立验证')
         with self.connect() as db:
+            row = db.execute('SELECT status FROM recordings WHERE id=?', (workflow.recording_id,)).fetchone()
+            if row is None or row['status'] == 'materials_deleted':
+                raise ValueError('流程所需的录制材料不存在')
             db.execute('INSERT OR IGNORE INTO workflows VALUES(?,?,?,?,?,?,?)',
                        (workflow.revision, workflow.content_id, workflow.period, workflow.title,
                         status, workflow.model_dump_json(), time.time()))
@@ -190,7 +234,7 @@ class WorkflowStateStore:
             raise ValueError('未知验证状态')
         with self.connect() as db:
             row = db.execute('SELECT status FROM workflows WHERE revision=?', (revision,)).fetchone()
-            if row is None or (kind == 'runtime_verified' and row['status'] not in ('offline_checked', 'runtime_verified')):
+            if row is None or row['status'] == 'materials_deleted' or (kind == 'runtime_verified' and row['status'] not in ('offline_checked', 'runtime_verified')):
                 raise ValueError('流程尚未通过必要检查')
             if row['status'] != 'runtime_verified':
                 db.execute('UPDATE workflows SET status=? WHERE revision=?', (kind, revision))
