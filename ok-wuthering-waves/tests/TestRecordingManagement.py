@@ -7,7 +7,7 @@ import pytest
 from PySide6.QtCore import QPoint, QTimer, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QLineEdit
-from qfluentwidgets import CheckBox, MessageBox
+from qfluentwidgets import CheckBox, MessageBox, Theme, setTheme
 
 from TestGameplayLearningUi import learning_page
 from TestGameplayLearning import observer, observations, save_observation
@@ -194,6 +194,73 @@ def test_recording_name_editor_refresh_selection_and_delete(learning_page):
     assert manager.interaction is None
     output = store.root.parent / 'recording-management.png'
     assert page.grab().save(str(output))
+
+
+@pytest.mark.parametrize('theme', [Theme.LIGHT, Theme.DARK])
+def test_recording_selection_stays_visible_after_hover_and_refresh(learning_page, theme):
+    app, page, learning, manager = learning_page
+    setTheme(theme, save=False)
+    store = learning.get_store()
+    for _ in range(3):
+        identifier = store.start_recording()
+        store.finish_recording(identifier, 'complete')
+    page.refresh()
+    table = page.recordings
+    page.ensureWidgetVisible(table)
+    QTest.qWait(50)
+    cell = table.item(1, 0)
+    identifier = cell.data(Qt.UserRole)
+    QTest.mouseClick(table.viewport(), Qt.LeftButton, pos=table.visualItemRect(cell).center())
+    QTest.mouseMove(page.delete_recordings_button, page.delete_recordings_button.rect().center())
+    app.processEvents()
+    marker = QPoint(5, table.visualItemRect(cell).center().y())
+    selected_color = table.viewport().grab().toImage().pixelColor(marker)
+    assert selected_color.saturation() > 100
+    QTest.qWait(1200)
+    rows = {index.row() for index in table.selectionModel().selectedRows()}
+    assert rows == {1}
+    assert table.item(1, 0).data(Qt.UserRole) == identifier
+    assert table.delegate.selectedRows == rows
+    assert table.viewport().grab().toImage().pixelColor(marker) == selected_color
+    assert page.delete_recordings_button.isEnabled()
+
+    QTest.mouseClick(table.viewport(), Qt.LeftButton, Qt.ControlModifier,
+                     table.visualItemRect(table.item(2, 0)).center())
+    selected = {table.item(index.row(), 0).data(Qt.UserRole)
+                for index in table.selectionModel().selectedRows()}
+    assert len(selected) == 2
+    latest = store.start_recording()
+    store.finish_recording(latest, 'complete')
+    page.refresh()
+    QTest.mouseMove(page.delete_recordings_button, page.delete_recordings_button.rect().center())
+    app.processEvents()
+    rows = {index.row() for index in table.selectionModel().selectedRows()}
+    assert {table.item(row, 0).data(Qt.UserRole) for row in rows} == selected
+    assert table.delegate.selectedRows == rows
+    output = Path('working_images') / f'recording-selection-{theme.value.lower()}.png'
+    assert table.grab().save(str(output))
+    table.clearSelection()
+    assert not table.delegate.selectedRows
+    assert not page.delete_recordings_button.isEnabled()
+    assert manager.interaction is None
+
+
+def test_workflow_selection_stays_visible_after_refresh(learning_page, recorded_materials):
+    app, page, learning, manager = learning_page
+    store, recording, workflow = recorded_materials
+    learning.config['Recording folder'] = str(store.root)
+    learning.get_store()
+    page.refresh()
+    table = page.table
+    page.ensureWidgetVisible(table)
+    QTest.mouseClick(table.viewport(), Qt.LeftButton,
+                     pos=table.visualItemRect(table.item(0, 0)).center())
+    QTest.mouseMove(page.execute_button, page.execute_button.rect().center())
+    QTest.qWait(1200)
+    assert table.item(0, 0).data(Qt.UserRole) == workflow.revision
+    assert {index.row() for index in table.selectionModel().selectedRows()} == {0}
+    assert table.delegate.selectedRows == {0}
+    assert manager.interaction is None
 
 
 def test_material_deletion_checkbox_and_activity_guard(learning_page):

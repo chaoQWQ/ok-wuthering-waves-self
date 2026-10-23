@@ -260,6 +260,7 @@ class WorkflowPage(CustomTab):
                     cell.setSelected(item['id'] in selected)
         finally:
             self.recordings.blockSignals(False)
+        self.recordings.updateSelectedRows()
         self.update_recording_actions()
 
     def refresh(self):
@@ -300,6 +301,7 @@ class WorkflowPage(CustomTab):
             if item['revision'] in selected:
                 for column in range(3):
                     self.table.item(row, column).setSelected(True)
+        self.table.updateSelectedRows()
         self.refresh_recordings(task.store)
         progress = task.store.list_progress()
         self.progress.setRowCount(len(progress))
