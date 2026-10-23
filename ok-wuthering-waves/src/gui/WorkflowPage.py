@@ -6,6 +6,7 @@ from qfluentwidgets import BodyLabel, FluentIcon, PushButton, TableWidget, Title
 
 from ok import og
 from ok.gui.widget.CustomTab import CustomTab
+from src.gui.RecordingNotification import RecordingNotification
 from src.task.GameplayLearningTask import GameplayLearningTask
 from src.task.MultiAccountWorkflowTask import MultiAccountWorkflowTask
 from src.utils.HotkeyWidget import HotkeyLineEdit, LabelAndHotkey
@@ -35,6 +36,7 @@ class WorkflowPage(CustomTab):
         self._hotkey_value = None
         self._hotkey_poller = None
         self._hotkey_ready = False
+        self.recording_notification = RecordingNotification()
         self.table = TableWidget(self.view)
         self.table.setColumnCount(3)
         self.table.setHorizontalHeaderLabels(['内容', '验证状态', '生成时间'])
@@ -83,17 +85,22 @@ class WorkflowPage(CustomTab):
         executor = self.executor or getattr(og, 'executor', None)
         return executor.get_task_by_class(GameplayLearningTask) if executor else None
 
-    def toggle_recording(self):
+    def toggle_recording(self, _checked=False, *, notify=False):
         task = self.task()
         if task is None:
             return
         if task.enabled:
             task.disable()
+            message = '正在停止录制' if task.recorder is not None else '自动记录已关闭'
         elif task.failure is not None:
             self.status_label.setText('记录服务已经异常停止，请查看任务日志并重新启动程序。')
+            message = '无法开启自动记录\n请查看任务日志'
         else:
             task.enable()
+            message = '自动记录已启用'
         self.refresh()
+        if notify:
+            self.recording_notification.show_message(message)
 
     def suppress_recording_hotkey(self, _value=''):
         # 设置按键时保持停用，直到组合键全部释放。
@@ -124,7 +131,7 @@ class WorkflowPage(CustomTab):
                 self._hotkey_ready = True
             return
         if pressed:
-            self.toggle_recording()
+            self.toggle_recording(notify=True)
 
     def execution_task(self):
         executor = self.executor or getattr(og, 'executor', None)
@@ -207,5 +214,7 @@ class WorkflowPage(CustomTab):
     def dispose(self):
         self.timer.stop()
         self.hotkey_timer.stop()
+        self.recording_notification.hide_timer.stop()
+        self.recording_notification.close()
         for card in self.cards:
             card.dispose()

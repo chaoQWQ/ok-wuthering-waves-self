@@ -107,6 +107,48 @@ def test_recording_shortcut_editor_persists_and_clears(learning_page):
     assert manager.interaction is None
 
 
+def test_recording_notification_centers_replaces_and_hides_without_focus(learning_page):
+    app, page, learning, manager = learning_page
+    other = QWidget()
+    try:
+        page.hide()
+        other.show()
+        other.activateWindow()
+        QTest.qWait(100)
+        active = app.activeWindow()
+        if app.platformName() == 'windows':
+            import win32gui
+            foreground = win32gui.GetForegroundWindow()
+        page.toggle_recording(notify=True)
+        notification = page.recording_notification
+        QTest.qWait(100)
+        assert learning.enabled
+        assert notification.isVisible()
+        assert notification.label.text() == '自动记录已启用'
+        assert notification.geometry().center() == notification.foreground_screen().geometry().center()
+        assert app.activeWindow() is active
+        if app.platformName() == 'windows':
+            import win32con
+            assert win32gui.GetForegroundWindow() == foreground
+            style = win32gui.GetWindowLong(int(notification.winId()), win32con.GWL_EXSTYLE)
+            assert style & win32con.WS_EX_NOACTIVATE
+            assert style & win32con.WS_EX_TRANSPARENT
+        output = Path('working_images/workflow-recording-notification.png').resolve()
+        assert notification.grab().save(str(output))
+        QTest.qWait(1000)
+        page.toggle_recording(notify=True)
+        assert not learning.enabled
+        assert notification.label.text() == '自动记录已关闭'
+        QTest.qWait(1100)
+        assert notification.isVisible()
+        QTest.qWait(1100)
+        assert not notification.isVisible()
+        assert app.activeWindow() is active
+        assert manager.interaction is None
+    finally:
+        other.close()
+
+
 def test_native_global_recording_shortcut(learning_page):
     app, page, learning, manager = learning_page
     if app.platformName() != 'windows':
@@ -132,6 +174,7 @@ def test_native_global_recording_shortcut(learning_page):
             for code in codes:
                 win32api.keybd_event(code, 0, 0, 0)
             QTest.qWait(220)
+            assert win32gui.GetForegroundWindow() in (int(page.winId()), int(other.winId()))
             key_states = [bool(win32api.GetAsyncKeyState(code) & 0x8000) for code in codes]
             assert learning.enabled is expected, f'keys_down={key_states}, ready={page._hotkey_ready}'
             QTest.qWait(220)
