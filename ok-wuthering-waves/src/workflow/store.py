@@ -165,6 +165,58 @@ class WorkflowStateStore:
             if result.rowcount != 1:
                 raise ValueError('录制记录不存在')
 
+    def recording_materials(self, identifier):
+        recording = self.recording(identifier)
+        if recording['deleted']:
+            raise ValueError('录制记录已删除')
+        directory = self.resolve(identifier)
+        if directory.parent != self.root or directory.name != identifier or (self.root / identifier).is_symlink():
+            raise ValueError('录制材料目录无效')
+        if not directory.is_dir():
+            raise FileNotFoundError('录制材料目录不存在')
+        observations = self.observations(identifier)
+        events = [{**event, 'payload': json.loads(event['payload'])} for event in self.events(identifier)]
+        with self.connect() as db:
+            environment = db.execute('SELECT game_version,language FROM recording_environment WHERE recording_id=?',
+                                     (identifier,)).fetchone()
+        exports = {
+            'recording-details.json': ('记录信息', {**recording, 'environment': dict(environment) if environment else None}),
+            'observations.json': ('画面与任务识别', [item.model_dump() for item in observations]),
+            'events.json': ('键鼠与记录事件', events),
+        }
+        materials = []
+        for name, (kind, payload) in exports.items():
+            path = directory / name
+            if path.is_symlink():
+                raise ValueError('材料导出文件不能使用符号链接')
+            path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
+            materials.append({'kind': kind, 'path': path})
+        for path in sorted(directory.iterdir()):
+            if path.suffix.lower() in ('.png', '.mkv'):
+                if path.is_symlink() or not path.is_file():
+                    raise ValueError('录制材料文件无效')
+                materials.append({'kind': '关键截图' if path.suffix.lower() == '.png' else '录像', 'path': path})
+        analysis_directory = self.resolve('agy')
+        if analysis_directory.parent != self.root or (self.root / 'agy').is_symlink():
+            raise ValueError('分析材料目录无效')
+        for request in sorted(analysis_directory.glob('*.json')):
+            if request.is_symlink():
+                raise ValueError('分析请求文件不能使用符号链接')
+            payload = json.loads(request.read_text(encoding='utf-8'))
+            if payload.get('recording_id') != identifier:
+                continue
+            for suffix, kind in (('.json', 'AGY 分析请求'), ('.md', 'AGY 分析说明'),
+                                 ('.result.txt', 'AGY 分析结果')):
+                path = request.with_suffix(suffix)
+                if path.is_symlink():
+                    raise ValueError('分析材料文件不能使用符号链接')
+                if path.is_file():
+                    materials.append({'kind': kind, 'path': path})
+        return {
+            'recording': recording, 'directory': directory, 'files': materials,
+            'observations': len(observations), 'input_events': sum(event['kind'] == 'input' for event in events),
+        }
+
     def delete_recordings(self, identifiers, delete_materials=False):
         identifiers = set(identifiers)
         with self.connect() as db:

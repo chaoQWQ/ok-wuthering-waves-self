@@ -2,12 +2,13 @@ from datetime import datetime
 from textwrap import fill
 
 from PySide6.QtCore import QTimer, Qt
-from PySide6.QtWidgets import QApplication, QAbstractItemView, QTableWidgetItem
+from PySide6.QtWidgets import QApplication, QAbstractItemView, QHBoxLayout, QTableWidgetItem
 from qfluentwidgets import BodyLabel, CheckBox, FluentIcon, MessageBox, PushButton, TableWidget, TitleLabel
 
 from ok import og
 from ok.gui.widget.CustomTab import CustomTab
 from src.gui.RecordingNotification import RecordingNotification
+from src.gui.RecordingMaterialsDialog import RecordingMaterialsDialog
 from src.task.GameplayLearningTask import GameplayLearningTask
 from src.task.MultiAccountWorkflowTask import MultiAccountWorkflowTask
 from src.utils.HotkeyWidget import HotkeyLineEdit, LabelAndHotkey
@@ -68,11 +69,18 @@ class WorkflowPage(CustomTab):
         self.recordings.itemChanged.connect(self.rename_recording)
         self.add_widget(self.recordings)
         self.add_widget(BodyLabel('双击记录名称可以修改，最多支持 160 个字符。', self.view))
+        recording_actions = QHBoxLayout()
+        self.materials_button = PushButton('查看选中记录的材料', self.view)
+        self.materials_button.setEnabled(False)
+        self.materials_button.setToolTip('选择一条记录，查看录像、截图、操作数据及 AGY 分析文件。')
+        self.materials_button.clicked.connect(self.view_selected_recording_materials)
+        recording_actions.addWidget(self.materials_button)
         self.delete_recordings_button = PushButton('删除选中的记录', self.view)
         self.delete_recordings_button.clicked.connect(self.delete_selected_recordings)
         self.recordings.itemSelectionChanged.connect(self.update_recording_actions)
         self.delete_recordings_button.setEnabled(False)
-        self.add_widget(self.delete_recordings_button)
+        recording_actions.addWidget(self.delete_recordings_button)
+        self.vBoxLayout.addLayout(recording_actions)
         self.progress = TableWidget(self.view)
         self.progress.setColumnCount(4)
         self.progress.setHorizontalHeaderLabels(['账号', '内容', '当前步骤', '状态'])
@@ -193,8 +201,17 @@ class WorkflowPage(CustomTab):
 
     def update_recording_actions(self):
         rows = self.recordings.selectionModel().selectedRows()
+        self.materials_button.setEnabled(len(rows) == 1)
         self.delete_recordings_button.setEnabled(bool(rows) and all(
             self.recordings.item(index.row(), 2).data(Qt.UserRole) != 'recording' for index in rows))
+
+    def view_selected_recording_materials(self):
+        rows = self.recordings.selectionModel().selectedRows()
+        if len(rows) != 1:
+            return
+        identifier = self.recordings.item(rows[0].row(), 0).data(Qt.UserRole)
+        dialog = RecordingMaterialsDialog(self.task().store, identifier, self.window())
+        dialog.exec()
 
     def delete_selected_recordings(self):
         identifiers = [self.recordings.item(index.row(), 0).data(Qt.UserRole)

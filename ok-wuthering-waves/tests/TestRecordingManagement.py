@@ -12,6 +12,7 @@ from qfluentwidgets import CheckBox, MessageBox, Theme, setTheme
 
 from TestGameplayLearningUi import learning_page
 from TestGameplayLearning import observer, observations, save_observation
+from src.gui.RecordingMaterialsDialog import RecordingMaterialsDialog
 from src.workflow.models import Condition, Step, Workflow
 from src.workflow.store import WorkflowStateStore
 from src.workflow.video import SegmentedVideoWriter
@@ -61,6 +62,90 @@ def test_existing_database_migration_and_name_persistence(tmp_path):
         with pytest.raises(ValueError):
             store.rename_recording('existing', name)
     assert store.recording('existing')['name'] == '剧情第一章'
+
+
+def test_materials_export_original_evidence_and_find_analysis(recorded_materials):
+    store, recording, workflow = recorded_materials
+    original = store.observations(recording)
+    materials = store.recording_materials(recording)
+    assert materials['directory'] == store.resolve(recording)
+    assert materials['observations'] == 2
+    assert materials['input_events'] == 1
+    files = materials['files']
+    assert all(item['path'].is_file() for item in files)
+    assert sum(item['kind'] == '关键截图' for item in files) == 2
+    assert sum(item['kind'] == '录像' for item in files) == 1
+    assert sum(item['kind'] == 'AGY 分析请求' for item in files) == 1
+    exported = json.loads(store.resolve(f'{recording}/observations.json').read_text(encoding='utf-8'))
+    assert exported == [item.model_dump() for item in original]
+    events = json.loads(store.resolve(f'{recording}/events.json').read_text(encoding='utf-8'))
+    assert events == [{**event, 'payload': json.loads(event['payload'])} for event in store.events(recording)]
+    details = json.loads(store.resolve(f'{recording}/recording-details.json').read_text(encoding='utf-8'))
+    assert details['id'] == recording
+    assert details['environment'] == store.environment(recording)
+    assert store.workflow(workflow.revision, executable=False) == workflow
+
+
+def test_materials_require_existing_directory_and_valid_recording(tmp_path):
+    store = WorkflowStateStore(tmp_path)
+    recording = store.start_recording()
+    materials = store.recording_materials(recording)
+    assert materials['recording']['status'] == 'recording'
+    assert materials['input_events'] == 0
+    store.finish_recording(recording, 'interrupted', '无法取得游戏画面')
+    materials = store.recording_materials(recording)
+    assert materials['recording']['reason'] == '无法取得游戏画面'
+    store.delete_recordings([recording], delete_materials=True)
+    with pytest.raises(ValueError):
+        store.recording_materials(recording)
+    assert not store.resolve(recording).exists()
+    missing = store.start_recording()
+    store.resolve(missing).rmdir()
+    with pytest.raises(FileNotFoundError):
+        store.recording_materials(missing)
+    assert not store.resolve(missing).exists()
+    with store.connect() as db:
+        db.execute("INSERT INTO recordings(id,started,status) VALUES ('..',1,'complete')")
+    with pytest.raises(ValueError):
+        store.recording_materials('..')
+
+
+def test_recording_materials_button_opens_matching_files(learning_page, recorded_materials):
+    app, page, learning, manager = learning_page
+    store, recording, workflow = recorded_materials
+    learning.config['Recording folder'] = str(store.root)
+    learning.get_store()
+    page.refresh()
+    assert not page.materials_button.isEnabled()
+    page.recordings.selectRow(0)
+    assert page.materials_button.isEnabled()
+    opened = []
+
+    def close_materials():
+        dialog = app.activeModalWidget()
+        opened.append(dialog)
+        dialog.accept()
+
+    QTimer.singleShot(150, close_materials)
+    QTest.mouseClick(page.materials_button, Qt.LeftButton)
+    assert len(opened) == 1
+    dialog = opened[0]
+    assert isinstance(dialog, RecordingMaterialsDialog)
+    assert dialog.materials['recording']['id'] == recording
+    assert '关键截图 2 张' in dialog.summary.text()
+    assert '键鼠事件 1 条' in dialog.summary.text()
+    assert not dialog.open_button.isEnabled()
+    video_row = next(row for row, item in enumerate(dialog.materials['files']) if item['kind'] == '录像')
+    dialog.table.selectRow(video_row)
+    assert dialog.open_button.isEnabled() and dialog.location_button.isEnabled()
+    assert dialog.selected_path() == store.resolve(f'{recording}/video_00000.mkv')
+    dialog.show()
+    QTest.qWait(100)
+    assert dialog.grab().save(str(store.root.parent / 'recording-materials.png'))
+    dialog.close()
+    page.recordings.clearSelection()
+    assert not page.materials_button.isEnabled()
+    assert manager.interaction is None
 
 
 def test_delete_preserves_material_and_removes_pending_analysis(tmp_path):
