@@ -1,4 +1,5 @@
 from datetime import datetime
+from textwrap import fill
 
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import QApplication, QAbstractItemView, QTableWidgetItem
@@ -255,6 +256,9 @@ class WorkflowPage(CustomTab):
                     cell = QTableWidgetItem(text)
                     if column != 0:
                         cell.setFlags(cell.flags() & ~Qt.ItemIsEditable)
+                    if column == 3:
+                        cell.setToolTip('\n'.join(fill(line, width=48, drop_whitespace=False)
+                                                   for line in text.split('\n')))
                     cell.setData(Qt.UserRole, item['id'] if column == 0 else item['status'])
                     self.recordings.setItem(row, column, cell)
                     cell.setSelected(item['id'] in selected)

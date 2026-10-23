@@ -4,7 +4,8 @@ from pathlib import Path
 
 import cv2
 import pytest
-from PySide6.QtCore import QPoint, QTimer, Qt
+from PySide6.QtCore import QEvent, QPoint, QTimer, Qt
+from PySide6.QtGui import QHelpEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QLineEdit
 from qfluentwidgets import CheckBox, MessageBox, Theme, setTheme
@@ -145,7 +146,8 @@ def test_recording_name_editor_refresh_selection_and_delete(learning_page):
     app, page, learning, manager = learning_page
     store = learning.get_store()
     identifier = store.start_recording()
-    store.finish_recording(identifier, 'complete')
+    reason = '当前执行动作不包含任意键鼠轨迹回放，录制中包含科考摩托车赶路及工具轮盘选择。' * 4
+    store.finish_recording(identifier, 'complete', reason)
     page.refresh()
     table = page.recordings
     assert table.columnCount() == 4
@@ -165,6 +167,22 @@ def test_recording_name_editor_refresh_selection_and_delete(learning_page):
     assert table.item(0, 0).text() == '每日剧情记录'
     assert table.selectionModel().selectedRows()
     assert page.delete_recordings_button.isEnabled()
+    page.ensureWidgetVisible(table)
+    cell = table.item(0, 3)
+    assert cell.text() == reason
+    assert cell.toolTip().replace('\n', '') == reason
+    assert max(map(len, cell.toolTip().splitlines())) <= 48
+    position = table.visualItemRect(cell).center()
+    event = QHelpEvent(QEvent.ToolTip, position, table.viewport().mapToGlobal(position))
+    app.sendEvent(table.viewport(), event)
+    QTest.qWait(250)
+    tooltip = table.delegate.tooltipDelegate._tooltip
+    assert tooltip is not None and tooltip.isVisible()
+    assert tooltip.label.text().replace('\n', '') == reason
+    assert tooltip.width() < table.screen().availableGeometry().width()
+    output = store.root.parent / 'recording-description-tooltip.png'
+    assert tooltip.grab().save(str(output))
+    table.delegate.tooltipDelegate.hideToolTip()
 
     def cancel_dialog():
         dialog = next(widget for widget in page.findChildren(MessageBox)
