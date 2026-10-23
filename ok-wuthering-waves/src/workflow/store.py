@@ -48,6 +48,11 @@ class WorkflowStateStore:
                     id INTEGER PRIMARY KEY, revision TEXT NOT NULL, kind TEXT NOT NULL,
                     evidence TEXT NOT NULL, created REAL NOT NULL);
             ''')
+            columns = {row['name'] for row in db.execute('PRAGMA table_info(recordings)')}
+            if 'name' not in columns:
+                db.execute("ALTER TABLE recordings ADD COLUMN name TEXT NOT NULL DEFAULT ''")
+            if 'deleted' not in columns:
+                db.execute('ALTER TABLE recordings ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0')
 
     @contextmanager
     def connect(self):
@@ -126,7 +131,7 @@ class WorkflowStateStore:
     def pending_recordings(self):
         with self.connect() as db:
             return [row['id'] for row in db.execute(
-                "SELECT id FROM recordings WHERE status='complete' AND analyzed=0 ORDER BY started")]
+                "SELECT id FROM recordings WHERE status='complete' AND analyzed=0 AND deleted=0 ORDER BY started")]
 
     def recording(self, identifier):
         with self.connect() as db:
@@ -148,7 +153,24 @@ class WorkflowStateStore:
     def list_recordings(self):
         with self.connect() as db:
             return [dict(row) for row in db.execute(
-                'SELECT id,started,status,analyzed,reason FROM recordings ORDER BY started DESC LIMIT 100')]
+                'SELECT id,name,started,status,analyzed,reason FROM recordings WHERE deleted=0 ORDER BY started DESC LIMIT 100')]
+
+    def rename_recording(self, identifier, name):
+        name = name.strip()
+        if not name or len(name) > 160:
+            raise ValueError('记录名称需要包含 1 至 160 个字符')
+        with self.connect() as db:
+            result = db.execute('UPDATE recordings SET name=? WHERE id=? AND deleted=0', (name, identifier))
+            if result.rowcount != 1:
+                raise ValueError('录制记录不存在')
+
+    def delete_recordings(self, identifiers):
+        with self.connect() as db:
+            for identifier in set(identifiers):
+                result = db.execute("UPDATE recordings SET deleted=1 WHERE id=? AND deleted=0 AND status!='recording'",
+                                    (identifier,))
+                if result.rowcount != 1:
+                    raise ValueError('记录不存在或仍在录制，无法删除')
 
     def analyzed(self, recording_id, reasons):
         with self.connect() as db:

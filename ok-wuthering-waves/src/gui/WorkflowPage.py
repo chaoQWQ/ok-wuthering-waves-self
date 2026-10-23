@@ -2,7 +2,7 @@ from datetime import datetime
 
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import QApplication, QAbstractItemView, QTableWidgetItem
-from qfluentwidgets import BodyLabel, FluentIcon, PushButton, TableWidget, TitleLabel
+from qfluentwidgets import BodyLabel, FluentIcon, MessageBox, PushButton, TableWidget, TitleLabel
 
 from ok import og
 from ok.gui.widget.CustomTab import CustomTab
@@ -53,11 +53,24 @@ class WorkflowPage(CustomTab):
         self.import_button.clicked.connect(self.import_accounts)
         self.add_widget(self.import_button)
         self.recordings = TableWidget(self.view)
-        self.recordings.setColumnCount(3)
-        self.recordings.setHorizontalHeaderLabels(['记录时间', '状态', '说明'])
+        self.recordings.setColumnCount(4)
+        self.recordings.setHorizontalHeaderLabels(['记录名称', '记录时间', '状态', '说明'])
+        self.recordings.setColumnWidth(0, 260)
+        self.recordings.setColumnWidth(1, 150)
+        self.recordings.setColumnWidth(2, 130)
         self.recordings.setMinimumHeight(200)
+        self.recordings.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.recordings.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.recordings.setEditTriggers(QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed)
         self.recordings.horizontalHeader().setStretchLastSection(True)
+        self.recordings.itemChanged.connect(self.rename_recording)
         self.add_widget(self.recordings)
+        self.add_widget(BodyLabel('双击记录名称可以修改，最多支持 160 个字符。', self.view))
+        self.delete_recordings_button = PushButton('删除选中的记录', self.view)
+        self.delete_recordings_button.clicked.connect(self.delete_selected_recordings)
+        self.recordings.itemSelectionChanged.connect(self.update_recording_actions)
+        self.delete_recordings_button.setEnabled(False)
+        self.add_widget(self.delete_recordings_button)
         self.progress = TableWidget(self.view)
         self.progress.setColumnCount(4)
         self.progress.setHorizontalHeaderLabels(['账号', '内容', '当前步骤', '状态'])
@@ -158,6 +171,60 @@ class WorkflowPage(CustomTab):
             count = task.import_daily_accounts()
             self.status_label.setText(f'已导入 {count} 个账号的完整身份配置。')
 
+    def rename_recording(self, item):
+        if item.column() != 0:
+            return
+        name = item.text().strip()
+        if not name or len(name) > 160:
+            dialog = MessageBox('记录名称无效', '请输入 1 至 160 个字符的记录名称。', self.window())
+            dialog.cancelButton.hide()
+            dialog.exec()
+            self.refresh_recordings(self.task().store)
+            return
+        self.task().store.rename_recording(item.data(Qt.UserRole), name)
+
+    def update_recording_actions(self):
+        rows = self.recordings.selectionModel().selectedRows()
+        self.delete_recordings_button.setEnabled(bool(rows) and all(
+            self.recordings.item(index.row(), 2).data(Qt.UserRole) != 'recording' for index in rows))
+
+    def delete_selected_recordings(self):
+        identifiers = [self.recordings.item(index.row(), 0).data(Qt.UserRole)
+                       for index in self.recordings.selectionModel().selectedRows()]
+        if not identifiers:
+            return
+        dialog = MessageBox('删除记录', f'确认删除选中的 {len(identifiers)} 条记录？\n'
+                            '记录将从列表移除，相关材料会保留供生成内容使用。', self.window())
+        dialog.yesButton.setText('删除')
+        dialog.cancelButton.setText('取消')
+        if dialog.exec():
+            self.task().store.delete_recordings(identifiers)
+            self.refresh_recordings(self.task().store)
+
+    def refresh_recordings(self, store):
+        if self.recordings.state() == QAbstractItemView.EditingState:
+            return
+        selected = {self.recordings.item(index.row(), 0).data(Qt.UserRole)
+                    for index in self.recordings.selectionModel().selectedRows()}
+        recordings = store.list_recordings()
+        self.recordings.blockSignals(True)
+        try:
+            self.recordings.clearSelection()
+            self.recordings.setRowCount(len(recordings))
+            for row, item in enumerate(recordings):
+                timestamp = datetime.fromtimestamp(item['started']).strftime('%m-%d %H:%M')
+                values = (item['name'] or f'记录 {timestamp}', timestamp, STATUS_TEXT[item['status']], item['reason'])
+                for column, text in enumerate(values):
+                    cell = QTableWidgetItem(text)
+                    if column != 0:
+                        cell.setFlags(cell.flags() & ~Qt.ItemIsEditable)
+                    cell.setData(Qt.UserRole, item['id'] if column == 0 else item['status'])
+                    self.recordings.setItem(row, column, cell)
+                    cell.setSelected(item['id'] in selected)
+        finally:
+            self.recordings.blockSignals(False)
+        self.update_recording_actions()
+
     def refresh(self):
         task = self.task()
         if task is None:
@@ -196,13 +263,7 @@ class WorkflowPage(CustomTab):
             if item['revision'] in selected:
                 for column in range(3):
                     self.table.item(row, column).setSelected(True)
-        recordings = task.store.list_recordings()
-        self.recordings.setRowCount(len(recordings))
-        for row, item in enumerate(recordings):
-            values = (datetime.fromtimestamp(item['started']).strftime('%m-%d %H:%M'),
-                      STATUS_TEXT[item['status']], item['reason'])
-            for column, text in enumerate(values):
-                self.recordings.setItem(row, column, QTableWidgetItem(text))
+        self.refresh_recordings(task.store)
         progress = task.store.list_progress()
         self.progress.setRowCount(len(progress))
         for row, item in enumerate(progress):
