@@ -1,4 +1,5 @@
 import hashlib
+import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -7,6 +8,7 @@ import pytest
 
 from config import config
 from src.workflow.models import Condition, Step, Workflow, cycle_period
+from src.workflow.input_evidence import describe_input_events
 from src.workflow.observer import IdleTracker, SceneObserver, protect_observation_frame
 from src.workflow.recorder import persist_inputs
 from src.workflow.store import WorkflowStateStore
@@ -15,6 +17,32 @@ from src.workflow.video import SegmentedVideoWriter, read_video
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_native_input_fixture_preserves_timing_and_relative_motion(tmp_path):
+    evidence = json.loads((ROOT / 'tests/data/workflow_input_capture.json').read_text(encoding='utf-8'))
+    assert evidence['source'] == '真实 Qt 验证窗口的 Windows Raw Input'
+    samples = evidence['samples']
+    store = WorkflowStateStore(tmp_path)
+    recording = store.start_recording()
+    store.events_batch(recording, [(item['timestamp'], 'input', item['payload']) for item in samples])
+    events = store.events(recording)
+    assert [json.loads(item['payload']) for item in events] == [item['payload'] for item in samples]
+    states, trajectories = describe_input_events(events)
+    key_events = [item for item in states if json.loads(item['payload']).get('key_event', {}).get('key') == 't']
+    assert [json.loads(item['payload'])['key_event']['pressed'] for item in key_events] == [True, False, True, False]
+    assert key_events[1]['timestamp'] - key_events[0]['timestamp'] >= .35
+    assert .02 <= key_events[3]['timestamp'] - key_events[2]['timestamp'] < .2
+    mouse = [item['payload']['mouse'] for item in samples if 'mouse' in item['payload']]
+    assert sum(item['samples'] for item in trajectories) == len(mouse)
+    assert sum(item['relative_total'][0] for item in trajectories) == sum(item['x'] for item in mouse if item['mode'] == 'relative')
+    assert sum(item['relative_total'][1] for item in trajectories) == sum(item['y'] for item in mouse if item['mode'] == 'relative')
+    assert sum(item['wheel'] for item in trajectories) == -120
+    assert any(not item['payload']['keys'] and not item['payload']['buttons'] and item['payload'].get('mouse', {}).get('x')
+               for item in samples)
+    for trajectory in trajectories:
+        original = [item for item in events if trajectory['first_event'] <= item['id'] <= trajectory['last_event']]
+        assert len(original) == trajectory['samples']
 
 
 @pytest.fixture(scope='module')
@@ -126,6 +154,20 @@ def test_combat_input_filter_uses_actual_scene_classification(tmp_path, observat
     after = observations['quest_after_story_combat'].model_copy(update={'timestamp': 2.0})
     persist_inputs(store, recording, [(.5, {'keys': ['w']})], [before, combat, after])
     assert not store.events(recording)
+
+
+def test_noncombat_input_is_retained_after_combat(tmp_path, observations):
+    evidence = json.loads((ROOT / 'tests/data/workflow_input_capture.json').read_text(encoding='utf-8'))
+    payload = next(item['payload'] for item in evidence['samples'] if item['payload'].get('mouse', {}).get('x'))
+    store = WorkflowStateStore(tmp_path)
+    recording = store.start_recording()
+    combat = observations['in_combat'].model_copy(update={'timestamp': 0.0})
+    before = observations['quest_yangyang_interaction'].model_copy(update={'timestamp': 2.0})
+    after = observations['quest_after_story_combat'].model_copy(update={'timestamp': 3.0})
+    persist_inputs(store, recording, [(2.5, payload)], [combat, before, after])
+    events = store.events(recording)
+    assert len(events) == 1
+    assert json.loads(events[0]['payload']) == payload
 
 
 def test_daily_and_weekly_cycles_use_beijing_four_am():

@@ -10,6 +10,7 @@ from pathlib import Path
 
 from src.workflow.models import CompilerResponse
 from src.workflow.validator import WorkflowValidator
+from src.workflow.input_evidence import describe_input_events
 
 
 COMPILER_INSTRUCTIONS = '''用户授权：就调用我本地的agy。
@@ -27,6 +28,10 @@ title 使用截图中实际显示的任务或活动名称。
 evidence_before、evidence_after、route_frames 引用输入 frame_id。
 只有任务、画面稳定且没有计时信息的停留可以省略。对白、演出、加载按实际状态结束。
 战斗使用 combat，由 ok-ww 执行。禁止生成战斗按键或根据录制战斗时间决定结束。
+输入事件包含按下、释放和 held_since 时间。长按 T 打开工具菜单、鼠标选择工具、释放 T、短按 T 使用能力需要结合实际画面分别识别。
+input_trajectories 是鼠标轨迹摘要，first_event 和 last_event 对应本地数据库保存的原始事件，原始轨迹按实际时间完整保留。
+鼠标 relative_total 是设备相对移动量，不能直接作为视角角度；cursor_start 和 cursor_end 是窗口内光标位置。
+当前执行动作不包含任意键鼠轨迹回放，需要长按工具选择或车辆、飞行轨迹控制时写入 unsupported_reasons。
 dialog 推进可见的普通对白；对白选项使用 select，自动演出和加载使用 wait。
 navigate 需要可观察的任务信标及目标。需要复杂三维定位且缺少能力时说明 unsupported。
 select、claim 绑定当前画面中唯一的文字。interact、mechanism 绑定实际交互对象。
@@ -118,10 +123,11 @@ class WorkflowCompiler:
             return []
         if len(keyframes) > 64:
             raise ValueError('单段记录超过 64 张关键画面，需要按任务目标划分材料')
+        events, trajectories = describe_input_events(self.store.events(recording_id))
         payload = {
             'recording_id': recording_id, 'game_version': game_version, 'language': language,
             'observations': [item.model_dump(exclude={'screenshot', 'image_sha256'}) for item in observations],
-            'events': self.store.events(recording_id), 'schema': CompilerResponse.model_json_schema(),
+            'events': events, 'input_trajectories': trajectories, 'schema': CompilerResponse.model_json_schema(),
             'recorded_at': datetime.fromtimestamp(self.store.recording(recording_id)['started'],
                                                    timezone(timedelta(hours=8))).isoformat(),
         }

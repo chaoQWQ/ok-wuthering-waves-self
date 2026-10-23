@@ -112,9 +112,15 @@ class WorkflowStateStore:
             db.execute('INSERT INTO events(recording_id,timestamp,kind,payload) VALUES(?,?,?,?)',
                        (recording_id, timestamp, kind, json.dumps(payload, ensure_ascii=False)))
 
+    def events_batch(self, recording_id, events):
+        with self.connect() as db:
+            db.executemany('INSERT INTO events(recording_id,timestamp,kind,payload) VALUES(?,?,?,?)',
+                           ((recording_id, timestamp, kind, json.dumps(payload, ensure_ascii=False))
+                            for timestamp, kind, payload in events))
+
     def events(self, recording_id):
         with self.connect() as db:
-            return [dict(row) for row in db.execute('SELECT * FROM events WHERE recording_id=? ORDER BY timestamp',
+            return [dict(row) for row in db.execute('SELECT * FROM events WHERE recording_id=? ORDER BY timestamp,id',
                                                   (recording_id,))]
 
     def pending_recordings(self):

@@ -1,0 +1,890 @@
+{
+  "source": "真实 Qt 验证窗口的 Windows Raw Input",
+  "samples": [
+    {
+      "timestamp": 17064.781,
+      "payload": {
+        "format": 2,
+        "keys": [],
+        "buttons": [],
+        "held_since": {},
+        "buttons_since": {},
+        "cursor": [
+          0.4,
+          0.4
+        ],
+        "client_size": [
+          750,
+          500
+        ],
+        "cursor_visible": true,
+        "baseline": true
+      }
+    },
+    {
+      "timestamp": 17064.842999999997,
+      "payload": {
+        "format": 2,
+        "keys": [
+          "t"
+        ],
+        "buttons": [],
+        "held_since": {
+          "t": 17064.842999999997
+        },
+        "buttons_since": {},
+        "cursor": [
+          0.4066666666666667,
+          0.404
+        ],
+        "client_size": [
+          750,
+          500
+        ],
+        "cursor_visible": true,
+        "key_event": {
+          "key": "t",
+          "pressed": true
+        }
+      }
+    },
+    {
+      "timestamp": 17065.046,
+      "payload": {
+        "format": 2,
+        "keys": [
+          "t"
+        ],
+        "buttons": [],
+        "held_since": {
+          "t": 17064.842999999997
+        },
+        "buttons_since": {},
+        "cursor": [
+          0.4066666666666667,
+          0.404
+        ],
+        "client_size": [
+          750,
+          500
+        ],
+        "cursor_visible": true,
+        "mouse": {
+          "mode": "relative",
+          "x": 5,
+          "y": 2,
+          "virtual_desktop": false,
+          "wheel": 0,
+          "horizontal_wheel": 0,
+          "button_flags": 0,
+          "button_data": 0,
+          "raw_buttons": 0,
+          "flags": 0
+        }
+      }
+    },
+    {
+      "timestamp": 17065.061999999998,
+      "payload": {
+        "format": 2,
+        "keys": [
+          "t"
+        ],
+        "buttons": [],
+        "held_since": {
+          "t": 17064.842999999997
+        },
+        "buttons_since": {},
+        "cursor": [
+          0.4066666666666667,
+          0.404
+        ],
+        "client_size": [
+          750,
+          500
+        ],
+        "cursor_visible": true,
+        "mouse": {
+          "mode": "relative",
+          "x": 5,
+          "y": 2,
+          "virtual_desktop": false,
+          "wheel": 0,
+          "horizontal_wheel": 0,
+          "button_flags": 0,
+          "button_data": 0,
+          "raw_buttons": 0,
+          "flags": 0
+        }
+      }
+    },
+    {
+      "timestamp": 17065.077999999998,
+      "payload": {
+        "format": 2,
+        "keys": [
+          "t"
+        ],
+        "buttons": [],
+        "held_since": {
+          "t": 17064.842999999997
+        },
+        "buttons_since": {},
+        "cursor": [
+          0.4146666666666667,
+          0.408
+        ],
+        "client_size": [
+          750,
+          500
+        ],
+        "cursor_visible": true,
+        "mouse": {
+          "mode": "relative",
+          "x": 5,
+          "y": 2,
+          "virtual_desktop": false,
+          "wheel": 0,
+          "horizontal_wheel": 0,
+          "button_flags": 0,
+          "button_data": 0,
+          "raw_buttons": 0,
+          "flags": 0
+        }
+      }
+    },
+    {
+      "timestamp": 17065.092999999997,
+      "payload": {
+        "format": 2,
+        "keys": [
+          "t"
+        ],
+        "buttons": [],
+        "held_since": {
+          "t": 17064.842999999997
+        },
+        "buttons_since": {},
+        "cursor": [
+          0.43733333333333335,
+          0.422
+        ],
+        "client_size": [
+          750,
+          500
+        ],
+        "cursor_visible": true,
+        "mouse": {
+          "mode": "relative",
+          "x": 5,
+          "y": 2,
+          "virtual_desktop": false,
+          "wheel": 0,
+          "horizontal_wheel": 0,
+          "button_flags": 0,
+          "button_data": 0,
+          "raw_buttons": 0,
+          "flags": 0
+        }
+      }
+    },
+    {
+      "timestamp": 17065.108999999997,
+      "payload": {
+        "format": 2,
+        "keys": [
+          "t"
+        ],
+        "buttons": [],
+        "held_since": {
+          "t": 17064.842999999997
+        },
+        "buttons_since": {},
+        "cursor": [
+          0.43733333333333335,
+          0.422
+        ],
+        "client_size": [
+          750,
+          500
+        ],
+        "cursor_visible": true,
+        "mouse": {
+          "mode": "relative",
+          "x": 5,
+          "y": 2,
+          "virtual_desktop": false,
+          "wheel": 0,
+          "horizontal_wheel": 0,
+          "button_flags": 0,
+          "button_data": 0,
+          "raw_buttons": 0,
+          "flags": 0
+        }
+      }
+    },
+    {
+      "timestamp": 17065.125,
+      "payload": {
+        "format": 2,
+        "keys": [
+          "t"
+        ],
+        "buttons": [],
+        "held_since": {
+          "t": 17064.842999999997
+        },
+        "buttons_since": {},
+        "cursor": [
+          0.444,
+          0.426
+        ],
+        "client_size": [
+          750,
+          500
+        ],
+        "cursor_visible": true,
+        "mouse": {
+          "mode": "relative",
+          "x": 5,
+          "y": 2,
+          "virtual_desktop": false,
+          "wheel": 0,
+          "horizontal_wheel": 0,
+          "button_flags": 0,
+          "button_data": 0,
+          "raw_buttons": 0,
+          "flags": 0
+        }
+      }
+    },
+    {
+      "timestamp": 17065.14,
+      "payload": {
+        "format": 2,
+        "keys": [
+          "t"
+        ],
+        "buttons": [],
+        "held_since": {
+          "t": 17064.842999999997
+        },
+        "buttons_since": {},
+        "cursor": [
+          0.452,
+          0.43
+        ],
+        "client_size": [
+          750,
+          500
+        ],
+        "cursor_visible": true,
+        "mouse": {
+          "mode": "relative",
+          "x": 5,
+          "y": 2,
+          "virtual_desktop": false,
+          "wheel": 0,
+          "horizontal_wheel": 0,
+          "button_flags": 0,
+          "button_data": 0,
+          "raw_buttons": 0,
+          "flags": 0
+        }
+      }
+    },
+    {
+      "timestamp": 17065.171,
+      "payload": {
+        "format": 2,
+        "keys": [
+          "t"
+        ],
+        "buttons": [],
+        "held_since": {
+          "t": 17064.842999999997
+        },
+        "buttons_since": {},
+        "cursor": [
+          0.46,
+          0.436
+        ],
+        "client_size": [
+          750,
+          500
+        ],
+        "cursor_visible": true,
+        "mouse": {
+          "mode": "relative",
+          "x": 5,
+          "y": 2,
+          "virtual_desktop": false,
+          "wheel": 0,
+          "horizontal_wheel": 0,
+          "button_flags": 0,
+          "button_data": 0,
+          "raw_buttons": 0,
+          "flags": 0
+        }
+      }
+    },
+    {
+      "timestamp": 17065.186999999998,
+      "payload": {
+        "format": 2,
+        "keys": [
+          "t"
+        ],
+        "buttons": [],
+        "held_since": {
+          "t": 17064.842999999997
+        },
+        "buttons_since": {},
+        "cursor": [
+          0.4666666666666667,
+          0.44
+        ],
+        "client_size": [
+          750,
+          500
+        ],
+        "cursor_visible": true,
+        "mouse": {
+          "mode": "relative",
+          "x": 5,
+          "y": 2,
+          "virtual_desktop": false,
+          "wheel": 0,
+          "horizontal_wheel": 0,
+          "button_flags": 0,
+          "button_data": 0,
+          "raw_buttons": 0,
+          "flags": 0
+        }
+      }
+    },
+    {
+      "timestamp": 17065.217999999997,
+      "payload": {
+        "format": 2,
+        "keys": [
+          "t"
+        ],
+        "buttons": [],
+        "held_since": {
+          "t": 17064.842999999997
+        },
+        "buttons_since": {},
+        "cursor": [
+          0.4746666666666667,
+          0.444
+        ],
+        "client_size": [
+          750,
+          500
+        ],
+        "cursor_visible": true,
+        "mouse": {
+          "mode": "relative",
+          "x": 5,
+          "y": 2,
+          "virtual_desktop": false,
+          "wheel": 0,
+          "horizontal_wheel": 0,
+          "button_flags": 0,
+          "button_data": 0,
+          "raw_buttons": 0,
+          "flags": 0
+        }
+      }
+    },
+    {
+      "timestamp": 17065.233999999997,
+      "payload": {
+        "format": 2,
+        "keys": [
+          "t"
+        ],
+        "buttons": [],
+        "held_since": {
+          "t": 17064.842999999997
+        },
+        "buttons_since": {},
+        "cursor": [
+          0.4826666666666667,
+          0.448
+        ],
+        "client_size": [
+          750,
+          500
+        ],
+        "cursor_visible": true,
+        "mouse": {
+          "mode": "relative",
+          "x": 5,
+          "y": 2,
+          "virtual_desktop": false,
+          "wheel": 0,
+          "horizontal_wheel": 0,
+          "button_flags": 0,
+          "button_data": 0,
+          "raw_buttons": 0,
+          "flags": 0
+        }
+      }
+    },
+    {
+      "timestamp": 17065.25,
+      "payload": {
+        "format": 2,
+        "keys": [
+          "t"
+        ],
+        "buttons": [],
+        "held_since": {
+          "t": 17064.842999999997
+        },
+        "buttons_since": {},
+        "cursor": [
+          0.48933333333333334,
+          0.454
+        ],
+        "client_size": [
+          750,
+          500
+        ],
+        "cursor_visible": true,
+        "mouse": {
+          "mode": "relative",
+          "x": 5,
+          "y": 2,
+          "virtual_desktop": false,
+          "wheel": 0,
+          "horizontal_wheel": 0,
+          "button_flags": 0,
+          "button_data": 0,
+          "raw_buttons": 0,
+          "flags": 0
+        }
+      }
+    },
+    {
+      "timestamp": 17065.375,
+      "payload": {
+        "format": 2,
+        "keys": [],
+        "buttons": [],
+        "held_since": {},
+        "buttons_since": {},
+        "cursor": [
+          0.48933333333333334,
+          0.454
+        ],
+        "client_size": [
+          750,
+          500
+        ],
+        "cursor_visible": true,
+        "key_event": {
+          "key": "t",
+          "pressed": false
+        }
+      }
+    },
+    {
+      "timestamp": 17065.483999999997,
+      "payload": {
+        "format": 2,
+        "keys": [
+          "t"
+        ],
+        "buttons": [],
+        "held_since": {
+          "t": 17065.483999999997
+        },
+        "buttons_since": {},
+        "cursor": [
+          0.48933333333333334,
+          0.454
+        ],
+        "client_size": [
+          750,
+          500
+        ],
+        "cursor_visible": true,
+        "key_event": {
+          "key": "t",
+          "pressed": true
+        }
+      }
+    },
+    {
+      "timestamp": 17065.546,
+      "payload": {
+        "format": 2,
+        "keys": [],
+        "buttons": [],
+        "held_since": {},
+        "buttons_since": {},
+        "cursor": [
+          0.48933333333333334,
+          0.454
+        ],
+        "client_size": [
+          750,
+          500
+        ],
+        "cursor_visible": true,
+        "key_event": {
+          "key": "t",
+          "pressed": false
+        }
+      }
+    },
+    {
+      "timestamp": 17065.656,
+      "payload": {
+        "format": 2,
+        "keys": [],
+        "buttons": [],
+        "held_since": {},
+        "buttons_since": {},
+        "cursor": [
+          0.48533333333333334,
+          0.456
+        ],
+        "client_size": [
+          750,
+          500
+        ],
+        "cursor_visible": true,
+        "mouse": {
+          "mode": "relative",
+          "x": -4,
+          "y": 1,
+          "virtual_desktop": false,
+          "wheel": 0,
+          "horizontal_wheel": 0,
+          "button_flags": 0,
+          "button_data": 0,
+          "raw_buttons": 0,
+          "flags": 0
+        }
+      }
+    },
+    {
+      "timestamp": 17065.671,
+      "payload": {
+        "format": 2,
+        "keys": [],
+        "buttons": [],
+        "held_since": {},
+        "buttons_since": {},
+        "cursor": [
+          0.4,
+          0.4
+        ],
+        "client_size": [
+          750,
+          500
+        ],
+        "cursor_visible": true,
+        "mouse": {
+          "mode": "relative",
+          "x": -4,
+          "y": 1,
+          "virtual_desktop": false,
+          "wheel": 0,
+          "horizontal_wheel": 0,
+          "button_flags": 0,
+          "button_data": 0,
+          "raw_buttons": 0,
+          "flags": 0
+        }
+      }
+    },
+    {
+      "timestamp": 17065.686999999998,
+      "payload": {
+        "format": 2,
+        "keys": [],
+        "buttons": [],
+        "held_since": {},
+        "buttons_since": {},
+        "cursor": [
+          0.39466666666666667,
+          0.402
+        ],
+        "client_size": [
+          750,
+          500
+        ],
+        "cursor_visible": true,
+        "mouse": {
+          "mode": "relative",
+          "x": -4,
+          "y": 1,
+          "virtual_desktop": false,
+          "wheel": 0,
+          "horizontal_wheel": 0,
+          "button_flags": 0,
+          "button_data": 0,
+          "raw_buttons": 0,
+          "flags": 0
+        }
+      }
+    },
+    {
+      "timestamp": 17065.702999999998,
+      "payload": {
+        "format": 2,
+        "keys": [],
+        "buttons": [],
+        "held_since": {},
+        "buttons_since": {},
+        "cursor": [
+          0.4,
+          0.4
+        ],
+        "client_size": [
+          750,
+          500
+        ],
+        "cursor_visible": true,
+        "mouse": {
+          "mode": "relative",
+          "x": -4,
+          "y": 1,
+          "virtual_desktop": false,
+          "wheel": 0,
+          "horizontal_wheel": 0,
+          "button_flags": 0,
+          "button_data": 0,
+          "raw_buttons": 0,
+          "flags": 0
+        }
+      }
+    },
+    {
+      "timestamp": 17065.717999999997,
+      "payload": {
+        "format": 2,
+        "keys": [],
+        "buttons": [],
+        "held_since": {},
+        "buttons_since": {},
+        "cursor": [
+          0.39466666666666667,
+          0.402
+        ],
+        "client_size": [
+          750,
+          500
+        ],
+        "cursor_visible": true,
+        "mouse": {
+          "mode": "relative",
+          "x": -4,
+          "y": 1,
+          "virtual_desktop": false,
+          "wheel": 0,
+          "horizontal_wheel": 0,
+          "button_flags": 0,
+          "button_data": 0,
+          "raw_buttons": 0,
+          "flags": 0
+        }
+      }
+    },
+    {
+      "timestamp": 17065.733999999997,
+      "payload": {
+        "format": 2,
+        "keys": [],
+        "buttons": [],
+        "held_since": {},
+        "buttons_since": {},
+        "cursor": [
+          0.4,
+          0.4
+        ],
+        "client_size": [
+          750,
+          500
+        ],
+        "cursor_visible": true,
+        "mouse": {
+          "mode": "relative",
+          "x": -4,
+          "y": 1,
+          "virtual_desktop": false,
+          "wheel": 0,
+          "horizontal_wheel": 0,
+          "button_flags": 0,
+          "button_data": 0,
+          "raw_buttons": 0,
+          "flags": 0
+        }
+      }
+    },
+    {
+      "timestamp": 17065.75,
+      "payload": {
+        "format": 2,
+        "keys": [],
+        "buttons": [],
+        "held_since": {},
+        "buttons_since": {},
+        "cursor": [
+          0.4,
+          0.4
+        ],
+        "client_size": [
+          750,
+          500
+        ],
+        "cursor_visible": true,
+        "mouse": {
+          "mode": "relative",
+          "x": -4,
+          "y": 1,
+          "virtual_desktop": false,
+          "wheel": 0,
+          "horizontal_wheel": 0,
+          "button_flags": 0,
+          "button_data": 0,
+          "raw_buttons": 0,
+          "flags": 0
+        }
+      }
+    },
+    {
+      "timestamp": 17065.765,
+      "payload": {
+        "format": 2,
+        "keys": [],
+        "buttons": [],
+        "held_since": {},
+        "buttons_since": {},
+        "cursor": [
+          0.39466666666666667,
+          0.402
+        ],
+        "client_size": [
+          750,
+          500
+        ],
+        "cursor_visible": true,
+        "mouse": {
+          "mode": "relative",
+          "x": -4,
+          "y": 1,
+          "virtual_desktop": false,
+          "wheel": 0,
+          "horizontal_wheel": 0,
+          "button_flags": 0,
+          "button_data": 0,
+          "raw_buttons": 0,
+          "flags": 0
+        }
+      }
+    },
+    {
+      "timestamp": 17065.796,
+      "payload": {
+        "format": 2,
+        "keys": [],
+        "buttons": [
+          "left"
+        ],
+        "held_since": {},
+        "buttons_since": {
+          "left": 17065.796
+        },
+        "cursor": [
+          0.4,
+          0.4
+        ],
+        "client_size": [
+          750,
+          500
+        ],
+        "cursor_visible": true,
+        "mouse": {
+          "mode": "relative",
+          "x": 0,
+          "y": 0,
+          "virtual_desktop": false,
+          "wheel": 0,
+          "horizontal_wheel": 0,
+          "button_flags": 1,
+          "button_data": 0,
+          "raw_buttons": 0,
+          "flags": 0
+        }
+      }
+    },
+    {
+      "timestamp": 17065.827999999998,
+      "payload": {
+        "format": 2,
+        "keys": [],
+        "buttons": [],
+        "held_since": {},
+        "buttons_since": {},
+        "cursor": [
+          0.4,
+          0.4
+        ],
+        "client_size": [
+          750,
+          500
+        ],
+        "cursor_visible": true,
+        "mouse": {
+          "mode": "relative",
+          "x": 0,
+          "y": 0,
+          "virtual_desktop": false,
+          "wheel": 0,
+          "horizontal_wheel": 0,
+          "button_flags": 2,
+          "button_data": 0,
+          "raw_buttons": 0,
+          "flags": 0
+        }
+      }
+    },
+    {
+      "timestamp": 17065.827999999998,
+      "payload": {
+        "format": 2,
+        "keys": [],
+        "buttons": [],
+        "held_since": {},
+        "buttons_since": {},
+        "cursor": [
+          0.4,
+          0.4
+        ],
+        "client_size": [
+          750,
+          500
+        ],
+        "cursor_visible": true,
+        "mouse": {
+          "mode": "relative",
+          "x": 0,
+          "y": 0,
+          "virtual_desktop": false,
+          "wheel": -120,
+          "horizontal_wheel": 0,
+          "button_flags": 1024,
+          "button_data": 65416,
+          "raw_buttons": 0,
+          "flags": 0
+        }
+      }
+    }
+  ]
+}

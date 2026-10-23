@@ -6,6 +6,12 @@
 
 快捷键触发后，在当前前台窗口所在的屏幕中央显示录制状态提示，两秒后自动消失。提示不获取键盘焦点，鼠标操作可以穿过窗口。录制服务仍在结束时显示「正在停止录制」，已有异常导致无法开启时显示错误提示。
 
+键鼠记录使用独立录制进程中的 Windows Raw Input。按键按下和释放使用 Windows 消息时间，保留长按时长；鼠标持续保存相对移动量、窗口内光标位置、按钮和滚轮事件。游戏固定光标位置时，相对移动量仍然保留。支持的按键包括 W/A/S/D、Space、Shift、F/T/Q/E、Esc、Tab、Enter、B/J/M/R/V、F1/F2。
+
+长按 T 打开工具菜单、移动鼠标选择工具、释放 T、短按 T 使用能力，会保留各自的实际输入时序。片段交接保留前一观察和持有按键状态。战斗、登录、未知场景以及游戏失去前台期间的操作不进入可用操作证据。停止记录时补充结束画面，以核查末尾操作的结果。
+
+原始轨迹逐条保存在 SQLite。AGY 接收按键状态变化及每组最长约 0.25 秒的轨迹摘要，摘要包含原始事件编号、光标起止位置、相对移动量和滚轮信息。原始样本保持不变。现有复现动作根据任务条件执行导航和交互；需要执行工具选择、驾驶或飞行输入轨迹的内容会标明尚不支持。
+
 完成的记录自动交给本机安装的 AGY 分析。AGY 返回带条件的流程数据；程序核对原始截图、观察记录、操作证据、步骤顺序和游戏版本。缺少证据的内容显示原因，不能进入执行队列。
 
 ## 正常使用
@@ -69,6 +75,7 @@
 $env:PYTHONPATH = '.'
 ..\.venv\Scripts\python.exe tools\verify_workflow_agy.py
 ..\.venv\Scripts\python.exe tools\verify_gameplay_runtime.py --seconds 15
+..\.venv\Scripts\python.exe tools\verify_gameplay_input.py
 ..\.venv\Scripts\python.exe tools\verify_workflow_execution.py
 ```
 
