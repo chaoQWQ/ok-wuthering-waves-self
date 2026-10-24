@@ -65,6 +65,8 @@ class TestNestEchoPickupRuntime(unittest.TestCase):
                 self.assertEqual(0, task._get_nest_pickup_state(other).attempts)
                 self.assertTrue(task._get_nest_pickup_state(other).begin_attempt())
                 self.assertEqual((False, False), task._collect_nest_echoes(time_out=0))
+                self.assertEqual((False, False), task._collect_nest_echoes(time_out=0, walk_from_entry=True))
+                self.assertFalse(task._walk_nest_entry_for_pickup(time_out=0))
 
                 images = Path(__file__).parent / 'images'
                 for name, absorb_visible in (

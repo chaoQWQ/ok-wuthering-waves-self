@@ -156,10 +156,10 @@ class NightmareNestTask(WWOneTimeTask, BaseCombatTask):
                 self.sleep(3)
                 while pickup.begin_attempt():
                     self.log_info(f'聚落声骸领取：第 {pickup.attempts}/3 次尝试')
-                    if pickup.attempts > 1 and not is_team:
+                    if not is_team:
                         if not self._reenter_nest_for_pickup(nest):
                             continue
-                    collected, cleared = self._collect_nest_echoes()
+                    collected, cleared = self._collect_nest_echoes(walk_from_entry=not is_team)
                     pickup.collected |= collected
                     self._capture_success |= collected
                     pickup.complete = cleared and pickup.collected
@@ -224,9 +224,47 @@ class NightmareNestTask(WWOneTimeTask, BaseCombatTask):
             self.log_info('聚落声骸吸收已确认')
         return bool(confirmed)
 
-    def _collect_nest_echoes(self, time_out=30):
+    def _walk_nest_entry_for_pickup(self, time_out=10):
+        if time_out <= 0:
+            return False
+        self.center_camera()
+        deadline = time.monotonic() + time_out
+        walking = False
+
+        def stop_walking():
+            nonlocal walking
+            if walking:
+                self.send_key_up('w')
+                walking = False
+
+        self.log_info('从传送入口向中央前进，沿途检查吸收提示')
+        try:
+            while time.monotonic() < deadline:
+                self.next_frame()
+                if self._pick_nest_echo(before_pick=stop_walking):
+                    return True
+                if self.in_combat():
+                    return False
+                if time.monotonic() >= deadline:
+                    break
+                if not walking:
+                    walking = True
+                    self.send_key_down('w')
+                self.sleep(0.05)
+            self.log_info('入口前进时间结束，检查附近吸收提示和声骸')
+            return False
+        finally:
+            stop_walking()
+
+    def _collect_nest_echoes(self, time_out=30, walk_from_entry=False):
         deadline = time.monotonic() + time_out
         collected = False
+        if walk_from_entry:
+            collected = self._walk_nest_entry_for_pickup(time_out=min(10, deadline - time.monotonic()))
+            if collected and self._capture_mode:
+                return True, True
+            if time.monotonic() >= deadline or self.in_combat():
+                return collected, False
         for direction in ('w', 'a', 's', 'd'):
             if time.monotonic() >= deadline:
                 return collected, False
