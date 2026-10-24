@@ -285,51 +285,63 @@ class BaseWWTask(BaseTask):
         return False
 
     def walk_to_yolo_echo(self, time_out=8, update_function=None, echo_threshold=0.5, pick_function=None):
-        last_direction = None
-        start = time.time()
-        no_echo_start = 0
+        from src.utils.EchoApproach import EchoApproach
+
+        approach = EchoApproach(threshold=echo_threshold)
+        held_keys = set()
+        start = time.monotonic()
+        no_target_start = None
+        last_log = None
+        last_log_time = 0
+
+        def move(keys):
+            for key in sorted(held_keys.difference(keys)):
+                self.send_key_up(key)
+                held_keys.remove(key)
+            for key in keys:
+                if key not in held_keys:
+                    held_keys.add(key)
+                    self.send_key_down(key)
 
         def stop_walking():
-            nonlocal last_direction
-            last_direction = self._stop_last_direction(last_direction)
+            move(())
 
-        while time.time() - start < time_out:
-            self.next_frame()
-            picked = pick_function(before_pick=stop_walking) if pick_function else self.pick_f()
-            if picked:
-                self.log_debug('pick echo success')
-                self._stop_last_direction(last_direction)
-                return True
-            if self.in_combat():
-                self.log_debug('pick echo has_target return fail')
-                self._stop_last_direction(last_direction)
-                return False
-            echos = self.find_echos(threshold=echo_threshold)
-            if not echos:
-                if no_echo_start == 0:
-                    no_echo_start = time.time()
-                elif time.time() - no_echo_start > 3:
-                    self.log_debug(f'walk front to_echo, no echos found, break')
-                    break
-                next_direction = 'w'
-            else:
-                no_echo_start = 0
-                echo = echos[0]
-                center_distance = echo.center()[0] - self.width_of_screen(0.5)
-                threshold = 0.05 if not last_direction else 0.15
-                if abs(center_distance) < self.height_of_screen(threshold):
-                    if echo.y + echo.height > self.height_of_screen(0.65):
-                        next_direction = 's'
-                    else:
-                        next_direction = 'w'
-                elif center_distance > 0:
-                    next_direction = 'd'
+        try:
+            while time.monotonic() - start < time_out:
+                self.next_frame()
+                picked = pick_function(before_pick=stop_walking) if pick_function else self.pick_f()
+                if picked:
+                    self.log_debug('pick echo success')
+                    return True
+                if self.in_combat():
+                    self.log_info('声骸追踪遇到战斗，返回战斗流程')
+                    return False
+                boxes = self.find_echos(threshold=min(0.2, echo_threshold), anchor=False)
+                now = time.monotonic()
+                decision = approach.update(boxes, self.width_of_screen(1), self.height_of_screen(1), now)
+                move(decision.keys)
+                state = (decision.target_id, decision.keys, decision.reason)
+                if state != last_log or now - last_log_time >= 1:
+                    self.log_info(
+                        f'声骸追踪：目标 {decision.target_id}，方向 {decision.keys}，'
+                        f'可见 {decision.visible_count}，状态 {decision.reason}'
+                    )
+                    last_log = state
+                    last_log_time = now
+                if decision.target_box is None:
+                    if no_target_start is None:
+                        no_target_start = now
+                    elif now - no_target_start >= 3:
+                        self.log_info('声骸追踪连续 3 秒未找到目标，结束本次接近')
+                        return False
                 else:
-                    next_direction = 'a'
-            last_direction = self._walk_direction(last_direction, next_direction)
-            if update_function is not None:
-                update_function()
-        self._stop_last_direction(last_direction)
+                    no_target_start = None
+                if update_function is not None:
+                    update_function()
+            self.log_info('声骸追踪接近超时，结束本次接近')
+            return False
+        finally:
+            stop_walking()
 
     def _walk_direction(self, last_direction, next_direction):
         if next_direction != last_direction:
@@ -677,7 +689,7 @@ class BaseWWTask(BaseTask):
         result = self.executor.ocr_lib(image, use_det=True, use_cls=False, use_rec=True)
         self.logger.info(f'ocr_result {result}')
 
-    def find_echos(self, threshold=0.3):
+    def find_echos(self, threshold=0.3, anchor=True):
         """
         Main function to load ONNX model, perform inference, draw bounding boxes, and display the output image.
 
@@ -691,9 +703,10 @@ class BaseWWTask(BaseTask):
         # Load the ONNX model
         ret = og.my_app.yolo_detect(self.frame, threshold=threshold, label=0)
 
-        for box in ret:
-            box.y += box.height * 1 / 3
-            box.height = 1
+        if anchor:
+            for box in ret:
+                box.y += box.height * 1 / 3
+                box.height = 1
         self.draw_boxes("echo", ret)
         return ret
 

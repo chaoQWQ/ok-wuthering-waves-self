@@ -9,6 +9,7 @@ from src.task.WWOneTimeTask import WWOneTimeTask
 TRAVEL_FEATURES = ['fast_travel_custom', 'gray_teleport', 'remove_custom']
 CONFIRM_FEATURES = ['confirm_btn_hcenter_vcenter', 'confirm_btn_highlight_hcenter_vcenter']
 NEST_ABSORB_TEXT = re.compile(r'(吸收|Absorb)', re.IGNORECASE)
+NEST_ECHO_THRESHOLD = 0.3
 
 
 @dataclass
@@ -239,14 +240,15 @@ class NightmareNestTask(WWOneTimeTask, BaseCombatTask):
                     continue
                 if self.in_combat():
                     return collected, False
-                if not self.find_echos(threshold=0.5):
+                if not self.find_echos(threshold=NEST_ECHO_THRESHOLD):
                     self.sleep(0.3)
                     self.next_frame()
-                    if not self.find_echos(threshold=0.5):
+                    if not self.find_echos(threshold=NEST_ECHO_THRESHOLD):
                         break
                 remaining = deadline - time.monotonic()
                 if remaining <= 0 or not self.walk_to_yolo_echo(
-                        time_out=min(8, remaining), pick_function=self._pick_nest_echo):
+                        time_out=min(8, remaining), echo_threshold=NEST_ECHO_THRESHOLD,
+                        pick_function=self._pick_nest_echo):
                     return collected, False
                 collected = True
                 if self._capture_mode:

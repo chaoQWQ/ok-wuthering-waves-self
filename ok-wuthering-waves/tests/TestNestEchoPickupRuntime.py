@@ -6,7 +6,10 @@ import cv2
 
 from config import config
 from ok import OK, Box, ImageCaptureMethod
-from src.task.NightmareNestTask import NEST_ABSORB_TEXT, NestPickupState, NestTarget, NightmareNestTask
+from src.task.NightmareNestTask import (
+    NEST_ABSORB_TEXT, NEST_ECHO_THRESHOLD, NestPickupState, NestTarget, NightmareNestTask,
+)
+from src.utils.EchoApproach import EchoApproach
 
 
 class TestNestPickupState(unittest.TestCase):
@@ -65,7 +68,8 @@ class TestNestEchoPickupRuntime(unittest.TestCase):
 
                 images = Path(__file__).parent / 'images'
                 for name, absorb_visible in (
-                        ('nest_echo_uncollected.png', False), ('absorb.png', True)):
+                        ('nest_echo_uncollected.png', False), ('nest_echo_crowd.png', False),
+                        ('absorb.png', True)):
                     original = cv2.imread(str(images / name))
                     if original is None:
                         raise FileNotFoundError(name)
@@ -80,8 +84,24 @@ class TestNestEchoPickupRuntime(unittest.TestCase):
                             runtime.device_manager.capture_method = capture
                             executor._frame = frame
                             executor.feature_set.check_size(frame)
-                            echoes = task.find_echos(threshold=0.5)
+                            echoes = task.find_echos(threshold=NEST_ECHO_THRESHOLD)
                             self.assertGreater(len(echoes), 0)
+                            raw_echoes = task.find_echos(threshold=NEST_ECHO_THRESHOLD, anchor=False)
+                            self.assertTrue(all(box.height > 1 for box in raw_echoes))
+                            approach = EchoApproach(threshold=NEST_ECHO_THRESHOLD)
+                            decisions = []
+                            for index in range(12):
+                                # 检测结果的顺序变化保持原始识别坐标和置信度。
+                                ordered = raw_echoes if index % 2 == 0 else list(reversed(raw_echoes))
+                                decisions.append(approach.update(ordered, width, height, index / 15))
+                            self.assertIsNone(decisions[0].target_id)
+                            self.assertEqual((), decisions[0].keys)
+                            confirmed = decisions[1:]
+                            self.assertIsNotNone(confirmed[0].target_id)
+                            self.assertEqual(1, len({result.target_id for result in confirmed}))
+                            self.assertTrue(all('w' in result.keys for result in confirmed))
+                            self.assertTrue(all(not {'a', 'd'}.issubset(result.keys) for result in confirmed))
+                            self.assertEqual(1, len({result.keys for result in confirmed}))
                             prompt = task.find_f_with_text(target_text=NEST_ABSORB_TEXT)
                             self.assertEqual(absorb_visible, bool(prompt))
                             if not absorb_visible:

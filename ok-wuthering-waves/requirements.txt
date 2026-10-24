@@ -99,3 +99,5 @@ urllib3==2.7.0
     # via requests
 zhconv==1.4.3
     # via ok-wuthering-waves
+trackers==2.6.1
+supervision==0.31.1
