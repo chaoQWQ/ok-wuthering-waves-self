@@ -458,6 +458,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                     self.sleep(0.2)
                     continue
 
+                frame = self.frame
                 top_left_skip = detect_top_left_skip_button(frame)
                 if top_left_skip.found:
                     self._mark_scene_transition("dialog_started", self.STATE_DIALOG)
@@ -474,27 +475,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                         confidence=top_left_skip.confidence,
                         name="top_left_skip_dialog"
                     )
-                    # Force OS level click using win32api because game ignores background clicks
-                    cx, cy = skip_box.center()
-                    import win32api
-                    import win32con
-                    import win32gui
-                    hwnd_window = getattr(self, "hwnd", None)
-                    hwnd = getattr(hwnd_window, "hwnd", 0) if hwnd_window is not None else 0
-                    if not hwnd:
-                        # 窗口标题含尾随空格，FindWindow 精确匹配会失败，按窗口类名兜底
-                        hwnd = win32gui.FindWindow('UnrealWindow', None)
-                    if hwnd:
-                        pt = win32gui.ClientToScreen(hwnd, (int(cx), int(cy)))
-                        win32api.SetCursorPos(pt)
-                        self.sleep(0.05)
-                        win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
-                        self.sleep(0.15)
-                        win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
-                        self.log_debug(f"物理鼠标点击剧情跳过按钮 ({int(cx)}, {int(cy)})")
-                    else:
-                        self.click_box(skip_box, down_time=0.15, after_sleep=0.3)
-                    self.sleep(0.3)
+                    self._click_story_button(skip_box)
                     self.wait_until(self.skip_confirm, time_out=3.0, raise_if_not_found=False)
                     self.sleep(0.2)
                     continue
@@ -2754,73 +2735,75 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.info_set("JEV 额度消耗", cost_display)
 
 
-    def _handle_story_skip_confirm(self) -> bool:
-        """识别"是否确认跳过"提示框与新版"剧情梗概"界面并执行跳过。
+    def _click_story_button(self, button: Box) -> bool:
+        import win32api
+        import win32con
 
-        这类弹窗样式没有对应模板，通过 OCR 识别特征文本后点击对应按钮。
-        剧情梗概界面在点击跳过后弹出，提供"继续观看"和"跳过剧情"两个按钮。
-        """
-        try:
-            frame = self.frame
-            if frame is None or frame.size == 0:
-                return False
-            question_seen = False
-            confirm_button = None
-            synopsis_seen = False
-            synopsis_skip_button = None
-            synopsis_continue_button = None
-            for box in self.ocr(0.2, 0.3, 0.9, 0.8, frame=frame):
-                text = (getattr(box, "name", "") or "").replace(" ", "")
-                if not text:
-                    continue
-                if "确认跳过" in text or ("是否" in text and "跳过" in text):
-                    question_seen = True
-                if text in ("确认", "确認"):
-                    confirm_button = box
-                if "梗概" in text:
-                    synopsis_seen = True
-                # 按钮文本不超过 8 字，避免误点梗概正文中包含相同关键词的行
-                if len(text) <= 8 and "跳过" in text and ("剧情" in text or "劇情" in text):
-                    synopsis_skip_button = box
-                elif len(text) <= 8 and ("继续" in text or "繼續" in text) and ("观看" in text or "觀看" in text):
-                    synopsis_continue_button = box
-            if synopsis_seen:
-                self.log_info("检测到剧情梗概界面，点击跳过剧情")
-                if synopsis_skip_button is not None:
-                    self.click(synopsis_skip_button, after_sleep=0.5)
-                elif synopsis_continue_button is not None:
-                    # "跳过剧情"与"继续观看"关于屏幕中轴对称，按镜像位置点击
-                    cx, cy = synopsis_continue_button.center()
-                    h, w = frame.shape[:2]
-                    self.click(1 - cx / w, cy / h, after_sleep=0.5)
-                else:
-                    self.click(0.63, 0.655, after_sleep=0.5)
-                return True
-            if not question_seen:
-                return False
-            self.log_info("检测到剧情跳过确认框，点击确认")
-            if confirm_button is not None:
-                self.click(confirm_button, after_sleep=0.5)
-            else:
-                self.click(0.66, 0.69, after_sleep=0.5)
-            return True
-        except Exception:
+        if not self.is_game_window_active():
             return False
+        self._stop_all_movement()
+        cx, cy = button.center()
+        ox, oy = self.hwnd.get_capture_origin()
+        point = (round(ox + cx), round(oy + cy))
+        win32api.SetCursorPos(point)
+        self.sleep(0.08)
+        if not self.is_game_window_active():
+            return False
+        self.log_info(f"点击剧情按钮 {button.name}，屏幕坐标 {point}")
+        win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+        try:
+            self.sleep(0.15)
+        finally:
+            win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+        self.sleep(0.3)
+        self.next_frame()
+        return True
+
+    def try_click_skip(self):
+        if button := self.find_skip():
+            return self._click_story_button(button)
+        return False
+
+    def _find_story_skip_confirm(self, frame: np.ndarray) -> Optional[Box]:
+        question_seen = False
+        confirm_button = None
+        synopsis_seen = False
+        synopsis_skip_button = None
+        for box in self.ocr(0.2, 0.18, 0.9, 0.82, frame=frame):
+            text = "".join((box.name or "").split())
+            if "确认跳过" in text or ("是否" in text and "跳过" in text):
+                question_seen = True
+            if text in ("确认", "确認", "Confirm"):
+                confirm_button = box
+            if text in ("剧情梗概", "劇情梗概", "StorySynopsis"):
+                synopsis_seen = True
+            if text in ("跳过剧情", "跳過劇情", "SkipStory"):
+                synopsis_skip_button = box
+        if synopsis_seen:
+            return synopsis_skip_button
+        if question_seen:
+            return confirm_button
+        return None
+
+    def _handle_story_skip_confirm(self) -> bool:
+        frame = self.frame
+        if frame is None or frame.size == 0:
+            return False
+        button = self._find_story_skip_confirm(frame)
+        return button is not None and self._click_story_button(button)
 
     def skip_confirm(self) -> bool:
+        if self._handle_story_skip_confirm():
+            return True
         if self.click_skip_dialog_confirm():
             self.confirm_dialog_checked = True
             return True
         if skip_button := self.find_one('skip_quest_confirm', threshold=0.8):
             self.sleep(0.2)
-            self.click(skip_button)
-            return True
+            return self._click_story_button(skip_button)
         if skip_button := self.find_one('skip_quest_confirm_new', threshold=0.8):
             self.sleep(0.2)
-            self.click(skip_button)
-            return True
-        if self._handle_story_skip_confirm():
-            return True
+            return self._click_story_button(skip_button)
         # 不用 in_team_and_world 判断：小地图兜底会让剧情对话状态误判为已回到大世界。
         # 跳过完成的准据是所有跳过入口都已从画面上消失。
         if self.find_skip() is not None:
