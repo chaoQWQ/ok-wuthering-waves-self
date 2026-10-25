@@ -20,6 +20,7 @@ class PuzzleObservation:
     controls: tuple = ()
     state_texts: Optional[tuple] = None
     frame: Optional[np.ndarray] = field(default=None, repr=False)
+    exploration_tool_ready: bool = False
 
     @property
     def state(self):
@@ -81,6 +82,25 @@ class InteractionHandler(PuzzleHandler):
         return PuzzleStep(object_id, kind, "interact", "f",
                           {"interaction": text, "phase": observation.phase},
                           ("quest_changed", "dialog_started", "cutscene_started", "panel_started", "mechanism_state_changed", "mechanism_visual_changed"))
+
+
+class ExplorationToolHandler(PuzzleHandler):
+    def matches(self, observation):
+        return observation.phase == "world" and observation.exploration_tool_ready
+
+    def prepare(self, observation, object_id):
+        return PuzzleStep(object_id, "exploration_tool", "skill", "t",
+                          {"exploration_tool_ready": True, "phase": observation.phase},
+                          ("tool_consumed", "quest_changed", "dialog_started", "cutscene_started",
+                           "panel_started", "mechanism_state_changed", "mechanism_visual_changed"))
+
+    def effect(self, before, after):
+        effect = super().effect(before, after)
+        if effect is not None:
+            return effect
+        if before.exploration_tool_ready and after.phase == "world" and not after.exploration_tool_ready:
+            return "tool_consumed"
+        return None
 
 
 class ExplicitControlHandler(PuzzleHandler):
@@ -178,7 +198,8 @@ class PuzzleObject:
 
 class QuestPuzzleSession:
     def __init__(self):
-        self.handlers = [SequenceHandler(self), PanelHandler(), InteractionHandler(), ExplicitControlHandler(), AttackHandler()]
+        self.handlers = [SequenceHandler(self), PanelHandler(), InteractionHandler(), ExplorationToolHandler(),
+                         ExplicitControlHandler(), AttackHandler()]
         self.objects = {}
         self.pending = None
         self.completed_steps = []
@@ -242,7 +263,17 @@ class QuestPuzzleSession:
         self.last_state = state
 
     def prepare(self, observation: PuzzleObservation, action: str):
-        obj = self.identify(observation)
+        if action == "skill" and observation.phase == "world" and observation.exploration_tool_ready:
+            obj = self.objects.get("exploration_tool")
+            if obj is None:
+                obj = PuzzleObject("exploration_tool", "exploration_tool", None, None)
+                self.objects[obj.object_id] = obj
+            if obj.state != observation.state:
+                obj.state = observation.state
+                obj.version += 1
+            self.observe_environment(observation.state)
+        else:
+            obj = self.identify(observation)
         for handler in self.handlers:
             if handler.matches(observation):
                 step = handler.prepare(observation, obj.object_id)

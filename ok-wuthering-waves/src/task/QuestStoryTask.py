@@ -27,6 +27,7 @@ from src.utils.QuestAreaSearch import (
     minimap_visible,
 )
 from src.utils.QuestDecisionSession import QuestDecisionSession
+from src.utils.QuestExplorationTool import ExplorationToolTrigger, detect_exploration_tool
 from src.utils.QuestSceneState import QuestSceneState, QuestSceneChangedError
 from src.utils.QuestTraversalController import QuestTraversalController
 from src.utils.QuestMovementTimeout import QuestMovementTimeout
@@ -144,6 +145,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.quest_scene = QuestSceneState()
         self.traversal = QuestTraversalController(self.quest_scene)
         self.puzzle = QuestPuzzleSession()
+        self.exploration_tool_trigger = ExplorationToolTrigger()
         self.puzzle_before_frame = None
         self.last_coordinate_read = 0.0
         self.last_coordinate_valid = False
@@ -394,6 +396,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.traversal = QuestTraversalController(self.quest_scene)
         self.puzzle.reset_goal()
         self.puzzle_before_frame = None
+        self.exploration_tool_trigger = ExplorationToolTrigger()
         self.last_coordinate_read = 0.0
         self.puzzle_panel_active = False
         self.goal_candidate = None
@@ -420,6 +423,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             frame = self.frame
             if frame is None:
                 continue
+            self.exploration_tool_trigger.observe(self._exploration_tool_ready(frame), time.monotonic())
 
             if self.puzzle.pending is not None:
                 if self.in_combat():
@@ -762,6 +766,9 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.traversal.reset_goal()
             self.puzzle.reset_goal()
             self.log_info(f"任务要求已经更新：{self.guidance_text}")
+
+        if self._try_exploration_tool(frame):
+            return
 
         # 2. 提取任务信标与目标距离（先于范围圈分支：信标可见时优先跟随信标，
         #    避免任务区小虚线圈兜底观测抢占信标导航）
@@ -1408,6 +1415,23 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         result = detect_interact_action(frame, ocr_boxes=boxes, key_box=key_box)
         return result.has_f, sanitize_quest_text(result.action_text)
 
+    def _exploration_tool_ready(self, frame):
+        box = self.executor.feature_set.get_box_by_name(frame, "tool_teleport")
+        return detect_exploration_tool(frame, (box.x, box.y, box.width, box.height))
+
+    def _exploration_tool_available(self, frame):
+        return self.exploration_tool_trigger.observe(self._exploration_tool_ready(frame), time.monotonic())
+
+    def _try_exploration_tool(self, frame):
+        if not self._exploration_tool_available(frame):
+            return False
+        if self.puzzle.pending is not None or self.decision_session.pending is not None:
+            return False
+        self._stop_all_movement()
+        self._reset_navigation_timing()
+        self.current_state = self.STATE_DECIDE_INTERACT
+        return self._execute_puzzle_action("skill", "", "exploration_tool", expected_key="t") != "stale"
+
     def _direct_interact_at_target(self, action_text: str) -> bool:
         """已到达任务点且画面出现交互提示时直接按 F。
 
@@ -1572,7 +1596,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         position = self.traversal.coordinate if (self.traversal.last_coordinate_time is not None
                                                and time.time() - self.traversal.last_coordinate_time <= 2) else None
         return PuzzleObservation(self.guidance_text, interaction, texts, position, phase, appearance=appearance,
-                                 controls=controls, state_texts=state_texts, frame=frame.copy())
+                                 controls=controls, state_texts=state_texts, frame=frame.copy(),
+                                 exploration_tool_ready=phase == "world" and self._exploration_tool_ready(frame))
 
     def _check_puzzle_result(self, frame):
         if not self.is_game_window_active():
@@ -1685,6 +1710,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 if not self._can_continue_quest_input():
                     self.quest_scene.input_interruptions += 1
                     break
+                if self.held_movement_keys and self._exploration_tool_available(self.frame):
+                    break
             else:
                 completed = True
         finally:
@@ -1744,10 +1771,15 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 return "stale"
         elif observation.phase != "world" or not self._can_continue_quest_input():
             return "stale"
+        if step.kind == "exploration_tool" and not self._exploration_tool_available(self.frame):
+            return "stale"
         self.puzzle_before_frame = self.frame.copy()
         self.puzzle.begin(step, handler, observation, time.time())
         self.decision_session.record(action, action_text, location, time.time(), external_verification=True)
         self.quest_scene.waiting_for = "mechanism_effect"
+        if step.kind == "exploration_tool":
+            self.exploration_tool_trigger.mark_used(time.monotonic())
+            self.log_info("检测到右下方探索工具高亮，按 T 执行交互")
         if step.target is not None:
             self.click(step.target[0] / self.frame.shape[1], step.target[1] / self.frame.shape[0])
         else:
