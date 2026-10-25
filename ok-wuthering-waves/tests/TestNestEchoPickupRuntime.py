@@ -13,14 +13,14 @@ from src.utils.EchoApproach import EchoApproach
 
 
 class TestNestPickupState(unittest.TestCase):
-    def test_three_attempts_include_initial_attempt(self):
+    def test_two_attempts_include_initial_attempt(self):
         state = NestPickupState()
-        for attempt in range(1, 4):
+        for attempt in range(1, 3):
             self.assertTrue(state.begin_attempt())
             self.assertEqual(attempt, state.attempts)
         for _ in range(5):
             self.assertFalse(state.begin_attempt())
-            self.assertEqual(3, state.attempts)
+            self.assertEqual(2, state.attempts)
 
     def test_partial_collection_keeps_attempt_budget(self):
         state = NestPickupState()
@@ -30,7 +30,6 @@ class TestNestPickupState(unittest.TestCase):
         self.assertTrue(state.collected)
         self.assertEqual(2, state.attempts)
         self.assertFalse(state.complete)
-        self.assertTrue(state.begin_attempt())
         self.assertFalse(state.begin_attempt())
 
 
@@ -59,7 +58,7 @@ class TestNestEchoPickupRuntime(unittest.TestCase):
                 reopened = NestTarget(Box(1701, 501, 1, 1), target.cache_key)
                 self.assertIs(state, task._get_nest_pickup_state(reopened))
                 self.assertTrue(task._get_nest_pickup_state(reopened).begin_attempt())
-                self.assertTrue(task._get_nest_pickup_state(target).begin_attempt())
+                self.assertFalse(task._get_nest_pickup_state(target).begin_attempt())
                 self.assertFalse(task._get_nest_pickup_state(reopened).begin_attempt())
                 other = NestTarget(Box(1700, 700, 1, 1), 'go_nest:48:35')
                 self.assertEqual(0, task._get_nest_pickup_state(other).attempts)

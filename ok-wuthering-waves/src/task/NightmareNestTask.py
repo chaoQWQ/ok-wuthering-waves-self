@@ -25,7 +25,7 @@ class NestPickupState:
     complete: bool = False
 
     def begin_attempt(self):
-        if self.attempts >= 3:
+        if self.attempts >= 2:
             return False
         self.attempts += 1
         self.complete = False
@@ -155,7 +155,7 @@ class NightmareNestTask(WWOneTimeTask, BaseCombatTask):
             if not captured_early:
                 self.sleep(3)
                 while pickup.begin_attempt():
-                    self.log_info(f'聚落声骸领取：第 {pickup.attempts}/3 次尝试')
+                    self.log_info(f'聚落声骸领取：第 {pickup.attempts}/2 次尝试')
                     if not is_team:
                         if not self._reenter_nest_for_pickup(nest):
                             continue
@@ -172,8 +172,8 @@ class NightmareNestTask(WWOneTimeTask, BaseCombatTask):
             self.log_info('nightmare nest: combat detected after pickup')
             wait_combat_time = 1
             pickup.complete = False
-        if pickup.attempts >= 3 and not pickup.complete:
-            self.log_warning('聚落声骸领取已尝试 3 次，继续后续任务')
+        if pickup.attempts >= 2 and not pickup.complete:
+            self.log_warning('聚落声骸领取已尝试 2 次，继续后续任务')
             self.screenshot('nest_echo_pickup_incomplete')
             self._unreachable_nests.add(getattr(nest, 'cache_key', str(target_box)))
         # 与刷全部一致：退本后再结束 combat_nest，避免还在巢穴内回 Daily/开书
