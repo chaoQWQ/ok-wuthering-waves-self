@@ -709,6 +709,58 @@ class TestQuestStoryTask(unittest.TestCase):
         distance = self.task._extract_quest_distance(dummy_frame, beacon)
         self.assertEqual(distance, 27.0)
 
+    def test_extract_quest_distance_returns_nearest_for_parallel_objectives(self):
+        # 并行任务（寻找A 38米 / 寻找B 12米 / 寻找C 37米）：返回最近目标距离，
+        # 到达/交互的 <=X 米判定随之变成"任一目标满足"语义。
+        class MockBox:
+            def __init__(self, name, x, y, width, height):
+                self.name = name
+                self.x = x
+                self.y = y
+                self.width = width
+                self.height = height
+
+        mock_boxes = [
+            MockBox("来自毁灭的回声", 25, 161, 102, 18),
+            MockBox("寻找被封存的泰缇斯系统", 28, 191, 150, 16),
+            MockBox("38米", 171, 190, 31, 16),
+            MockBox("寻找遗留守岸人回声的装置", 28, 221, 150, 16),
+            MockBox("12米", 171, 220, 31, 16),
+            MockBox("寻找记录线索的旧文件", 28, 251, 150, 16),
+            MockBox("37米", 171, 250, 31, 16),
+        ]
+        self.task.ocr = lambda *args, **kwargs: mock_boxes
+        dummy_frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        from src.utils.QuestVision import BeaconResult
+        beacon = BeaconResult(found=False, x=0, y=0, width=0, height=0, confidence=0.0)
+        distance = self.task._extract_quest_distance(dummy_frame, beacon)
+        self.assertEqual(distance, 12.0)
+        self.assertEqual(self.task.quest_objective_distances, [38.0, 12.0, 37.0])
+
+    def test_objective_line_count_change_releases_beacon_lock(self):
+        # 完成一个任务点（3 行 -> 2 行）需连续两次读到才释放锁重新选点。
+        self.task.log_info = lambda *args, **kwargs: None
+        self.task.beacon_lock = {"cx": 0.5, "cy": 0.4, "hold_until": time.time() + 30, "lost_at": None}
+        self.task.quest_objective_distances = []
+        self.task.objective_line_count = 3
+        self.task.objective_count_candidate = None
+
+        self.task._observe_objective_lines([38.0, 12.0])
+        self.assertIsNotNone(self.task.beacon_lock, "第一次变化只记候选，不应立即释放")
+
+        self.task._observe_objective_lines([30.0, 10.0])
+        self.assertIsNone(self.task.beacon_lock, "连续两次确认后应释放锁")
+        self.assertEqual(self.task.objective_line_count, 2)
+        self.assertEqual(self.task.quest_objective_distances, [30.0, 10.0])
+
+    def test_release_beacon_lock_resets_arrow_bearing(self):
+        self.task.log_info = lambda *args, **kwargs: None
+        self.task.beacon_lock = {"cx": 0.5, "cy": 0.4, "hold_until": time.time() + 30, "lost_at": None}
+        self.task.arrow_lock_bearing = 90.0
+        self.task._release_beacon_lock("测试")
+        self.assertIsNone(self.task.beacon_lock)
+        self.assertIsNone(self.task.arrow_lock_bearing)
+
     def test_load_chars_does_not_raise_name_error_without_frame(self):
         self.task.chars = []
         self.task._companion_team_active = lambda: False

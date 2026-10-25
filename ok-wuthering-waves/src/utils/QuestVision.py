@@ -112,8 +112,16 @@ def detect_quest_beacon(
     frame: np.ndarray,
     search_box: Optional[Tuple[int, int, int, int]] = None,
     template_path: Optional[str] = None,
-    threshold: float = 0.75
+    threshold: float = 0.75,
+    sticky: Optional[Tuple[int, int]] = None
 ) -> BeaconResult:
+    """检测任务信标（黄色圆环标记）。
+
+    多个任务点同屏时圆环候选不止一个。默认与原行为一致取置信度最高的
+    候选；传入 sticky（上一帧锁定信标的画面坐标）时只认 sticky 附近的
+    候选——锁定目标消失时返回 not found，由调用方决定沿原方向前进还是
+    换锁，避免信标选择来回翻转导致来回走。
+    """
     if frame is None or frame.size == 0:
         raise ValueError("输入画面数组不能为空")
 
@@ -178,7 +186,15 @@ def detect_quest_beacon(
             if confidence >= max(threshold, 0.80) and float(np.mean(center[:, :, 1])) > 180:
                 candidates.append((confidence, ix, iy, int(round(radius))))
         if candidates:
-            confidence, cx, cy, radius = max(candidates)
+            if sticky is not None:
+                sx, sy = sticky
+                sticky_radius = 0.22 * float(np.hypot(frame_width, frame_height))
+                near = [c for c in candidates if np.hypot(c[1] - sx, c[2] - sy) <= sticky_radius]
+                if not near:
+                    return BeaconResult(False, 0, 0, 0, 0, 0.0)
+                confidence, cx, cy, radius = max(near)
+            else:
+                confidence, cx, cy, radius = max(candidates)
             return BeaconResult(True, cx - radius, cy - radius, radius * 2, radius * 2, confidence)
 
     # 优先执行高精度模板匹配
@@ -316,8 +332,15 @@ def extract_task_panel_distance_roi(
 
 def detect_minimap_quest_arrow(
     frame: np.ndarray,
-    minimap_roi_box: Optional[Tuple[int, int, int, int]] = None
+    minimap_roi_box: Optional[Tuple[int, int, int, int]] = None,
+    sticky_bearing: Optional[float] = None
 ) -> MinimapArrowResult:
+    """检测小地图边缘的任务指引标记。
+
+    多个任务点会在小地图边缘同时出现多个标记。默认取面积最大的一个；
+    传入 sticky_bearing（上一帧跟随的方位角）时优先取 ±40° 内最近的
+    那个，防止两个标记面积此起彼伏导致转向来回翻转。
+    """
     if frame is None or frame.size == 0:
         raise ValueError("输入画面数组不能为空")
 
@@ -380,6 +403,7 @@ def detect_minimap_quest_arrow(
 
     best_arrow: Optional[Tuple[float, int, int]] = None
     max_area = 0.0
+    arrows: list[Tuple[float, int, int, float]] = []
 
     for cnt in contours:
         area = cv2.contourArea(cnt)
@@ -401,9 +425,18 @@ def detect_minimap_quest_arrow(
         angle_rad = np.arctan2(dx, -dy)
         angle_deg = (float(np.degrees(angle_rad)) - heading) % 360.0
 
+        arrows.append((angle_deg, int(mx + arrow_cx), int(my + arrow_cy), area))
         if area > max_area:
             max_area = area
             best_arrow = (angle_deg, int(mx + arrow_cx), int(my + arrow_cy))
+
+    if sticky_bearing is not None and arrows:
+        def _bearing_gap(a: float, b: float) -> float:
+            return min((a - b) % 360.0, (b - a) % 360.0)
+
+        near = [a for a in arrows if _bearing_gap(a[0], sticky_bearing) <= 40.0]
+        if near:
+            best_arrow = min(near, key=lambda a: _bearing_gap(a[0], sticky_bearing))[:3]
 
     if best_arrow:
         deg, ax, ay = best_arrow

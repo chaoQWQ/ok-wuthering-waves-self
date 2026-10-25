@@ -45,6 +45,7 @@ from src.utils.QuestBackgroundMotion import detect_background_motion
 from src.utils.QuestTargetSearch import QuestTargetSearch
 from src.utils.QuestVision import (
     BeaconResult,
+    MinimapArrowResult,
     ClimbStateResult,
     detect_climbing_state,
     detect_climbing_stamina,
@@ -154,6 +155,13 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.navigation_continuation_started = None
         self.sleep_check_interval = .1
         self.frozen_cutscene_attempts: int = 0
+        # 多任务点支持：信标锁（防止多个指引标记来回翻转导致来回走）、
+        # 小地图方位锁、面板并行目标距离列表及其行数稳定值。
+        self.beacon_lock: Optional[dict] = None
+        self.arrow_lock_bearing: Optional[float] = None
+        self.quest_objective_distances: list[float] = []
+        self.objective_line_count: int = 0
+        self.objective_count_candidate: Optional[int] = None
 
     def _is_letterbox_cutscene(self, frame: Optional[np.ndarray]) -> bool:
         if frame is None or frame.size == 0:
@@ -622,6 +630,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
     def _mark_scene_transition(self, outcome: str, state: str):
         self._reset_navigation_timing()
+        self._release_beacon_lock(f"场景切换({outcome})")
         if self.current_state != state:
             self.quest_scene.transition(state)
             self.quest_scene.waiting_for = "combat_completed" if state == self.STATE_COMBAT else "scene_completed" if state == self.STATE_LETTERBOX_CUTSCENE else None
@@ -743,6 +752,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.goal_first_seen_time = time.time()
             self.goal_seen_beacon = False
             self.v_retrack_count = 0
+            self._release_beacon_lock("任务目标更新")
             self.quest_scene.set_goal(self.guidance_text)
             self.traversal.reset_goal()
             self.puzzle.reset_goal()
@@ -750,7 +760,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
         # 2. 提取任务信标与目标距离（先于范围圈分支：信标可见时优先跟随信标，
         #    避免任务区小虚线圈兜底观测抢占信标导航）
-        beacon_result = detect_quest_beacon(frame)
+        beacon_result = self._detect_beacon_with_lock(frame)
         if beacon_result.found:
             self.quest_area_goal = None
             self.goal_seen_beacon = True
@@ -808,7 +818,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 return
 
         # 4. 判定是否属于已到达任务点附近的交互
-        arrow_result = detect_minimap_quest_arrow(frame)
+        arrow_result = self._detect_arrow_with_lock(frame)
         self.quest_scene.bearing = arrow_result.bearing_deg if arrow_result.found else None
         is_near_goal = False
 
@@ -1042,7 +1052,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             return
 
         # 9. 视野无信标，依据小地图指示箭头旋转镜头并移动
-        arrow_result = detect_minimap_quest_arrow(frame)
+        arrow_result = self._detect_arrow_with_lock(frame)
         if arrow_result.found:
             turn_cmd = calculate_camera_turn(
                 screen_width=width,
@@ -1100,6 +1110,83 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             return
         self._apply_camera_turn(turn_pixels * 2)
         self.sleep(0.05)
+
+    def _release_beacon_lock(self, reason: str = ""):
+        if getattr(self, "beacon_lock", None) is not None:
+            self.log_info(f"释放任务信标锁定（{reason}）" if reason else "释放任务信标锁定")
+        self.beacon_lock = None
+        self.arrow_lock_bearing = None
+
+    def _detect_beacon_with_lock(self, frame: np.ndarray) -> BeaconResult:
+        """多任务点同屏时的信标粘滞选择。
+
+        有锁：只在锁附近找信标；锁定的目标暂时不见时返回 not found，
+        让既有的「信标刚丢失 <8s 沿原朝向前进」逻辑接管，8 秒后放弃锁
+        换追其他标记——绝不立刻跳到另一个标记上，防止来回走。
+        无锁：按画面位置最低者优先（最近目标）选一个并锁定。
+        """
+        now = time.time()
+        lock = getattr(self, "beacon_lock", None)
+        sticky = None
+        if lock is not None and now < lock["hold_until"]:
+            sticky = (lock["cx"] * frame.shape[1], lock["cy"] * frame.shape[0])
+        result = detect_quest_beacon(frame, sticky=sticky)
+        if result.found:
+            if lock is None and len(getattr(self, "quest_objective_distances", []) or []) >= 2:
+                self.log_info(f"检测到 {len(self.quest_objective_distances)} 个并行任务点，"
+                              f"锁定画面 ({(result.x + result.width / 2) / frame.shape[1]:.2f}, "
+                              f"{(result.y + result.height / 2) / frame.shape[0]:.2f}) 处的信标直至完成")
+            self.beacon_lock = {
+                "cx": (result.x + result.width / 2) / frame.shape[1],
+                "cy": (result.y + result.height / 2) / frame.shape[0],
+                "hold_until": now + 30.0,
+                "lost_at": None,
+            }
+            return result
+        if lock is None:
+            return result
+        # 锁定目标没找到：先记丢失时间，8 秒内由调用方按丢失分支处理。
+        if lock["lost_at"] is None:
+            lock["lost_at"] = now
+        if now - lock["lost_at"] >= 8.0 or now >= lock["hold_until"]:
+            self._release_beacon_lock("锁定信标持续丢失")
+            result = detect_quest_beacon(frame)
+            if result.found:
+                return self._detect_beacon_with_lock(frame)
+        return result
+
+    def _detect_arrow_with_lock(self, frame: np.ndarray) -> "MinimapArrowResult":
+        """小地图指引标记的方位粘滞选择，与信标锁同生共死。"""
+        sticky = None
+        if getattr(self, "beacon_lock", None) is not None and getattr(self, "arrow_lock_bearing", None) is not None:
+            sticky = self.arrow_lock_bearing
+        arrow_result = detect_minimap_quest_arrow(frame, sticky_bearing=sticky)
+        if arrow_result.found:
+            self.arrow_lock_bearing = arrow_result.bearing_deg
+        return arrow_result
+
+    def _observe_objective_lines(self, distances: list[float]):
+        """跟踪面板并行目标行数。
+
+        行数变化（完成一个目标少一行 / 新增目标多一行）需要连续两次读到
+        同一新值才生效，防单帧 OCR 抖动；生效时释放信标锁，让导航按新
+        面板重新选点，实现多任务点逐个顺序完成。
+        """
+        self.quest_objective_distances = distances
+        count = len(distances)
+        if count == getattr(self, "objective_line_count", 0):
+            self.objective_count_candidate = None
+            return
+        if getattr(self, "objective_count_candidate", None) == count:
+            previous = getattr(self, "objective_line_count", 0)
+            direction = "已完成一个任务点" if count < previous else "检测到新增任务点"
+            self.log_info(f"并行任务目标数量变化：{previous} -> {count}（{direction}），重新选择目标")
+            self.objective_line_count = count
+            self.objective_count_candidate = None
+            self._release_beacon_lock(direction)
+            self.navigation_progress = QuestProgressTracker()
+        else:
+            self.objective_count_candidate = count
 
     def _read_quest_goal(self, frame: np.ndarray, force: bool = False):
         if not force and time.time() - getattr(self, "guidance_last_read", 0.0) < 2:
@@ -1283,6 +1370,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.direct_interact_last_time = now
         self.direct_interact_attempts = getattr(self, "direct_interact_attempts", 0) + 1
         self.log_info(f"已到达任务点且出现交互提示 [F] {action_text or '(未识别)'}，直接执行交互")
+        self._release_beacon_lock("已完成一次任务点交互")
         result = self._execute_puzzle_action("interact", action_text, "near_interaction")
         return result != "stale"
 
@@ -1891,6 +1979,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.goal_seen_beacon = False
         self.last_beacon_seen_time = 0.0
         self.last_world_seen_time = 0.0
+        self._release_beacon_lock("地图传送后世界位置已改变")
         for _ in range(3):
             self.send_key("esc", down_time=0.1)
             self.sleep(1.2)
@@ -2287,7 +2376,9 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 pass
 
     def _extract_quest_distance(self, frame: np.ndarray, beacon_result: BeaconResult) -> Optional[float]:
-        boxes = self.ocr(.01, .20, .28, .48, frame=frame)
+        # 面板纵向范围到 .56：并行任务（如"寻找A/寻找B/寻找C"三行）的距离
+        # 数字会一直排到面板下半部，.48 会漏读后面的行。
+        boxes = self.ocr(.01, .20, .28, .56, frame=frame)
         boxes_sorted = sorted(boxes, key=lambda b: getattr(b, "y", 0))
         lines: list[list] = []
         for b in boxes_sorted:
@@ -2303,17 +2394,24 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             if not placed:
                 lines.append([b])
 
+        distances: list[float] = []
         for line in lines:
             if any(OPTIONAL_QUEST_MARKER.search(getattr(item, "name", "") or "") for item in line):
                 continue
             for box in line:
                 distance = parse_distance_text(getattr(box, "name", ""), require_unit=True)
                 if distance is not None:
+                    distances.append(distance)
                     if self.quest_scene.vertical == "unknown":
                         self.quest_scene.vertical = detect_quest_vertical_hint(
                             frame, (getattr(box, "x", 0), getattr(box, "y", 0), getattr(box, "width", 0), getattr(box, "height", 0))
                         )
-                    return distance
+                    break
+        self._observe_objective_lines(distances)
+        if distances:
+            # 多个并行任务点：返回最近目标的距离（最近优先完成），到达与
+            # 交互判定由全部行共同参与（见 _navigate_world）。
+            return min(distances)
 
         if beacon_result.found:
             fh, fw = frame.shape[:2]
@@ -2352,8 +2450,12 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.target_search.next_turn(allow_high_count=True)
             self._apply_camera_turn(command.delta_x_pixels)
             self.sleep(.12)
-            self.wait_until(lambda: detect_quest_beacon(self.frame).found, time_out=.4)
-            beacon = detect_quest_beacon(self.frame)
+            # 转向后仍对准原来那个信标（粘滞），多目标同屏时不会跳到别的标记。
+            sticky_center = (int(beacon.x + beacon.width / 2), int(beacon.y + beacon.height / 2))
+            self.wait_until(lambda: detect_quest_beacon(self.frame, sticky=sticky_center).found, time_out=.4)
+            beacon = detect_quest_beacon(self.frame, sticky=sticky_center)
+            if not beacon.found:
+                return
 
     def _apply_camera_turn(self, delta_x: int):
         self._stop_all_movement()

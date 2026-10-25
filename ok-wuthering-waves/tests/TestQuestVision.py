@@ -240,6 +240,88 @@ class TestQuestVision(unittest.TestCase):
             frame = np.zeros((100, 100, 3), dtype=np.uint8)
             detect_companion_label(frame, template_path="non_existent.png")
 
+    @staticmethod
+    def _draw_beacon(frame, cx, cy, radius=14, ring_thick=3):
+        """合成任务信标：亮中心 + 金色圆环（与游戏信标形态一致）。"""
+        gold = (60, 190, 255)
+        bright = (180, 230, 255)
+        cv2.circle(frame, (cx, cy), radius - ring_thick, bright, -1)
+        cv2.circle(frame, (cx, cy), radius, gold, ring_thick)
+
+    def test_detect_quest_beacon_sticky_prefers_locked_candidate(self):
+        # 两个任务信标同屏：无锁与有锁的选择相互独立，锁住哪个就跟哪个。
+        frame = np.full((1080, 1920, 3), (40, 60, 70), dtype=np.uint8)
+        self._draw_beacon(frame, 600, 500)
+        self._draw_beacon(frame, 1300, 500)
+
+        default = detect_quest_beacon(frame)
+        self.assertTrue(default.found)
+        default_cx = default.x + default.width / 2
+        other_cx = 600 if default_cx > 960 else 1300
+
+        locked = detect_quest_beacon(frame, sticky=(other_cx, 500))
+        self.assertTrue(locked.found)
+        self.assertAlmostEqual(locked.x + locked.width / 2, other_cx, delta=6)
+
+        locked_default = detect_quest_beacon(frame, sticky=(default_cx, 500))
+        self.assertTrue(locked_default.found)
+        self.assertAlmostEqual(locked_default.x + locked_default.width / 2, default_cx, delta=6)
+
+    def test_detect_quest_beacon_sticky_missing_returns_not_found(self):
+        # 锁定的目标消失时不得跳到其他信标上（否则导航来回翻转）。
+        frame = np.full((1080, 1920, 3), (40, 60, 70), dtype=np.uint8)
+        self._draw_beacon(frame, 1300, 500)
+        self._draw_beacon(frame, 600, 700)
+
+        base = detect_quest_beacon(frame)
+        self.assertTrue(base.found)
+        res = detect_quest_beacon(frame, sticky=(300, 300))
+        self.assertFalse(res.found)
+
+    def test_detect_quest_beacon_sticky_real_multi_beacon_screenshot(self):
+        path = os.path.join(os.path.dirname(__file__), "images", "quest_after_story_combat.png")
+        frame = cv2.imread(path)
+        if frame is None:
+            self.skipTest("多信标样本图片不存在")
+        base = detect_quest_beacon(frame)
+        self.assertTrue(base.found)
+        base_cx = base.x + base.width / 2
+        base_cy = base.y + base.height / 2
+        locked = detect_quest_beacon(frame, sticky=(int(base_cx), int(base_cy)))
+        self.assertTrue(locked.found)
+        self.assertAlmostEqual(locked.x + locked.width / 2, base_cx, delta=20)
+        lost = detect_quest_beacon(frame, sticky=(20, frame.shape[0] - 20))
+        self.assertFalse(lost.found)
+
+    def test_detect_minimap_quest_arrow_sticky_bearing(self):
+        # 小地图边缘两个指引标记：粘滞方位优先取 ±40° 内最近的标记。
+        width, height = 1920, 1080
+        frame = np.full((height, width, 3), (40, 60, 70), dtype=np.uint8)
+        gold = (60, 190, 255)
+        center = (int(width * 0.068), int(height * 0.115))
+        triangle = np.array([
+            [center[0], center[1] - 10],
+            [center[0] - 8, center[1] + 8],
+            [center[0] + 8, center[1] + 8],
+        ], dtype=np.int32)
+        cv2.fillPoly(frame, [triangle], gold)
+        rim = 80
+        cv2.rectangle(frame, (center[0] - 9, center[1] - rim - 9), (center[0] + 9, center[1] - rim + 9), gold, -1)
+        cv2.rectangle(frame, (center[0] - 12, center[1] + rim - 12), (center[0] + 12, center[1] + rim + 12), gold, -1)
+
+        default = detect_minimap_quest_arrow(frame)
+        self.assertTrue(default.found)
+        self.assertAlmostEqual(default.bearing_deg, 180.0, delta=10)
+
+        locked_up = detect_minimap_quest_arrow(frame, sticky_bearing=0.0)
+        self.assertTrue(locked_up.found)
+        self.assertLessEqual(min(locked_up.bearing_deg, 360.0 - locked_up.bearing_deg), 10.0)
+
+        # 粘滞方位两侧都没有标记时回退默认（面积最大）选择。
+        fallback = detect_minimap_quest_arrow(frame, sticky_bearing=90.0)
+        self.assertTrue(fallback.found)
+        self.assertAlmostEqual(fallback.bearing_deg, 180.0, delta=10)
+
 
 if __name__ == "__main__":
     unittest.main()
