@@ -1350,13 +1350,11 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             return None
 
     def _handle_memory_replay_page(self, frame: np.ndarray) -> bool:
-        """识别全屏文档/回放页（心相"记录着…片段"、决议文书"K626号决议"等）
-        并点右上角 X 关闭。
+        """卡住的界面统一点右上角 X 关闭（用户规则：识别到右上方的叉都同样处理）。
 
-        页面特征：顶部中央标题 + 右上角 X 关闭按钮；无队伍栏、无对白推进
-        标识，任务会在"不在队伍大世界"等待分支空转。判定条件：世界持续
-        丢失 ≥8 秒 + 顶部中央存在标题 + X 图标；梗概/跳过类标题排除
-        （有专属处理流程），短暂 OCR 漏检不会触发误点。
+        心相回放页、决议文书等全屏阅读页都会挡住世界检测，让任务在
+        "不在队伍大世界"等待分支空转。规则：世界持续丢失 ≥8 秒（排除
+        瞬时 OCR 漏检）且右上角识别到 X 关闭图标 → 点击关闭继续任务。
         """
         now = time.time()
         if now - getattr(self, "replay_close_last_time", 0.0) < 4.0:
@@ -1367,18 +1365,9 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         close_box = self._detect_replay_close_button(frame)
         if close_box is None:
             return False
-        title = ""
-        try:
-            boxes = self.ocr(.30, .04, .80, .15, frame=frame)
-            title = " ".join(getattr(box, "name", "") or "" for box in boxes)
-        except Exception:
-            title = ""
-        title = title.strip()
-        if len(title) < 2 or re.search(r"梗概|跳过|地图|任务", title):
-            return False
         self.replay_close_last_time = now
-        self.log_info(f"检测到全屏文档页面（{title}），点击右上角关闭按钮继续任务")
-        self._release_beacon_lock("全屏文档页面关闭")
+        self.log_info("界面持续卡住且右上角存在关闭按钮，点击 X 关闭继续任务")
+        self._release_beacon_lock("卡住界面已通过 X 关闭")
         self.click(close_box)
         self.sleep(1.0)
         return True
