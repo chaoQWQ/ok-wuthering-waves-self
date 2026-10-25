@@ -44,6 +44,7 @@ from src.utils.QuestOcrPrivacy import (
 )
 from src.utils.QuestProgressTracker import QuestProgressTracker
 from src.utils.QuestBackgroundMotion import detect_background_motion
+from src.utils.QuestDialogAutoPlay import detect_dialog_auto_play
 from src.utils.QuestTargetSearch import QuestTargetSearch
 from src.utils.QuestVision import (
     BeaconResult,
@@ -110,6 +111,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             "Switch to First Character for Movement": "移动寻路期间固定切换至一号位角色",
         }
         self.current_state = self.STATE_IDLE
+        self.dialog_auto_play_managed = False
         self.last_frame: Optional[np.ndarray] = None
         self.letterbox_freeze_start_time: float = 0.0
         self.last_action_time: float = 0.0
@@ -368,6 +370,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
         self.log_info("剧情模式已启动，已激活游戏窗口并重置鼠标位置")
         self.current_state = self.STATE_IDLE
+        self.dialog_auto_play_managed = False
         self.last_frame = None
         self.letterbox_freeze_start_time = 0.0
         self.last_search_log_time = 0.0
@@ -497,6 +500,10 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                     self.sleep(0.2)
                     continue
 
+                if self._handle_dialog_auto_play(frame):
+                    self.sleep(0.2)
+                    continue
+
                 if self.skip_message():
                     self._mark_scene_transition("dialog_started", self.STATE_DIALOG)
                     self.current_state = self.STATE_DIALOG
@@ -510,6 +517,10 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                     self._mark_scene_transition("dialog_started", self.STATE_DIALOG)
                     self.current_state = self.STATE_DIALOG
                     self.letterbox_freeze_start_time = 0.0
+                    if self.dialog_auto_play_managed:
+                        self._reveal_hidden_ui()
+                        self.sleep(0.2)
+                        continue
                     self.log_info(
                         f"检测到剧情对白推进标识 (置信度 {advance_result.confidence:.2f})，点击界面进入下一段对话"
                     )
@@ -667,6 +678,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.last_frame = frame.copy()
 
     def _handle_world_navigation_and_interaction(self, frame: np.ndarray):
+        self.dialog_auto_play_managed = False
         actions_before = self.quest_scene.movement_actions
         try:
             self._navigate_world(frame)
@@ -3015,6 +3027,42 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         if button := self.find_skip():
             return self._click_story_button(button)
         return False
+
+    def _handle_dialog_auto_play(self, frame: np.ndarray) -> bool:
+        result = detect_dialog_auto_play(frame)
+        if not result.found:
+            return False
+        self._stop_all_movement()
+        self._mark_scene_transition("dialog_started", self.STATE_DIALOG)
+        self.current_state = self.STATE_DIALOG
+        self.letterbox_freeze_start_time = 0.0
+        self.dialog_auto_play_managed = True
+
+        for attempt in range(3):
+            if not result.found or result.enabled:
+                if result.enabled and attempt:
+                    self.log_info("已确认剧情自动对话开启")
+                return True
+            if attempt == 2:
+                raise RuntimeError("剧情对话按钮切换两次后仍未进入完整自动档位")
+            previous_mode = result.mode
+            button = Box(result.x, result.y, result.width, result.height,
+                         confidence=result.confidence, name="dialog_auto_play")
+            self.log_info(f"剧情对话当前档位为 {previous_mode}，点击切换自动对话")
+            if not self._click_story_button(button):
+                return True
+
+            deadline = time.monotonic() + 1.5
+            while True:
+                self.next_frame()
+                result = detect_dialog_auto_play(self.frame)
+                if not result.found or result.mode != previous_mode:
+                    break
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("剧情对话按钮点击后档位没有变化")
+                self.sleep(0.1)
+
+        return True
 
     def _find_story_skip_confirm(self, frame: np.ndarray) -> Optional[Box]:
         question_seen = False
