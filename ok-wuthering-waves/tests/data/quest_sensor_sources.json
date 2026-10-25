@@ -1,0 +1,10 @@
+{
+  "quest_sensor_wheel.jpg": "https://img1.gamersky.com/image2024/05/20240525_cej_668_6/1582_S.jpg",
+  "quest_sensor_wheel_touch.jpg": "https://img1.gamersky.com/image2024/05/20240525_cej_668_18/1759.jpg",
+  "quest_sensor_modules.jpg": "https://img1.gamersky.com/image2024/05/20240525_cej_668_18/1921.jpg",
+  "quest_sensor_prompt.jpg": "https://staticg.sportskeeda.com/editor/2024/05/5691c-17167135840686-1920.jpg?w=720",
+  "quest_sensor_icon.png": {
+    "source": "quest_sensor_modules.jpg",
+    "box": [1467, 108, 74, 72]
+  }
+}

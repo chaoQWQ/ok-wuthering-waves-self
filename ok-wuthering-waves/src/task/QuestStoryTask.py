@@ -28,6 +28,7 @@ from src.utils.QuestAreaSearch import (
 )
 from src.utils.QuestDecisionSession import QuestDecisionSession
 from src.utils.QuestExplorationTool import ExplorationToolTrigger, detect_exploration_tool
+from src.utils.QuestSensorTool import find_sensor_icon, requires_sensor, sensor_wheel_selected
 from src.utils.QuestSceneState import QuestSceneState, QuestSceneChangedError
 from src.utils.QuestTraversalController import QuestTraversalController
 from src.utils.QuestMovementTimeout import QuestMovementTimeout
@@ -145,6 +146,9 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.traversal = QuestTraversalController(self.quest_scene)
         self.puzzle = QuestPuzzleSession()
         self.exploration_tool_trigger = ExplorationToolTrigger()
+        self.sensor_tool_goal = None
+        self.sensor_tool_requested = False
+        self.held_tool_wheel_key = None
         self.puzzle_before_frame = None
         self.last_coordinate_read = 0.0
         self.last_coordinate_valid = False
@@ -322,7 +326,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
     def sleep_check(self):
         if self.executor.paused or self.paused or not self.is_game_window_active():
-            if self.held_movement_keys:
+            if self.held_movement_keys or self.held_tool_wheel_key is not None:
                 self._stop_all_movement()
                 self.quest_scene.input_interruptions += 1
             self._reset_navigation_timing()
@@ -396,6 +400,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         self.puzzle.reset_goal()
         self.puzzle_before_frame = None
         self.exploration_tool_trigger = ExplorationToolTrigger()
+        self.sensor_tool_goal = None
+        self.sensor_tool_requested = False
         self.last_coordinate_read = 0.0
         self.puzzle_panel_active = False
         self.goal_candidate = None
@@ -738,7 +744,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.puzzle.reset_goal()
             self.log_info(f"任务要求已经更新：{self.guidance_text}")
 
-        if self._try_exploration_tool(frame):
+        if self._try_sensor_tool() or self._try_exploration_tool(frame):
             return
 
         # 2. 提取任务信标与目标距离（先于范围圈分支：信标可见时优先跟随信标，
@@ -1175,7 +1181,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         if not force and time.time() - getattr(self, "guidance_last_read", 0.0) < 2:
             return
         height, width = frame.shape[:2]
-        region = Box(round(width * .01), round(height * .23), round(width * .24), round(height * .16))
+        region = Box(round(width * .01), round(height * .23), round(width * .24), round(height * .30))
         boxes = self._ocr_quest_region(frame, region)
         # 按垂直坐标聚类为行，排除包含可选标记的行
         boxes_sorted = sorted(boxes, key=lambda b: getattr(b, "y", 0))
@@ -1199,6 +1205,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 main_boxes.extend(line)
 
         panel_text = " ".join(getattr(box, "name", "") or "" for box in main_boxes)
+        self.sensor_tool_requested = requires_sensor(panel_text)
         self.quest_scene.vertical = "below" if re.search(r"[▼▽↓]", panel_text) else "above" if re.search(r"[▲△↑]", panel_text) else "unknown"
         if self.quest_scene.vertical == "unknown":
             for box in main_boxes:
@@ -1207,7 +1214,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                         frame, (getattr(box, "x", 0), getattr(box, "y", 0), getattr(box, "width", 0), getattr(box, "height", 0))
                     )
                     break
-        text = quest_goal_from_lines([box.name for box in boxes if getattr(box, "x", 0) <= frame.shape[1] * .05])
+        text = quest_goal_from_lines([box.name for box in boxes
+                                     if getattr(box, "x", 0) <= width * .05 and box.y < height * .39])
         previous_goal = self.guidance_text
         if text:
             if not self.guidance_text or text == self.guidance_text:
@@ -1389,6 +1397,81 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
     def _exploration_tool_ready(self, frame):
         box = self.executor.feature_set.get_box_by_name(frame, "tool_teleport")
         return detect_exploration_tool(frame, (box.x, box.y, box.width, box.height))
+
+    def _sensor_tool_equipped(self, frame):
+        box = self.executor.feature_set.get_box_by_name(frame, "tool_teleport")
+        height, width = frame.shape[:2]
+        left, top = max(0, box.x - box.width // 2), max(0, box.y - box.height // 2)
+        right, bottom = min(width, box.x + box.width * 2), min(height, box.y + box.height * 2)
+        return find_sensor_icon(frame, (left, top, right - left, bottom - top)) is not None
+
+    def _select_sensor_tool(self):
+        import win32api
+
+        wheel_key = self.key_config["Wheel Key"]
+        old_cursor = win32api.GetCursorPos()
+
+        def check_wheel():
+            if (self.executor.paused or self.paused or not self.is_game_window_active()
+                    or self.held_tool_wheel_key != wheel_key):
+                raise QuestSceneChangedError("探索工具选择期间操作已中断")
+
+        def find_sensor():
+            check_wheel()
+            frame = self.frame
+            height, width = frame.shape[:2]
+            return find_sensor_icon(frame, (round(width * .15), round(height * .08),
+                                            round(width * .70), round(height * .80)), wheel=True)
+
+        def sensor_selected():
+            check_wheel()
+            frame = self.frame
+            if sensor_wheel_selected(frame, target):
+                return True
+            height, width = frame.shape[:2]
+            region = Box(round(width * .35), round(height * .32), round(width * .30), round(height * .28))
+            return any(re.fullmatch(r"感知|Sensor", sanitize_quest_text(box.name).strip(), re.IGNORECASE)
+                       for box in self._ocr_quest_region(frame, region))
+
+        self.held_tool_wheel_key = wheel_key
+        try:
+            self.send_key_down(wheel_key)
+            target = self.wait_until(find_sensor, time_out=3, raise_if_not_found=True)
+            x, y, width, height = target
+            center = (round(x + width / 2), round(y + height / 2))
+            self.move(*center)
+            win32api.SetCursorPos(self.executor.interaction.capture.get_abs_cords(*center))
+            self.wait_until(sensor_selected, time_out=2, raise_if_not_found=True)
+        finally:
+            self.held_tool_wheel_key = None
+            self.send_key_up(wheel_key)
+            if self.is_game_window_active():
+                win32api.SetCursorPos(old_cursor)
+        self.wait_until(lambda: self._sensor_tool_equipped(self.frame), time_out=3, raise_if_not_found=True)
+
+    def _try_sensor_tool(self):
+        goal = self.guidance_text
+        if not (requires_sensor(goal) or self.sensor_tool_requested) or self.sensor_tool_goal == goal:
+            return False
+        if self.puzzle.pending is not None or self.decision_session.pending is not None:
+            return False
+        self._stop_all_movement()
+        self._reset_navigation_timing()
+        if not self._can_continue_quest_input():
+            raise QuestSceneChangedError("感知工具操作前场景已经改变")
+        self.log_info("任务要求使用感知，打开探索工具轮盘选择感知")
+        self._select_sensor_tool()
+        self.next_frame()
+        self._read_quest_goal(self.frame, force=True)
+        if (self.guidance_text != goal or not (requires_sensor(self.guidance_text) or self.sensor_tool_requested)
+                or not self._can_continue_quest_input()):
+            raise QuestSceneChangedError("感知工具使用前场景已经改变")
+        self._hold_quest_input([self.key_config["Tool Key"]], .1)
+        self.sensor_tool_goal = goal
+        self.exploration_tool_trigger.mark_used(time.monotonic())
+        self.log_info("已装备感知并使用，继续检查任务指引")
+        self.next_frame()
+        return True
 
     def _exploration_tool_available(self, frame):
         return self.exploration_tool_trigger.observe(self._exploration_tool_ready(frame), time.monotonic())
@@ -2429,6 +2512,10 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         return choice
 
     def _stop_all_movement(self):
+        if self.held_tool_wheel_key is not None:
+            wheel_key = self.held_tool_wheel_key
+            self.held_tool_wheel_key = None
+            self.send_key_up(wheel_key)
         self._record_continued_navigation()
         self.navigation_continuation_started = None
         self.held_movement_keys = set()

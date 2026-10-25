@@ -9,10 +9,12 @@ import cv2
 sys.argv[0] = str(Path(__file__).resolve().parent.parent / "main.py")
 
 from config import config
-from ok import OK
+from ok import OK, Box
 from src.task.QuestStoryTask import QuestStoryTask
 from src.utils.QuestAreaSearch import minimap_visible
 from src.utils.QuestPuzzleSession import PuzzleObservation, QuestPuzzleSession, object_appearance
+from src.utils.QuestOcrPrivacy import quest_goal_from_lines
+from src.utils.QuestSensorTool import requires_sensor
 
 
 class TestQuestExplorationToolRuntime(unittest.TestCase):
@@ -33,6 +35,7 @@ class TestQuestExplorationToolRuntime(unittest.TestCase):
         })
         cls.runtime = OK(runtime_config)
         cls.task = cls.runtime.get_onetime_task(QuestStoryTask)
+        cls.runtime.task_executor.paused = False
         cls.frame = cls.read_image("quest_tool_camera_world.png")
 
     @classmethod
@@ -101,6 +104,42 @@ class TestQuestExplorationToolRuntime(unittest.TestCase):
         self.assertIsNone(tool.appearance)
         next_step, _ = session.prepare(self.observation(self.frame), "skill")
         self.assertEqual(next_step.object_id, step.object_id)
+
+    def test_sensor_equipped_coordinates_at_multiple_resolutions(self):
+        original = self.read_image("quest_area_runtime.png")
+        for width in (960, 1280, 1920, 2560):
+            with self.subTest(width=width):
+                frame = cv2.resize(original, (width, round(width * original.shape[0] / original.shape[1])))
+                self.assertTrue(self.task._sensor_tool_equipped(frame))
+        self.assertFalse(self.task._sensor_tool_equipped(self.frame))
+
+    def test_actual_sensor_quest_instruction_ocr(self):
+        frame = self.read_image("quest_sensor_prompt.jpg")
+        height, width = frame.shape[:2]
+        region = Box(round(width * .01), round(height * .23), round(width * .24), round(height * .30))
+        boxes = self.task._ocr_quest_region(frame, region)
+        goal = quest_goal_from_lines([box.name for box in boxes if box.x <= width * .05 and box.y < height * .39])
+        self.assertTrue(requires_sensor(goal), goal)
+        previous = (self.task.guidance_text, self.task.sensor_tool_requested,
+                    self.task.guidance_last_read, self.task.goal_candidate)
+        try:
+            self.task.guidance_text = goal
+            self.task.goal_candidate = None
+            self.task._read_quest_goal(frame, force=True)
+            self.assertTrue(self.task.sensor_tool_requested)
+            self.assertEqual(self.task.guidance_text, goal)
+        finally:
+            (self.task.guidance_text, self.task.sensor_tool_requested,
+             self.task.guidance_last_read, self.task.goal_candidate) = previous
+
+    def test_completed_sensor_goal_does_not_use_again(self):
+        previous_goal, previous_used = self.task.guidance_text, self.task.sensor_tool_goal
+        try:
+            self.task.guidance_text = "使用探索工具「感知」寻找线索"
+            self.task.sensor_tool_goal = self.task.guidance_text
+            self.assertFalse(self.task._try_sensor_tool())
+        finally:
+            self.task.guidance_text, self.task.sensor_tool_goal = previous_goal, previous_used
 
 
 if __name__ == "__main__":
