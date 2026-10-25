@@ -13,6 +13,7 @@
 - Every completed modification/task MUST be committed to the local git repository (`git commit`).
 - NEVER push to remote repositories (`git push` is prohibited unless explicitly requested by the user).
 - Use clear, conventional commit messages (e.g., `fix(...)`, `feat(...)`, `refactor(...)`).
+- 用户要求撤回已经提交的更改时，优先使用 `git revert <commit>` 回退对应提交，并保留其他更改。
 
 ## Account Safety & Anti-Ban Policy
 
