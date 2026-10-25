@@ -31,18 +31,35 @@ class TestQuestExplorationTool(unittest.TestCase):
 
     def test_idle_tools_and_colored_background_at_multiple_resolutions(self):
         for name in ('quest_tool_camera_idle', 'quest_tool_hook_yellow_background',
-                     'quest_tool_sensor_idle', 'quest_tool_hook_idle'):
+                     'quest_tool_sensor_idle', 'quest_tool_hook_idle', 'quest_tool_blue_background'):
             for scale in (.5, 2 / 3, 1.0, 4 / 3, 2.0):
                 with self.subTest(image=name, scale=scale):
                     self.assertFalse(self.detection(name, scale))
 
+    def test_blue_highlight_at_multiple_resolutions(self):
+        for name in ('quest_tool_highlight_blue', 'quest_tool_highlight_blue_2',
+                     'quest_tool_highlight_blue_recorded'):
+            for scale in (.5, 2 / 3, .8, 1.0, 4 / 3, 2.0):
+                with self.subTest(image=name, scale=scale):
+                    self.assertTrue(self.detection(name, scale))
+
     def test_continuous_highlight_triggers_once(self):
-        ready = self.detection('quest_tool_highlight_camera')
+        for name in ('quest_tool_highlight_camera', 'quest_tool_highlight_blue'):
+            with self.subTest(image=name):
+                ready = self.detection(name)
+                trigger = ExplorationToolTrigger()
+                self.assertTrue(trigger.observe(ready, 0.0))
+                trigger.mark_used(0.0)
+                self.assertFalse(trigger.observe(ready, 2.0))
+                self.assertFalse(trigger.observe(ready, 30.0))
+
+    def test_blue_highlight_triggers_after_previous_tool_use(self):
         trigger = ExplorationToolTrigger()
-        self.assertTrue(trigger.observe(ready, 0.0))
+        self.assertTrue(trigger.observe(self.detection('quest_tool_highlight_camera'), 0.0))
         trigger.mark_used(0.0)
-        self.assertFalse(trigger.observe(ready, 2.0))
-        self.assertFalse(trigger.observe(ready, 30.0))
+        self.assertFalse(trigger.observe(self.detection('quest_tool_camera_idle'), 1.0))
+        self.assertFalse(trigger.observe(self.detection('quest_tool_camera_idle'), 1.6))
+        self.assertTrue(trigger.observe(self.detection('quest_tool_highlight_blue'), 2.0))
 
     def test_brief_highlight_interruption_keeps_current_trigger(self):
         ready = self.detection('quest_tool_highlight_camera')

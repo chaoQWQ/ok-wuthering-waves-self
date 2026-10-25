@@ -60,10 +60,12 @@ class TestQuestExplorationToolRuntime(unittest.TestCase):
         )
 
     def test_runtime_feature_coordinates_at_multiple_resolutions(self):
-        for width in (960, 1280, 1920, 2560, 3840):
-            with self.subTest(width=width):
-                frame = cv2.resize(self.frame, (width, round(width * self.frame.shape[0] / self.frame.shape[1])))
-                self.assertTrue(self.task._exploration_tool_ready(frame))
+        for name in ("quest_tool_camera_world.png", "quest_tool_blue_world.png"):
+            original = self.read_image(name)
+            for width in (960, 1280, 1920, 2560, 3840):
+                with self.subTest(image=name, width=width):
+                    frame = cv2.resize(original, (width, round(width * original.shape[0] / original.shape[1])))
+                    self.assertTrue(self.task._exploration_tool_ready(frame))
 
     def test_world_and_other_interfaces_have_no_highlight(self):
         for name in ("quest_yangyang_interaction.png", "quest_after_story_combat.png",
@@ -73,15 +75,17 @@ class TestQuestExplorationToolRuntime(unittest.TestCase):
                 self.assertFalse(self.task._exploration_tool_ready(self.read_image(name)))
 
     def test_real_highlight_prepares_t_and_waits_for_observed_effect(self):
-        observation = self.observation(self.frame)
-        self.assertEqual(observation.phase, "world")
-        session = QuestPuzzleSession()
-        step, handler = session.prepare(observation, "skill")
-        self.assertEqual((step.kind, step.action, step.key), ("exploration_tool", "skill", "t"))
-        self.assertTrue({"dialog_started", "cutscene_started", "panel_started"}.issubset(step.expected_effect))
-        session.begin(step, handler, observation, 0.0)
-        self.assertEqual(session.verify(observation, 1.0), "pending")
-        self.assertEqual(session.verify(observation, 3.0), "no_observed_progress")
+        for name in ("quest_tool_camera_world.png", "quest_tool_blue_world.png"):
+            with self.subTest(image=name):
+                observation = self.observation(self.read_image(name))
+                self.assertEqual(observation.phase, "world")
+                session = QuestPuzzleSession()
+                step, handler = session.prepare(observation, "skill")
+                self.assertEqual((step.kind, step.action, step.key), ("exploration_tool", "skill", "t"))
+                self.assertTrue({"dialog_started", "cutscene_started", "panel_started"}.issubset(step.expected_effect))
+                session.begin(step, handler, observation, 0.0)
+                self.assertEqual(session.verify(observation, 1.0), "pending")
+                self.assertEqual(session.verify(observation, 3.0), "no_observed_progress")
 
     def test_actual_disappearance_confirms_tool_use(self):
         before = self.observation(self.frame)

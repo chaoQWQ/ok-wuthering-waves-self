@@ -43,7 +43,10 @@ def detect_exploration_tool(frame: np.ndarray, tool_box: tuple[int, int, int, in
                 return False
             neighbors.append(hsv[ys, xs, 2].astype(float))
         contrast = rim[:, 2] - np.maximum(neighbors[0], neighbors[1])
-        colored = (np.max(ring[:, :, 1], axis=0) >= 45) & (rim[:, 2] >= 195)
+        hue, saturation = ring[:, :, 0], ring[:, :, 1]
+        gold = (hue >= 12) & (hue <= 42) & (saturation >= 45)
+        blue = (hue >= 85) & (hue <= 135) & (saturation >= 45)
+        colored = np.any(gold | blue, axis=0) & (rim[:, 2] >= 195)
         highlighted = colored & (contrast >= 20)
         if np.mean(highlighted) >= .58 and all(np.mean(part) >= .35 for part in np.array_split(highlighted, 4)):
             return True
