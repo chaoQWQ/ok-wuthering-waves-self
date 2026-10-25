@@ -1353,14 +1353,14 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         """卡住的界面统一点右上角 X 关闭（用户规则：识别到右上方的叉都同样处理）。
 
         心相回放页、决议文书等全屏阅读页都会挡住世界检测，让任务在
-        "不在队伍大世界"等待分支空转。规则：世界持续丢失 ≥8 秒（排除
+        "不在队伍大世界"等待分支空转。规则：世界持续丢失 ≥3 秒（排除
         瞬时 OCR 漏检）且右上角识别到 X 关闭图标 → 点击关闭继续任务。
         """
         now = time.time()
-        if now - getattr(self, "replay_close_last_time", 0.0) < 4.0:
+        if now - getattr(self, "replay_close_last_time", 0.0) < 2.0:
             return False
         world_wait_since = getattr(self, "world_wait_since", 0.0)
-        if world_wait_since <= 0.0 or now - world_wait_since < 8.0:
+        if world_wait_since <= 0.0 or now - world_wait_since < 3.0:
             return False
         close_box = self._detect_replay_close_button(frame)
         if close_box is None:
