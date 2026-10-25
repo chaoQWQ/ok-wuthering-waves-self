@@ -535,6 +535,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             if not self.in_team_and_world():
                 self._stop_all_movement()
                 self._reset_navigation_timing()
+                if getattr(self, "world_wait_since", 0.0) == 0.0:
+                    self.world_wait_since = time.time()
                 # 剧情对话的跳过按钮等 UI 会在鼠标静止后自动隐藏，轻晃鼠标让其重新显示再识别。
                 self._reveal_hidden_ui()
                 if self._handle_tutorial_panel(frame):
@@ -546,6 +548,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                 self._log_wait_state(frame, "当前界面不在队伍大世界（可能处于对话、加载或菜单），暂停移动等待界面恢复")
                 self.sleep(.2)
                 continue
+            self.world_wait_since = 0.0
             try:
                 self._handle_world_navigation_and_interaction(frame)
             except QuestSceneChangedError:
@@ -1347,14 +1350,19 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             return None
 
     def _handle_memory_replay_page(self, frame: np.ndarray) -> bool:
-        """识别心相/记录回放页（如"记录着平和思绪的片段"）并点右上角 X 关闭。
+        """识别全屏文档/回放页（心相"记录着…片段"、决议文书"K626号决议"等）
+        并点右上角 X 关闭。
 
-        页面特征：顶部中央"记录着……的片段"标题 + 右上角 X 关闭按钮；
-        无队伍栏、无对白推进标识，任务会在"不在队伍大世界"等待分支
-        空转。双重信号（标题关键词 + X 图标）避免误触其他界面。
+        页面特征：顶部中央标题 + 右上角 X 关闭按钮；无队伍栏、无对白推进
+        标识，任务会在"不在队伍大世界"等待分支空转。判定条件：世界持续
+        丢失 ≥8 秒 + 顶部中央存在标题 + X 图标；梗概/跳过类标题排除
+        （有专属处理流程），短暂 OCR 漏检不会触发误点。
         """
         now = time.time()
         if now - getattr(self, "replay_close_last_time", 0.0) < 4.0:
+            return False
+        world_wait_since = getattr(self, "world_wait_since", 0.0)
+        if world_wait_since <= 0.0 or now - world_wait_since < 8.0:
             return False
         close_box = self._detect_replay_close_button(frame)
         if close_box is None:
@@ -1365,11 +1373,12 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             title = " ".join(getattr(box, "name", "") or "" for box in boxes)
         except Exception:
             title = ""
-        if not re.search(r"记录|片段|回放", title):
+        title = title.strip()
+        if len(title) < 2 or re.search(r"梗概|跳过|地图|任务", title):
             return False
         self.replay_close_last_time = now
-        self.log_info(f"检测到心相回放页面（{title}），点击右上角关闭按钮继续任务")
-        self._release_beacon_lock("心相回放页面关闭")
+        self.log_info(f"检测到全屏文档页面（{title}），点击右上角关闭按钮继续任务")
+        self._release_beacon_lock("全屏文档页面关闭")
         self.click(close_box)
         self.sleep(1.0)
         return True
