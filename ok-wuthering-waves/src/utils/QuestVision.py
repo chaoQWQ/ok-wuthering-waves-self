@@ -174,6 +174,8 @@ def detect_quest_beacon(
         angles = np.linspace(0, 2 * np.pi, 64, endpoint=False)
         for cx, cy, radius in circles[0]:
             ix, iy = int(round(cx)), int(round(cy))
+            if not (0 <= ix < frame_width and 0 <= iy < frame_height):
+                continue
             if spatial_mask[iy, ix] == 0:
                 continue
             coverage = np.zeros(64, dtype=bool)
