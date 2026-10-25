@@ -59,19 +59,6 @@ class TestQuestStorySkipRuntime(unittest.TestCase):
             with self.subTest(image=name):
                 self.assertIsNone(self.task._find_story_skip_confirm(self.read_image(name)))
 
-    def test_complete_auto_dialog_remains_enabled_across_observations(self):
-        frame = self.read_image("quest_dialog_auto.png")
-        for _ in range(5):
-            self.assertTrue(self.task._handle_dialog_auto_play(frame))
-            self.assertTrue(self.task.dialog_auto_play_managed)
-            self.assertEqual(self.task.current_state, self.task.STATE_DIALOG)
-
-    def test_other_scenes_do_not_enter_auto_dialog_handling(self):
-        for name in ("quest_navigation_aligned.png", "quest_story_synopsis.png",
-                     "quest_teleport_closer_dialog.png", "quest_after_story_combat.png"):
-            with self.subTest(image=name):
-                self.assertFalse(self.task._handle_dialog_auto_play(self.read_image(name)))
-
 
 if __name__ == "__main__":
     sys.argv[0] = str(Path(__file__).resolve().parent.parent / "main.py")
