@@ -541,6 +541,8 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
                     continue
                 if self._handle_quest_log_stuck(frame):
                     continue
+                if self._handle_memory_replay_page(frame):
+                    continue
                 self._log_wait_state(frame, "当前界面不在队伍大世界（可能处于对话、加载或菜单），暂停移动等待界面恢复")
                 self.sleep(.2)
                 continue
@@ -1309,6 +1311,66 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
             self.click(proceed_btn)
         else:
             self.click(0.91, 0.93)
+        self.sleep(1.0)
+        return True
+
+    def _detect_replay_close_button(self, frame: np.ndarray) -> Optional[Box]:
+        """定位心相回放页右上角的 X 关闭按钮。
+
+        X 由两笔斜线组成，高亮二值化后拆成多个 20px 左右的连通块；
+        聚合这些块的包围盒中心即按钮中心。找不到返回 None。
+        """
+        try:
+            import cv2
+            height, width = frame.shape[:2]
+            roi = frame[int(height * .015):int(height * .11), int(width * .88):int(width * .99)]
+            gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+            _, thresholded = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
+            count, _, stats, _ = cv2.connectedComponentsWithStats(thresholded)
+            blocks = []
+            for index in range(1, count):
+                x, y, bw, bh, area = stats[index]
+                if 20 <= area <= 600 and 6 <= bw <= 90 and 6 <= bh <= 90:
+                    blocks.append((x, y, bw, bh))
+            if len(blocks) < 2:
+                return None
+            min_x = min(b[0] for b in blocks)
+            min_y = min(b[1] for b in blocks)
+            max_x = max(b[0] + b[2] for b in blocks)
+            max_y = max(b[1] + b[3] for b in blocks)
+            if (max_x - min_x) > 90 or (max_y - min_y) > 90:
+                return None
+            cx = int(width * .88) + (min_x + max_x) // 2
+            cy = int(height * .015) + (min_y + max_y) // 2
+            return Box(cx - 10, cy - 10, 20, 20)
+        except Exception:
+            return None
+
+    def _handle_memory_replay_page(self, frame: np.ndarray) -> bool:
+        """识别心相/记录回放页（如"记录着平和思绪的片段"）并点右上角 X 关闭。
+
+        页面特征：顶部中央"记录着……的片段"标题 + 右上角 X 关闭按钮；
+        无队伍栏、无对白推进标识，任务会在"不在队伍大世界"等待分支
+        空转。双重信号（标题关键词 + X 图标）避免误触其他界面。
+        """
+        now = time.time()
+        if now - getattr(self, "replay_close_last_time", 0.0) < 4.0:
+            return False
+        close_box = self._detect_replay_close_button(frame)
+        if close_box is None:
+            return False
+        title = ""
+        try:
+            boxes = self.ocr(.30, .04, .80, .15, frame=frame)
+            title = " ".join(getattr(box, "name", "") or "" for box in boxes)
+        except Exception:
+            title = ""
+        if not re.search(r"记录|片段|回放", title):
+            return False
+        self.replay_close_last_time = now
+        self.log_info(f"检测到心相回放页面（{title}），点击右上角关闭按钮继续任务")
+        self._release_beacon_lock("心相回放页面关闭")
+        self.click(close_box)
         self.sleep(1.0)
         return True
 
