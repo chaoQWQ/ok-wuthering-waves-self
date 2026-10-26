@@ -507,6 +507,12 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
 
                 advance_result = detect_dialog_advance_indicator(frame)
                 if advance_result.found:
+                    self._stop_all_movement()
+                    self.next_frame()
+                    advance_result = detect_dialog_advance_indicator(self.frame)
+                    if (not advance_result.found or self.executor.paused or self.paused
+                            or not self.is_game_window_active()):
+                        continue
                     self._mark_scene_transition("dialog_started", self.STATE_DIALOG)
                     self.current_state = self.STATE_DIALOG
                     self.letterbox_freeze_start_time = 0.0

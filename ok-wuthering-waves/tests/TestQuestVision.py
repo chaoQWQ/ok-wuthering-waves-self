@@ -28,7 +28,7 @@ class TestQuestVision(unittest.TestCase):
         self.companion_bar_path = os.path.join(tests_dir, "images", "companion_team_bar.png")
         self.companion_bar_path_2 = os.path.join(tests_dir, "images", "companion_team_bar_2.png")
         self.normal_team_bar_path = os.path.join(tests_dir, "images", "quest_story_normal_team_bar.png")
-        self.img_dialog_advance_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791092805274.png"
+        self.img_dialog_advance_path = os.path.join(tests_dir, "images", "quest_dialog_advance.png")
         self.img_letterbox_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791092288151.png"
         self.img_normal_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791091315830.jpg"
         self.img_beacon_path = r"C:\Users\zc\.gemini\antigravity\brain\c0a6ae12-fc8b-477d-b1ca-5cbeb3872327\.user_uploaded\media_1791091183192.jpg"
@@ -139,17 +139,16 @@ class TestQuestVision(unittest.TestCase):
         self.assertGreater(res.x, 450)
         self.assertLess(res.x, 550)
 
-    def test_detect_dialog_advance_indicator_positive_1080p_debug(self):
-        debug_path = os.path.join(os.path.dirname(__file__), "..", "logs", "wait_state_debug.png")
-        if not os.path.exists(debug_path):
-            self.skipTest("1080p等待状态诊断图片不存在")
-        frame = cv2.imread(debug_path)
+    def test_detect_dialog_advance_indicator_positive_1080p(self):
+        frame = cv2.imread(self.img_dialog_advance_path)
+        self.assertIsNotNone(frame)
+        frame = cv2.resize(frame, (1920, 1080))
         res = detect_dialog_advance_indicator(frame)
         self.assertTrue(res.found)
         self.assertGreaterEqual(res.confidence, 0.75)
         self.assertGreater(res.x, 900)
         self.assertLess(res.x, 1000)
-        self.assertGreater(res.y, 1000)
+        self.assertGreater(res.y, 850)
 
     def test_detect_dialog_advance_indicator_negative(self):
         if not os.path.exists(self.img_normal_path):

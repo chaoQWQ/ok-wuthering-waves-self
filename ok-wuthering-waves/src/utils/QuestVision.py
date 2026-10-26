@@ -6,6 +6,8 @@ from typing import Optional, Tuple
 import cv2
 import numpy as np
 
+from src.utils.QuestAreaSearch import minimap_visible
+
 
 @dataclass
 class LetterboxResult:
@@ -624,7 +626,7 @@ def detect_dialog_advance_indicator(
             match_y = sy + max_loc[1]
             best_candidate = (match_x, match_y, scaled_w, scaled_h, float(max_val))
 
-    if best_candidate is not None:
+    if best_candidate is not None and not minimap_visible(frame) and _dialog_controls_visible(frame):
         bx, by, bw, bh, bconf = best_candidate
         return DialogAdvanceResult(
             found=True,
@@ -643,6 +645,24 @@ def detect_dialog_advance_indicator(
         height=0,
         confidence=best_confidence
     )
+
+
+def _dialog_controls_visible(frame: np.ndarray) -> bool:
+    template_path = os.path.join(os.path.dirname(__file__), "..", "..", "assets", "dialog_eye_icon.png")
+    template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
+    if template is None:
+        raise RuntimeError(f"无法读取对话界面按钮模板: {template_path}")
+    height, width = frame.shape[:2]
+    roi = cv2.cvtColor(frame[:round(height * .22), round(width * .82):], cv2.COLOR_BGR2GRAY)
+    for factor in (.9, 1.0, 1.1):
+        scale = width / 1024 * factor
+        size = (max(5, round(template.shape[1] * scale)), max(5, round(template.shape[0] * scale)))
+        if size[0] > roi.shape[1] or size[1] > roi.shape[0]:
+            continue
+        resized = cv2.resize(template, size, interpolation=cv2.INTER_LINEAR)
+        if cv2.minMaxLoc(cv2.matchTemplate(roi, resized, cv2.TM_CCOEFF_NORMED))[1] >= .8:
+            return True
+    return False
 
 
 @dataclass
