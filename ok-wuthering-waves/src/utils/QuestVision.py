@@ -626,7 +626,7 @@ def detect_dialog_advance_indicator(
             match_y = sy + max_loc[1]
             best_candidate = (match_x, match_y, scaled_w, scaled_h, float(max_val))
 
-    if best_candidate is not None and not minimap_visible(frame) and _dialog_controls_visible(frame):
+    if best_candidate is not None and not minimap_visible(frame) and detect_dialog_controls(frame):
         bx, by, bw, bh, bconf = best_candidate
         return DialogAdvanceResult(
             found=True,
@@ -647,22 +647,53 @@ def detect_dialog_advance_indicator(
     )
 
 
-def _dialog_controls_visible(frame: np.ndarray) -> bool:
-    template_path = os.path.join(os.path.dirname(__file__), "..", "..", "assets", "dialog_eye_icon.png")
-    template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
-    if template is None:
-        raise RuntimeError(f"无法读取对话界面按钮模板: {template_path}")
+def detect_dialog_controls(frame: np.ndarray) -> bool:
+    if frame is None or frame.size == 0:
+        raise ValueError("对话界面识别画面不能为空")
     height, width = frame.shape[:2]
     roi = cv2.cvtColor(frame[:round(height * .22), round(width * .82):], cv2.COLOR_BGR2GRAY)
+    for filename, reference_width in (("dialog_eye_icon.png", 1024), ("dialog_eye_button.png", 1920)):
+        template_path = os.path.join(os.path.dirname(__file__), "..", "..", "assets", filename)
+        template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
+        if template is None:
+            raise RuntimeError(f"无法读取对话界面按钮模板: {template_path}")
+        for factor in (.9, 1.0, 1.1):
+            scale = width / reference_width * factor
+            size = (max(5, round(template.shape[1] * scale)), max(5, round(template.shape[0] * scale)))
+            if size[0] > roi.shape[1] or size[1] > roi.shape[0]:
+                continue
+            resized = cv2.resize(template, size, interpolation=cv2.INTER_LINEAR)
+            if cv2.minMaxLoc(cv2.matchTemplate(roi, resized, cv2.TM_CCOEFF_NORMED))[1] >= .8:
+                return True
+    return False
+
+
+def detect_page_close_button(frame: np.ndarray) -> Optional[Tuple[int, int, int, int]]:
+    if frame is None or frame.size == 0:
+        raise ValueError("页面关闭按钮识别画面不能为空")
+    template_path = os.path.join(os.path.dirname(__file__), "..", "..", "assets", "page_close_icon.png")
+    template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
+    if template is None:
+        raise RuntimeError(f"无法读取页面关闭按钮模板: {template_path}")
+    height, width = frame.shape[:2]
+    x, y = round(width * .88), round(height * .015)
+    roi = cv2.cvtColor(frame[y:round(height * .11), x:round(width * .99)], cv2.COLOR_BGR2GRAY)
+    best = None
+    best_confidence = .88
     for factor in (.9, 1.0, 1.1):
-        scale = width / 1024 * factor
+        scale = width / 1920 * factor
         size = (max(5, round(template.shape[1] * scale)), max(5, round(template.shape[0] * scale)))
         if size[0] > roi.shape[1] or size[1] > roi.shape[0]:
             continue
         resized = cv2.resize(template, size, interpolation=cv2.INTER_LINEAR)
-        if cv2.minMaxLoc(cv2.matchTemplate(roi, resized, cv2.TM_CCOEFF_NORMED))[1] >= .8:
-            return True
-    return False
+        matches = cv2.matchTemplate(roi, resized, cv2.TM_CCOEFF_NORMED)
+        minimum, maximum, minimum_at, maximum_at = cv2.minMaxLoc(matches)
+        # 同一 X 图标同时用于深色页面和浅色页面。
+        confidence, location = (maximum, maximum_at) if maximum >= -minimum else (-minimum, minimum_at)
+        if confidence >= best_confidence:
+            best_confidence = confidence
+            best = (x + location[0], y + location[1], size[0], size[1])
+    return best
 
 
 @dataclass

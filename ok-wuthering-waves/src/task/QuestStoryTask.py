@@ -54,10 +54,12 @@ from src.utils.QuestVision import (
     detect_quest_vertical_hint,
     detect_companion_label,
     detect_dialog_advance_indicator,
+    detect_dialog_controls,
     detect_interact_action,
     detect_letterbox,
     detect_minimap_quest_arrow,
     detect_quest_beacon,
+    detect_page_close_button,
     detect_flower_guidance,
     detect_screen_freeze,
     detect_top_left_skip_button,
@@ -1310,57 +1312,47 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         return True
 
     def _detect_replay_close_button(self, frame: np.ndarray) -> Optional[Box]:
-        """定位心相回放页右上角的 X 关闭按钮。
-
-        X 由两笔斜线组成，高亮二值化后拆成多个 20px 左右的连通块；
-        聚合这些块的包围盒中心即按钮中心。找不到返回 None。
-        """
-        try:
-            import cv2
-            height, width = frame.shape[:2]
-            roi = frame[int(height * .015):int(height * .11), int(width * .88):int(width * .99)]
-            gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-            _, thresholded = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
-            count, _, stats, _ = cv2.connectedComponentsWithStats(thresholded)
-            blocks = []
-            for index in range(1, count):
-                x, y, bw, bh, area = stats[index]
-                if 20 <= area <= 600 and 6 <= bw <= 90 and 6 <= bh <= 90:
-                    blocks.append((x, y, bw, bh))
-            if len(blocks) < 2:
-                return None
-            min_x = min(b[0] for b in blocks)
-            min_y = min(b[1] for b in blocks)
-            max_x = max(b[0] + b[2] for b in blocks)
-            max_y = max(b[1] + b[3] for b in blocks)
-            if (max_x - min_x) > 90 or (max_y - min_y) > 90:
-                return None
-            cx = int(width * .88) + (min_x + max_x) // 2
-            cy = int(height * .015) + (min_y + max_y) // 2
-            return Box(cx - 10, cy - 10, 20, 20)
-        except Exception:
+        """同时识别阅读页面标题、正文和完整的 X 关闭图标。"""
+        close = detect_page_close_button(frame)
+        if close is None or minimap_visible(frame) or detect_dialog_controls(frame):
             return None
+        if detect_top_left_skip_button(frame).found:
+            return None
+        height, width = frame.shape[:2]
+        title_region = Box(round(width * .18), round(height * .05), round(width * .64), round(height * .13))
+        title = "".join(sanitize_quest_text(box.name) for box in self._ocr_quest_region(frame, title_region))
+        if not re.search(r"记录|記錄|片段|回放|决议|決議|文书|文書|日志|日誌|档案|檔案|信件|笔记|筆記|"
+                         r"replay|record|resolution|document|journal|archive|letter|note", title, re.IGNORECASE):
+            return None
+        body_region = Box(round(width * .22), round(height * .19), round(width * .56), round(height * .64))
+        body = self._ocr_quest_region(frame, body_region)
+        if sum(len(sanitize_quest_text(box.name)) >= 8 for box in body) < 3:
+            return None
+        return Box(*close, name="reading_page_close")
 
     def _handle_memory_replay_page(self, frame: np.ndarray) -> bool:
-        """卡住的界面统一点右上角 X 关闭（用户规则：识别到右上方的叉都同样处理）。
-
-        心相回放页、决议文书等全屏阅读页都会挡住世界检测，让任务在
-        "不在队伍大世界"等待分支空转。规则：世界持续丢失 ≥3 秒（排除
-        瞬时 OCR 漏检）且右上角识别到 X 关闭图标 → 点击关闭继续任务。
-        """
+        """确认阅读页面后，使用新画面复核关闭按钮并点击。"""
         now = time.time()
         if now - getattr(self, "replay_close_last_time", 0.0) < 2.0:
-            return False
-        world_wait_since = getattr(self, "world_wait_since", 0.0)
-        if world_wait_since <= 0.0 or now - world_wait_since < 3.0:
             return False
         close_box = self._detect_replay_close_button(frame)
         if close_box is None:
             return False
+        self._stop_all_movement()
+        self.next_frame()
+        current_frame = self.frame
+        current_close = self._detect_replay_close_button(current_frame)
+        if (current_close is None or current_frame.shape != frame.shape
+                or self.executor.paused or self.paused or not self.is_game_window_active()):
+            return False
+        first_x, first_y = close_box.center()
+        current_x, current_y = current_close.center()
+        if np.hypot(current_x - first_x, current_y - first_y) > frame.shape[1] * .01:
+            return False
         self.replay_close_last_time = now
-        self.log_info("界面持续卡住且右上角存在关闭按钮，点击 X 关闭继续任务")
-        self._release_beacon_lock("卡住界面已通过 X 关闭")
-        self.click(close_box)
+        self.log_info("已确认阅读页面与 X 关闭按钮，点击关闭继续任务")
+        self._release_beacon_lock("阅读页面已关闭")
+        self.click(current_close)
         self.sleep(1.0)
         return True
 
@@ -2518,7 +2510,7 @@ class QuestStoryTask(WWOneTimeTask, BaseCombatTask, SkipBaseTask):
         return choice
 
     def _stop_all_movement(self):
-        if self.held_tool_wheel_key is not None:
+        if getattr(self, "held_tool_wheel_key", None) is not None:
             wheel_key = self.held_tool_wheel_key
             self.held_tool_wheel_key = None
             self.send_key_up(wheel_key)
